@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "outDir": "./dist-test",
+    "rootDir": "./src/test",
+    "noEmit": false,
+    "sourceMap": true
+  },
+  "include": ["src/test/runTest.ts", "src/test/suite/**/*.ts"]
+}

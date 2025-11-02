@@ -1,0 +1,111 @@
+{
+  "name": "lines-db-vscode",
+  "displayName": "LinesDB",
+  "description": "VS Code extension for lines-db - JSONL utilities",
+  "version": "0.1.0",
+  "publisher": "lines-db",
+  "author": "toiroakr",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "jsonl",
+    "database",
+    "validation",
+    "schema"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "lines-db.validate",
+        "title": "LinesDB: Validate Files"
+      },
+      {
+        "command": "lines-db.migrate",
+        "title": "LinesDB: Migrate Data"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "lines-db.migrate",
+          "when": "resourceExtname == .jsonl",
+          "group": "lines-db"
+        }
+      ]
+    },
+    "languages": [
+      {
+        "id": "jsonl",
+        "extensions": [
+          ".jsonl"
+        ],
+        "aliases": [
+          "JSON Lines",
+          "JSONL"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "jsonl",
+        "scopeName": "source.jsonl",
+        "path": "./syntaxes/jsonl.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "LinesDB",
+      "properties": {
+        "lines-db.dataDir": {
+          "type": "string",
+          "default": "./data",
+          "description": "Directory containing JSONL and schema files"
+        },
+        "lines-db.enableDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable real-time validation diagnostics"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:publish": "vsce publish",
+    "vscode:prepublish": "pnpm run build",
+    "build": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package",
+    "lint": "eslint src --ext ts",
+    "compile:test": "tsc -p tsconfig.test.json",
+    "test:integration": "pnpm run build && pnpm run compile:test && node ./dist-test/runTest.js"
+  },
+  "dependencies": {
+    "@toiroakr/lines-db": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.19.0",
+    "glob": "^10.3.10",
+    "mocha": "^10.2.0",
+    "typescript": "^5.3.3",
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.6",
+    "@vscode/test-electron": "^2.4.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/toiroakr/lines-db.git"
+  },
+  "bugs": {
+    "url": "https://github.com/toiroakr/lines-db/issues"
+  },
+  "homepage": "https://github.com/toiroakr/lines-db#readme"
+}

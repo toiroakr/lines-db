@@ -1,0 +1,64 @@
+{
+  "name": "@toiroakr/lines-db",
+  "version": "0.1.0",
+  "description": "A database implementation that treats JSONL files as tables using SQLite",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "lines-db": "./bin/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsdown && cp dist/index.d.ts dist/index.d.cts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "database",
+    "jsonl",
+    "sqlite",
+    "seed-data"
+  ],
+  "author": "toiroakr",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/toiroakr/lines-db.git"
+  },
+  "bugs": {
+    "url": "https://github.com/toiroakr/lines-db/issues"
+  },
+  "homepage": "https://github.com/toiroakr/lines-db#readme",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsdown": "^0.15.12",
+    "typescript": "^5.6.0",
+    "valibot": "^1.1.0",
+    "vitest": "^4.0.6"
+  },
+  "peerDependencies": {
+    "valibot": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "valibot": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@standard-schema/spec": "^1.0.0",
+    "commander": "^14.0.2"
+  }
+}

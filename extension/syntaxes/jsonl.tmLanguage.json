@@ -1,0 +1,168 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "JSONL",
+  "scopeName": "source.jsonl",
+  "fileTypes": ["jsonl"],
+  "patterns": [
+    {
+      "include": "#value"
+    }
+  ],
+  "repository": {
+    "value": {
+      "patterns": [
+        {
+          "include": "#constant"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#string"
+        },
+        {
+          "include": "#array"
+        },
+        {
+          "include": "#object"
+        }
+      ]
+    },
+    "array": {
+      "begin": "\\[",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.array.begin.jsonl"
+        }
+      },
+      "end": "\\]",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.array.end.jsonl"
+        }
+      },
+      "name": "meta.structure.array.jsonl",
+      "patterns": [
+        {
+          "include": "#value"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.array.jsonl"
+        },
+        {
+          "match": "[^\\s\\]]",
+          "name": "invalid.illegal.expected-array-separator.jsonl"
+        }
+      ]
+    },
+    "constant": {
+      "match": "\\b(?:true|false|null)\\b",
+      "name": "constant.language.jsonl"
+    },
+    "number": {
+      "match": "(?x)-?(?:0|[1-9]\\d*)(?:(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)?",
+      "name": "constant.numeric.jsonl"
+    },
+    "object": {
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.dictionary.begin.jsonl"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.dictionary.end.jsonl"
+        }
+      },
+      "name": "meta.structure.dictionary.jsonl",
+      "patterns": [
+        {
+          "comment": "the JSON object key",
+          "include": "#objectkey"
+        },
+        {
+          "begin": ":",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.separator.dictionary.key-value.jsonl"
+            }
+          },
+          "end": "(,)|(?=\\})",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.separator.dictionary.pair.jsonl"
+            }
+          },
+          "name": "meta.structure.dictionary.value.jsonl",
+          "patterns": [
+            {
+              "comment": "the JSON object value",
+              "include": "#value"
+            },
+            {
+              "match": "[^\\s,]",
+              "name": "invalid.illegal.expected-dictionary-separator.jsonl"
+            }
+          ]
+        },
+        {
+          "match": "[^\\s\\}]",
+          "name": "invalid.illegal.expected-dictionary-separator.jsonl"
+        }
+      ]
+    },
+    "string": {
+      "begin": "\"",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.begin.jsonl"
+        }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.jsonl"
+        }
+      },
+      "name": "string.quoted.double.jsonl",
+      "patterns": [
+        {
+          "match": "(?x:\\\\(?:[\"\\\\\\\\bfnrt]|u[0-9a-fA-F]{4}))",
+          "name": "constant.character.escape.jsonl"
+        },
+        {
+          "match": "\\\\.",
+          "name": "invalid.illegal.unrecognized-string-escape.jsonl"
+        }
+      ]
+    },
+    "objectkey": {
+      "begin": "\"",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.support.type.property-name.begin.jsonl"
+        }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.support.type.property-name.end.jsonl"
+        }
+      },
+      "name": "string.jsonl support.type.property-name.jsonl",
+      "patterns": [
+        {
+          "match": "(?x:\\\\(?:[\"\\\\\\\\bfnrt]|u[0-9a-fA-F]{4}))",
+          "name": "constant.character.escape.jsonl"
+        },
+        {
+          "match": "\\\\.",
+          "name": "invalid.illegal.unrecognized-string-escape.jsonl"
+        }
+      ]
+    }
+  }
+}

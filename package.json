@@ -1,0 +1,57 @@
+{
+  "name": "@toiroakr/lines-db-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Monorepo for lines-db library and related packages",
+  "type": "module",
+  "packageManager": "pnpm@10.18.1",
+  "scripts": {
+    "build": "pnpm --filter @toiroakr/lines-db build",
+    "test": "pnpm --filter @toiroakr/lines-db-tests-unit test",
+    "test:runtime": "pnpm test:cjs && pnpm test:deno && pnpm test:bun",
+    "test:cjs": "pnpm --filter @toiroakr/lines-db-tests-runtime-cjs test",
+    "test:deno": "cd tests/runtime-deno && deno task test",
+    "test:bun": "cd tests/runtime-bun && bun test",
+    "test:all": "pnpm test && pnpm test:runtime",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "example": "pnpm --filter @toiroakr/lines-db-examples example",
+    "example:validation": "pnpm --filter @toiroakr/lines-db-examples example:validation",
+    "example:json": "pnpm --filter @toiroakr/lines-db-examples example:json",
+    "example:datadir": "pnpm --filter @toiroakr/lines-db-examples example:datadir",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "pnpm build && pnpm test && changeset publish"
+  },
+  "keywords": [
+    "database",
+    "jsonl",
+    "sqlite",
+    "seed-data"
+  ],
+  "author": "toiroakr",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/toiroakr/lines-db.git"
+  },
+  "bugs": {
+    "url": "https://github.com/toiroakr/lines-db/issues"
+  },
+  "homepage": "https://github.com/toiroakr/lines-db#readme",
+  "devDependencies": {
+    "@changesets/cli": "^2.29.7",
+    "@eslint/js": "^9.39.0",
+    "@toiroakr/lines-db": "workspace:*",
+    "@typescript-eslint/eslint-plugin": "^8.46.2",
+    "@typescript-eslint/parser": "^8.46.2",
+    "eslint": "^9.39.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "prettier": "^3.6.2",
+    "typescript-eslint": "^8.46.2"
+  }
+}

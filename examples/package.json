@@ -1,0 +1,22 @@
+{
+  "name": "@toiroakr/lines-db-examples",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "basic": "tsx basic.ts",
+    "validation": "tsx validation.ts",
+    "json": "tsx json-columns.ts",
+    "datadir": "tsx datadir.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "valibot": "^1.1.0",
+    "zod": "^4.1.12"
+  },
+  "dependencies": {
+    "@toiroakr/lines-db": "workspace:*"
+  }
+}

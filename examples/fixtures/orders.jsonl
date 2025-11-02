@@ -1,0 +1,3 @@
+{"id":1,"customerId":100,"items":[{"name":"Laptop","quantity":1,"price":999.99},{"name":"Mouse","quantity":2,"price":29.99}],"metadata":{"source":"web","campaign":"summer2024"}}
+{"id":2,"customerId":101,"items":[{"name":"Keyboard","quantity":1,"price":79.99}],"metadata":{"source":"mobile","device":"iOS"}}
+{"id":3,"customerId":102,"items":[],"metadata":null}
