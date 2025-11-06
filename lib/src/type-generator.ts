@@ -71,9 +71,7 @@ export class TypeGenerator {
           const schemaFilePath = join(this.dataDirPath, schemaFileName);
 
           // Check if schema file exists
-          const hasSchema = entries.some(
-            e => e.isFile() && e.name === schemaFileName
-          );
+          const hasSchema = entries.some((e) => e.isFile() && e.name === schemaFileName);
 
           tables.push({
             tableName,

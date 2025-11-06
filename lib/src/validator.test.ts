@@ -128,10 +128,7 @@ describe('Validator', () => {
       const schemaPath = join(testDir, 'users.schema.ts');
 
       // Line 1: valid, Line 2: invalid (no name), Line 3: invalid (no name)
-      await writeFile(
-        jsonlPath,
-        '{"id":1,"name":"Alice"}\n{"id":2}\n{"id":3}\n',
-      );
+      await writeFile(jsonlPath, '{"id":1,"name":"Alice"}\n{"id":2}\n{"id":3}\n');
       await writeFile(
         schemaPath,
         `
