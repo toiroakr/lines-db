@@ -67,6 +67,7 @@ The main npm package that provides the database functionality.
 **[→ Full documentation](./lib/README.md)**
 
 **Features:**
+
 - JSONL file loading and parsing
 - SQLite database abstraction
 - Schema inference and validation
@@ -81,6 +82,7 @@ VSCode extension for lines-db with real-time validation and development tools.
 **[→ Extension documentation](./extension/README.md)**
 
 **Features:**
+
 - Command palette integration (validate, migrate)
 - Real-time validation diagnostics
 - CodeLens showing record counts

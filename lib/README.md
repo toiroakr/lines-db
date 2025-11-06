@@ -15,6 +15,14 @@ A data management library that treats JSONL (JSON Lines) files as tables. Perfec
 - 🛡️ Type-safe with TypeScript
 - 🌐 **Multi-runtime support** - Node.js (22.5+), Bun, Deno
 
+## VS Code Extension
+
+A VS Code extension is available that provides syntax highlighting and validation for JSONL files with schema support.
+
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/toiroakr.lines-db-vscode?label=VS%20Code%20Marketplace&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=toiroakr.lines-db-vscode)
+
+[Install from VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=toiroakr.lines-db-vscode)
+
 ## Installation
 
 ```bash
@@ -44,25 +52,20 @@ data/
 ```typescript
 import * as v from 'valibot';
 import { defineSchema } from '@toiroakr/lines-db';
-import type { InferOutput } from '@toiroakr/lines-db';
 
-const userSchema = v.object({
-  id: v.pipe(v.number(), v.integer(), v.minValue(1)),
-  name: v.pipe(v.string(), v.minLength(1)),
-  age: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(150)),
-  email: v.pipe(v.string(), v.email()),
-});
-
-export const schema = defineSchema(userSchema);
-export type User = InferOutput<typeof schema>;
+export const schema = defineSchema(
+  v.object({
+    id: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    name: v.pipe(v.string(), v.minLength(1)),
+    age: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(150)),
+    email: v.pipe(v.string(), v.email()),
+  }),
+);
 export default schema;
 ```
 
 **Supported validation libraries:**
 
-- Valibot
-- Zod (with StandardSchema support)
-- Yup (with StandardSchema support)
 - Any library implementing [StandardSchema](https://standardschema.dev/)
 
 ### Validate JSONL Files
@@ -70,7 +73,7 @@ export default schema;
 Validate your JSONL files against their schemas:
 
 ```bash
-npx lines-db validate <dataDir>
+npx lines-db validate <path>
 ```
 
 **Example:**
@@ -79,13 +82,17 @@ npx lines-db validate <dataDir>
 # Validate all JSONL files in ./data directory
 npx lines-db validate ./data
 
+# Validate a specific file
+npx lines-db validate ./data/users.jsonl
+
 # Verbose output
 npx lines-db validate ./data --verbose
 ```
 
 This command will:
 
-- Find all `.jsonl` files in the directory
+- For directories: Find all `.jsonl` files in the directory
+- For files: Validate the specified `.jsonl` file
 - Load corresponding `.schema.ts` files
 - Validate each record against the schema
 - Report validation errors with detailed messages
@@ -147,14 +154,32 @@ npx lines-db generate ./data
 
 ### Quick Start
 
+**1. Create a JSONL file (./data/users.jsonl):**
+
+```jsonl
+{"id":1,"name":"Alice","age":30,"email":"alice@example.com"}
+{"id":2,"name":"Bob","age":25,"email":"bob@example.com"}
+{"id":3,"name":"Charlie","age":35,"email":"charlie@example.com"}
+```
+
+**2. Use in TypeScript:**
+
 ```typescript
 import { LinesDB } from '@toiroakr/lines-db';
 
 const db = LinesDB.create({ dataDir: './data' });
 await db.initialize();
 
+// Find all users
 const users = db.find('users');
+console.log(users); // [{ id: 1, name: "Alice", ... }, ...]
+
+// Find a specific user
 const user = db.findOne('users', { id: 1 });
+console.log(user); // { id: 1, name: "Alice", age: 30, ... }
+
+// Find with conditions
+const adults = db.find('users', { age: (age) => age >= 30 });
 
 await db.close();
 ```
@@ -186,7 +211,45 @@ await db.close();
 
 ### Core API
 
-Query: `find()`, `findOne()`, `query()` | Modify: `insert()`, `update()`, `delete()` | Batch: `batchInsert()`, `batchUpdate()`, `batchDelete()` | Transaction: `transaction()` | Schema: `getSchema()`, `getTableNames()`
+**Query Operations:**
+
+- `find(table, where?)` - Find all matching records
+- `findOne(table, where?)` - Find a single record
+- `query(sql, params?)` - Execute raw SQL query
+
+**Modify Operations:**
+
+- `insert(table, data)` - Insert a single record
+- `update(table, data, where)` - Update matching records
+- `delete(table, where)` - Delete matching records
+
+**Batch Operations:**
+
+- `batchInsert(table, data[])` - Insert multiple records
+- `batchUpdate(table, updates[])` - Update multiple records
+- `batchDelete(table, where)` - Delete multiple records
+
+**Transaction & Schema:**
+
+- `transaction(fn)` - Execute operations in a transaction
+- `getSchema(table)` - Get table schema
+- `getTableNames()` - Get all table names
+
+**Where Conditions:**
+
+```typescript
+// Simple equality
+db.find('users', { age: 30 });
+
+// Multiple conditions (AND)
+db.find('users', { age: 30, name: 'Alice' });
+
+// Advanced conditions
+db.find('users', {
+  age: (age) => age > 25,
+  name: (name) => name.startsWith('A'),
+});
+```
 
 ### JSON Columns
 
@@ -205,7 +268,11 @@ console.log(order.items[0].name); // "Laptop"
 
 ### Schema Transformations
 
-For schemas with transformations (e.g., string → Date), provide backward transformation:
+When your schema transforms data types (e.g., parsing date strings into Date objects), you need to provide a backward transformation to save data back to JSONL files.
+
+**Why?** JSONL files store strings like `"2024-01-01"`, but your app works with `Date` objects. You need to convert both ways.
+
+**Example:**
 
 ```typescript
 import * as v from 'valibot';
@@ -213,6 +280,8 @@ import { defineSchema } from '@toiroakr/lines-db';
 
 const eventSchema = v.pipe(
   v.object({
+    id: v.number(),
+    // Transform: string → Date (when reading)
     date: v.pipe(
       v.string(),
       v.isoDate(),
@@ -221,10 +290,28 @@ const eventSchema = v.pipe(
   }),
 );
 
+// Provide backward transformation: Date → string (when writing)
 export const schema = defineSchema(eventSchema, (output) => ({
   ...output,
   date: output.date.toISOString(), // Convert Date back to string
 }));
+```
+
+**In your JSONL file (events.jsonl):**
+
+```jsonl
+{
+  "id": 1,
+  "date": "2024-01-01T00:00:00.000Z"
+}
+```
+
+**In your TypeScript code:**
+
+```typescript
+const event = db.findOne('events', { id: 1 });
+console.log(event.date instanceof Date); // true
+console.log(event.date.getFullYear()); // 2024
 ```
 
 ### Transactions

@@ -12,11 +12,14 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      '**/dist-test/**',
       '**/build/**',
       '**/*.min.js',
       '**/coverage/**',
       '**/.pnpm-store/**',
       '**/lib/bin/**',
+      '**/.vscode-test/**',
+      '**/.test-tmp/**',
     ],
   },
   // ESLint recommended rules
@@ -49,6 +52,20 @@ export default tseslint.config(
   // CommonJS test files configuration
   {
     files: ['**/tests/runtime-cjs/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+  // CommonJS build files configuration
+  {
+    files: ['**/esbuild.js'],
+    languageOptions: {
+      globals: {
+        require: 'readonly',
+        module: 'readonly',
+        __dirname: 'readonly',
+      },
+    },
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
     },

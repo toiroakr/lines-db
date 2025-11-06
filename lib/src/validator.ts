@@ -8,6 +8,7 @@ import type { BiDirectionalSchema } from './schema.js';
 export interface ValidationResult {
   valid: boolean;
   errors: ValidationErrorDetail[];
+  warnings: string[];
 }
 
 export interface ValidationErrorDetail {
@@ -69,20 +70,37 @@ export class Validator {
     }
 
     const allErrors: ValidationErrorDetail[] = [];
+    const allWarnings: string[] = [];
+    const filesWithSchema: string[] = [];
 
-    // First, validate schema for each file
+    // Filter files with schema and collect warnings for files without schema
     for (const file of jsonlFiles) {
-      const result = await this.validateFile(file);
-      allErrors.push(...result.errors);
+      const hasSchema = await SchemaLoader.hasSchema(file);
+      if (hasSchema) {
+        filesWithSchema.push(file);
+      } else {
+        const tableName = basename(file, '.jsonl');
+        allWarnings.push(`Skipping validation for '${tableName}': schema file not found`);
+      }
     }
 
-    // Then, validate foreign keys across all tables
-    const fkErrors = await this.validateForeignKeys(dirPath, jsonlFiles);
-    allErrors.push(...fkErrors);
+    // Validate schema for each file with schema
+    for (const file of filesWithSchema) {
+      const result = await this.validateFile(file);
+      allErrors.push(...result.errors);
+      allWarnings.push(...result.warnings);
+    }
+
+    // Then, validate foreign keys across all tables (only for files with schema)
+    if (filesWithSchema.length > 0) {
+      const fkErrors = await this.validateForeignKeys(dirPath, filesWithSchema);
+      allErrors.push(...fkErrors);
+    }
 
     return {
       valid: allErrors.length === 0,
       errors: allErrors,
+      warnings: allWarnings,
     };
   }
 
@@ -202,6 +220,7 @@ export class Validator {
     return {
       valid: errors.length === 0,
       errors,
+      warnings: [],
     };
   }
 }

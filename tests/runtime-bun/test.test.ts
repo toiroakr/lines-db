@@ -1,6 +1,6 @@
 import { test, expect, beforeEach, afterEach, describe } from 'bun:test';
 import { LinesDB, TypeGenerator, type DatabaseConfig } from 'lines-db';
-import { runDatabaseTests, type TestRunner } from '../shared/test-suite.ts';
+import { runDatabaseTests, type TestRunner } from '../shared/test-suite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mkdtemp, rm, cp } from 'node:fs/promises';

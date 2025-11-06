@@ -46,6 +46,7 @@ describe('Validator', () => {
 
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
+      expect(result.warnings).toHaveLength(0);
     });
 
     it('should detect validation errors', async () => {
@@ -77,7 +78,7 @@ describe('Validator', () => {
 
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(1);
-      expect(result.errors[0].rowIndex).toBe(2);
+      expect(result.errors[0].rowIndex).toBe(1); // 0-indexed: line 2 is index 1
       expect(result.errors[0].tableName).toBe('users');
       expect(result.errors[0].issues).toHaveLength(1);
     });
@@ -119,8 +120,8 @@ describe('Validator', () => {
 
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(2);
-      expect(result.errors[0].rowIndex).toBe(1);
-      expect(result.errors[1].rowIndex).toBe(2);
+      expect(result.errors[0].rowIndex).toBe(0); // 0-indexed: line 1 is index 0
+      expect(result.errors[1].rowIndex).toBe(1); // 0-indexed: line 2 is index 1
     });
 
     it('should return 0-based rowIndex (first line = index 0)', async () => {
@@ -128,10 +129,7 @@ describe('Validator', () => {
       const schemaPath = join(testDir, 'users.schema.ts');
 
       // Line 1: valid, Line 2: invalid (no name), Line 3: invalid (no name)
-      await writeFile(
-        jsonlPath,
-        '{"id":1,"name":"Alice"}\n{"id":2}\n{"id":3}\n',
-      );
+      await writeFile(jsonlPath, '{"id":1,"name":"Alice"}\n{"id":2}\n{"id":3}\n');
       await writeFile(
         schemaPath,
         `
@@ -239,6 +237,7 @@ describe('Validator', () => {
 
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
+      expect(result.warnings).toHaveLength(0);
     });
 
     it('should collect errors from multiple files', async () => {
@@ -294,6 +293,37 @@ describe('Validator', () => {
       const validator = new Validator({ path: testDir });
 
       await expect(validator.validate()).rejects.toThrow('No JSONL files found');
+    });
+
+    it('should skip validation and warn for JSONL files without schema', async () => {
+      const usersPath = join(testDir, 'users.jsonl');
+      const productsPath = join(testDir, 'products.jsonl');
+      const usersSchemaPath = join(testDir, 'users.schema.ts');
+
+      // Only users.jsonl has a schema
+      await writeFile(usersPath, '{"id":1,"name":"Alice"}\n');
+      await writeFile(productsPath, '{"id":1,"name":"Product"}\n');
+      await writeFile(
+        usersSchemaPath,
+        `
+        export const schema = {
+          '~standard': {
+            version: 1,
+            vendor: 'test',
+            validate: (data) => ({ value: data, issues: [] })
+          }
+        };
+      `,
+      );
+
+      const validator = new Validator({ path: testDir });
+      const result = await validator.validate();
+
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toContain('products');
+      expect(result.warnings[0]).toContain('schema file not found');
     });
   });
 

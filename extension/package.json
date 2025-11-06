@@ -2,12 +2,13 @@
   "name": "lines-db-vscode",
   "displayName": "LinesDB",
   "description": "VS Code extension for lines-db - JSONL utilities",
-  "version": "0.1.0",
-  "publisher": "lines-db",
+  "version": "0.1.1",
+  "publisher": "toiroakr",
   "author": "toiroakr",
   "engines": {
     "vscode": "^1.85.0"
   },
+  "icon": "assets/logo.png",
   "categories": [
     "Programming Languages",
     "Linters"
@@ -76,19 +77,17 @@
     }
   },
   "scripts": {
-    "vscode:publish": "vsce publish",
+    "vscode:publish": "vsce publish --no-dependencies",
     "vscode:prepublish": "pnpm run build",
     "build": "node esbuild.js --production",
     "watch": "node esbuild.js --watch",
-    "package": "vsce package",
+    "package": "vsce package --no-dependencies",
     "lint": "eslint src --ext ts",
     "compile:test": "tsc -p tsconfig.test.json",
     "test:integration": "pnpm run build && pnpm run compile:test && node ./dist-test/runTest.js"
   },
-  "dependencies": {
-    "@toiroakr/lines-db": "workspace:*"
-  },
   "devDependencies": {
+    "@toiroakr/lines-db": "workspace:*",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.0.0",
