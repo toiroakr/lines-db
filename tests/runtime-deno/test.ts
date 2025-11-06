@@ -1,6 +1,6 @@
 import { assertEquals, assert } from 'jsr:@std/assert';
 // @deno-types="../../lib/dist/index.d.ts"
-import { LinesDB, TypeGenerator, type DatabaseConfig } from 'lines-db';
+import { LinesDB, TypeGenerator, type DatabaseConfig } from '@toiroakr/lines-db';
 import { runDatabaseTests, type TestRunner } from '../shared/test-suite.ts';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';

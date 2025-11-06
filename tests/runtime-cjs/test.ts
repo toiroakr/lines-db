@@ -3,9 +3,9 @@ import assert from 'node:assert';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mkdtemp, rm, cp } from 'node:fs/promises';
-const { LinesDB } = require('lines-db');
+const { LinesDB } = require('@toiroakr/lines-db');
 const { runDatabaseTests } = require('../shared/test-suite.js');
-const { TypeGenerator } = require('lines-db');
+const { TypeGenerator } = require('@toiroakr/lines-db');
 
 let testDir: string;
 let config: any;

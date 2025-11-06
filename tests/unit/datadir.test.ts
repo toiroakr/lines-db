@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach, expect } from 'vitest';
-import { LinesDB, TypeGenerator } from 'lines-db';
-import type { DatabaseConfig, TableDefs } from 'lines-db';
+import { LinesDB, TypeGenerator } from '@toiroakr/lines-db';
+import type { DatabaseConfig, TableDefs } from '@toiroakr/lines-db';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdir, rm, cp } from 'node:fs/promises';

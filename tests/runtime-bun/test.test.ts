@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach, describe } from 'bun:test';
-import { LinesDB, TypeGenerator, type DatabaseConfig } from 'lines-db';
+import { LinesDB, TypeGenerator, type DatabaseConfig } from '@toiroakr/lines-db';
 import { runDatabaseTests, type TestRunner } from '../shared/test-suite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

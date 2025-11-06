@@ -48,7 +48,10 @@ function runInSandbox<T>(expression: string, context: Record<string, unknown> = 
 
 const program = new Command();
 
-program.name('lines-db').description('Database utilities for JSONL files').version('1.0.0');
+program
+  .name('@toiroakr/lines-db')
+  .description('Database utilities for JSONL files')
+  .version('1.0.0');
 
 // Generate command
 program

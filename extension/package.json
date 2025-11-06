@@ -20,6 +20,9 @@
     "schema"
   ],
   "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:jsonl"
+  ],
   "contributes": {
     "commands": [
       {

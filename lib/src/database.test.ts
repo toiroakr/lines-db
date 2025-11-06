@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 describe('LinesDB', () => {
   let testDir: string;
   const GENERIC_SCHEMA_SOURCE = `import * as v from 'valibot';
-import { defineSchema } from 'lines-db';
+import { defineSchema } from '@toiroakr/lines-db';
 
 const rawSchema = v.record(v.string(), v.unknown());
 

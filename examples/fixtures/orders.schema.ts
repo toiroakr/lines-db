@@ -1,6 +1,6 @@
 import * as v from 'valibot';
-import { defineSchema } from 'lines-db';
-import type { InferOutput } from 'lines-db';
+import { defineSchema } from '@toiroakr/lines-db';
+import type { InferOutput } from '@toiroakr/lines-db';
 
 // Define order schema with JSON columns
 const orderSchema = v.object({

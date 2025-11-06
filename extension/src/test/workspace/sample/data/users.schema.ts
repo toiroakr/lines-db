@@ -1,5 +1,5 @@
 import * as v from 'valibot';
-import { defineSchema } from 'lines-db';
+import { defineSchema } from '@toiroakr/lines-db';
 
 const rawSchema = v.object({
   id: v.pipe(v.number(), v.integer(), v.minValue(1)),

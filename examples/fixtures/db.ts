@@ -4,7 +4,7 @@
 import { schema as ordersSchema } from './orders.schema.js';
 import { schema as productsSchema } from './products.schema.js';
 import { schema as usersSchema } from './users.schema.js';
-import type { DatabaseConfig, InferOutput } from 'lines-db';
+import type { DatabaseConfig, InferOutput } from '@toiroakr/lines-db';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 
