@@ -18,7 +18,7 @@ process.emitWarning = (warning, ...args) => {
     args[0] === 'ExperimentalWarning'
   )
     return;
-  originalEmitWarning(warning, ...args);
+  originalEmitWarning(warning, ...(args as any[]));
 };
 
 const SANDBOX_GLOBALS = Object.freeze({

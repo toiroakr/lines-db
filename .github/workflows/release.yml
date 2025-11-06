@@ -7,7 +7,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -22,15 +22,12 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "pnpm"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Upgrade npm
         run: npm install -g npm@latest
@@ -46,3 +43,27 @@ jobs:
           npm --version
           cd lib
           npm publish --provenance --access public
+
+      - name: Get package version
+        id: package-version
+        run: |
+          VERSION=$(node -p "require('./lib/package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.package-version.outputs.version }}"
+          TAG="@toiroakr/lines-db@${VERSION}"
+
+          # Extract changelog for this version
+          if [ -f lib/CHANGELOG.md ]; then
+            CHANGELOG=$(awk '/^## /{if (found) exit; found=1; next} found' lib/CHANGELOG.md)
+          else
+            CHANGELOG="Release version ${VERSION}"
+          fi
+
+          gh release create "${TAG}" \
+            --title "@toiroakr/lines-db v${VERSION}" \
+            --notes "${CHANGELOG}"
