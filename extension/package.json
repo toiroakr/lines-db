@@ -2,7 +2,7 @@
   "name": "lines-db-vscode",
   "displayName": "LinesDB",
   "description": "VS Code extension for lines-db - JSONL utilities",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "publisher": "toiroakr",
   "author": "toiroakr",
   "engines": {

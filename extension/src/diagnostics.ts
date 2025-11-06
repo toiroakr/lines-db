@@ -7,7 +7,7 @@ export class DiagnosticsProvider {
   private disposables: vscode.Disposable[] = [];
 
   constructor() {
-    this.diagnosticCollection = vscode.languages.createDiagnosticCollection('@toiroakr/lines-db');
+    this.diagnosticCollection = vscode.languages.createDiagnosticCollection('lines-db');
 
     // Watch for document changes
     this.disposables.push(
@@ -133,7 +133,7 @@ export class DiagnosticsProvider {
           }
 
           const diagnostic = new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error);
-          diagnostic.source = '@toiroakr/lines-db';
+          diagnostic.source = 'lines-db';
           diagnostics.push(diagnostic);
         }
       }
