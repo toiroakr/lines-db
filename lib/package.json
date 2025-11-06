@@ -1,6 +1,6 @@
 {
   "name": "@toiroakr/lines-db",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A database implementation that treats JSONL files as tables using SQLite",
   "type": "module",
   "main": "./dist/index.cjs",
