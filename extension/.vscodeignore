@@ -11,5 +11,8 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 esbuild.js
-node_modules/*
-!node_modules/lines-db/**
+node_modules/**
+dist-test/**
+lib/**
+.claude/**
+tsconfig.test.json

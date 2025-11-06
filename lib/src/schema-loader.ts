@@ -5,6 +5,22 @@ import type { StandardSchema } from './types.js';
 
 export class SchemaLoader {
   /**
+   * Check if a schema file exists for a table
+   */
+  static async hasSchema(jsonlPath: string): Promise<boolean> {
+    const dir = dirname(jsonlPath);
+    const tableName = basename(jsonlPath, '.jsonl');
+    const schemaPath = join(dir, `${tableName}.schema.ts`);
+
+    try {
+      await access(schemaPath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Load a validation schema file for a table
    * Requires ${tableName}.schema.ts to exist alongside the JSONL file
    */

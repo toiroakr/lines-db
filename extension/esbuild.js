@@ -13,7 +13,7 @@ async function main() {
     sourcesContent: false,
     platform: 'node',
     outfile: 'dist/extension.js',
-    external: ['vscode', 'lines-db'],
+    external: ['vscode'],
     logLevel: 'silent',
     plugins: [
       {

@@ -77,6 +77,14 @@ program
       const validator = new Validator({ path });
       const result = await validator.validate();
 
+      // Display warnings if any
+      if (result.warnings.length > 0) {
+        for (const warning of result.warnings) {
+          console.warn(styleText('yellow', `⚠ ${warning}`));
+        }
+        console.log('');
+      }
+
       if (result.valid) {
         console.log('✓ All records are valid');
         process.exit(0);
