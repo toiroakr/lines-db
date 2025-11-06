@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
+import { ensureTableRowsValid } from '../../lib/dist/index.cjs';
 import { registerCommands } from './commands';
 import { DiagnosticsProvider } from './diagnostics';
 import { JsonlCodeLensProvider } from './codeLens';
@@ -261,7 +262,6 @@ export function activate(context: vscode.ExtensionContext) {
             outputChannel.appendLine(
               'No schema found or schema invalid, using ensureTableRowsValid fallback',
             );
-            const { ensureTableRowsValid } = await import('lines-db');
             await ensureTableRowsValid({
               dataDir: session.dataDir,
               tableName: session.tableName,

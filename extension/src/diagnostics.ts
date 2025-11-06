@@ -1,12 +1,13 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { Validator } from '../../lib/dist/index.cjs';
 
 export class DiagnosticsProvider {
   private diagnosticCollection: vscode.DiagnosticCollection;
   private disposables: vscode.Disposable[] = [];
 
   constructor() {
-    this.diagnosticCollection = vscode.languages.createDiagnosticCollection('lines-db');
+    this.diagnosticCollection = vscode.languages.createDiagnosticCollection('@toiroakr/lines-db');
 
     // Watch for document changes
     this.disposables.push(
@@ -89,9 +90,6 @@ export class DiagnosticsProvider {
     try {
       const dirPath = path.dirname(filePath);
 
-      // Dynamically import lines-db to avoid bundling issues
-      const { Validator } = await import('lines-db');
-
       // Validate entire directory to check foreign key constraints
       const validator = new Validator({ path: dirPath });
       const result = await validator.validate();
@@ -135,7 +133,7 @@ export class DiagnosticsProvider {
           }
 
           const diagnostic = new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error);
-          diagnostic.source = 'lines-db';
+          diagnostic.source = '@toiroakr/lines-db';
           diagnostics.push(diagnostic);
         }
       }

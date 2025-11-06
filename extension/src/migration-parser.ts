@@ -1,4 +1,4 @@
-import { JsonValue } from 'lines-db';
+import { JsonValue } from '@toiroakr/lines-db';
 import { runInNewContext } from 'node:vm';
 
 export type MigrationRow = Record<string, JsonValue>;

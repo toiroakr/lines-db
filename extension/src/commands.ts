@@ -1,6 +1,12 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import {
+  Validator,
+  JsonlReader,
+  JsonlWriter,
+  ensureTableRowsValid,
+} from '../../lib/dist/index.cjs';
 import type { MigrationRow } from './migrationValidator.js';
 
 function getTabUri(tab: vscode.Tab): vscode.Uri | undefined {
@@ -55,8 +61,6 @@ export function registerCommands(context: vscode.ExtensionContext) {
       }
 
       try {
-        // Dynamically import lines-db to avoid bundling issues
-        const { Validator } = await import('lines-db');
         const validator = new Validator({ path: validationPath });
         const result = await validator.validate();
 
@@ -216,7 +220,6 @@ export function registerCommands(context: vscode.ExtensionContext) {
 
       const migrationContent = fs.readFileSync(uri.fsPath, 'utf-8');
       const { transform, filter } = await MigrationValidator.parseMigrationFile(migrationContent);
-      const { JsonlReader, JsonlWriter, ensureTableRowsValid } = await import('lines-db');
 
       const allRows = (await JsonlReader.read(session.originalFilePath)) as MigrationRow[];
       const plan = MigrationValidator.createMigrationPlan(allRows, transform, filter);

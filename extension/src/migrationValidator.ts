@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { JsonlReader, ensureTableRowsValid } from '../../lib/dist/index.cjs';
 import { MigrationSessionManager } from './migrationSession.js';
 import { parseMigrationSource, type MigrationRow } from './migration-parser.js';
 
@@ -29,8 +30,6 @@ export class MigrationValidator {
 
       // Parse and extract transform and filter functions
       const { transform, filter } = await this.parseMigrationFile(migrationContent);
-
-      const { JsonlReader, ensureTableRowsValid } = await import('lines-db');
 
       const allRows = (await JsonlReader.read(session.originalFilePath)) as MigrationRow[];
       const plan = this.createMigrationPlan(allRows, transform, filter);

@@ -17,8 +17,7 @@ A lightweight database implementation that treats JSONL (JSON Lines) files as ta
 - 🔄 **Bidirectional schema transformations** with automatic backward conversion
 - 💾 **Auto-sync to JSONL files** - persist database changes back to files
 - 🛡️ Type-safe with TypeScript
-- 🧪 Minimal dependencies (uses built-in SQLite in each runtime)
-- 🌐 **Multi-runtime support** - works with Node.js, Bun, and Deno
+- 🧪 Minimal dependencies (uses built-in SQLite in Node.js)
 
 ## Quick Start
 
@@ -51,9 +50,7 @@ lines-db/
 │   └── README.md       # 📚 User documentation (published to npm)
 ├── tests/              # Integration tests
 │   ├── unit/          # Unit tests
-│   ├── runtime-cjs/   # Node.js CommonJS tests
-│   ├── runtime-deno/  # Deno tests
-│   └── runtime-bun/   # Bun tests
+│   └── runtime-cjs/   # Node.js CommonJS tests
 ├── examples/           # Usage examples
 └── extension/          # VSCode extension
 ```
@@ -72,7 +69,7 @@ The main npm package that provides the database functionality.
 - SQLite database abstraction
 - Schema inference and validation
 - Type-safe query APIs
-- Multi-runtime support (Node.js 22.5+, Bun 1.0+, Deno 2.0+)
+- Node.js 22.5+ support
 - CLI tools for validation and type generation
 
 ### 🔌 VSCode Extension: [lines-db-vscode](./extension)
@@ -113,27 +110,15 @@ pnpm run build
 # Run unit tests
 pnpm test
 
-# Run all runtime tests (Node.js, Deno, Bun)
+# Run runtime tests (Node.js)
 pnpm test:runtime
 
-# Run specific runtime tests
-pnpm test:cjs   # Node.js CommonJS
-pnpm test:deno  # Deno
-pnpm test:bun   # Bun
+# Run Node.js CommonJS tests
+pnpm test:cjs
 
 # Run all tests
 pnpm test:all
 ```
-
-### Runtime Tests
-
-lines-db is tested across three runtimes using a shared test suite:
-
-- **Node.js (CommonJS)**: `tests/runtime-cjs/` - Tests with CommonJS module system
-- **Deno**: `tests/runtime-deno/` - Tests with Deno runtime
-- **Bun**: `tests/runtime-bun/` - Tests with Bun runtime
-
-Each runtime test runs the same test suite (16 test cases) located in `tests/shared/test-suite.ts`.
 
 ### Other Commands
 

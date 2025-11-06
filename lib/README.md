@@ -13,7 +13,7 @@ A data management library that treats JSONL (JSON Lines) files as tables. Perfec
 - 🔄 **Bidirectional schema transformations**
 - 💾 **Auto-sync to JSONL files**
 - 🛡️ Type-safe with TypeScript
-- 🌐 **Multi-runtime support** - Node.js (22.5+), Bun, Deno
+- Node.js 22.5+ support
 
 ## VS Code Extension
 

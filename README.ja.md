@@ -17,8 +17,7 @@ JSONLファイルをテーブルとして扱う軽量なデータベース実装
 - 🔄 **双方向スキーマ変換**とバックワード変換の自動適用
 - 💾 **JSONLファイルへの自動同期** - データベースの変更をファイルに永続化
 - 🛡️ TypeScriptによる型安全性
-- 🧪 最小限の依存関係（各ランタイムの組み込みSQLiteを使用）
-- 🌐 **マルチランタイムサポート** - Node.js、Bun、Denoで動作
+- 🧪 最小限の依存関係（Node.jsの組み込みSQLiteを使用）
 
 ## クイックスタート
 
@@ -51,9 +50,7 @@ lines-db/
 │   └── README.ja.md    # 📚 ユーザー向けドキュメント（npmに公開）
 ├── tests/              # 統合テスト
 │   ├── unit/          # ユニットテスト
-│   ├── runtime-cjs/   # Node.js CommonJSテスト
-│   ├── runtime-deno/  # Denoテスト
-│   └── runtime-bun/   # Bunテスト
+│   └── runtime-cjs/   # Node.js CommonJSテスト
 ├── examples/           # 使用例
 └── extension/          # VSCode拡張
 ```
@@ -72,7 +69,7 @@ lines-db/
 - SQLiteデータベース抽象化
 - スキーマ推論とバリデーション
 - 型安全なクエリAPI
-- マルチランタイムサポート（Node.js 22.5+、Bun 1.0+、Deno 2.0+）
+- Node.js 22.5+サポート
 - バリデーションと型生成のためのCLIツール
 
 ### 🔌 VSCode拡張: [lines-db-vscode](./extension)
@@ -113,27 +110,15 @@ pnpm run build
 # ユニットテストを実行
 pnpm test
 
-# 全ランタイムテスト（Node.js、Deno、Bun）
+# ランタイムテスト（Node.js）
 pnpm test:runtime
 
-# 特定のランタイムテスト
-pnpm test:cjs   # Node.js CommonJS
-pnpm test:deno  # Deno
-pnpm test:bun   # Bun
+# Node.js CommonJSテスト
+pnpm test:cjs
 
 # 全テストを実行
 pnpm test:all
 ```
-
-### ランタイムテスト
-
-lines-dbは、共通のテストスイートを使用して3つのランタイムでテストされています：
-
-- **Node.js (CommonJS)**: `tests/runtime-cjs/` - CommonJSモジュールシステムのテスト
-- **Deno**: `tests/runtime-deno/` - Denoランタイムのテスト
-- **Bun**: `tests/runtime-bun/` - Bunランタイムのテスト
-
-各ランタイムテストは、`tests/shared/test-suite.ts`にある共通のテストスイート（16テストケース）を実行します。
 
 ### その他のコマンド
 

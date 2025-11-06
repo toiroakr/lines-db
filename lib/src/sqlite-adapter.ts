@@ -1,5 +1,5 @@
 /**
- * SQLite adapter that works across Node.js, Bun, and Deno
+ * SQLite adapter for Node.js
  */
 
 import { RUNTIME } from './runtime.js';
@@ -20,49 +20,14 @@ export interface SQLiteStatement {
 }
 
 /**
- * Create a SQLite database instance based on the runtime environment
+ * Create a SQLite database instance for Node.js
  */
 export function createDatabase(path: string = ':memory:'): SQLiteDatabase {
-  if (RUNTIME === 'bun') {
-    return createBunDatabase(path);
-  } else if (RUNTIME === 'node' || RUNTIME === 'deno') {
+  if (RUNTIME === 'node') {
     return createNodeDatabase(path);
   } else {
     throw new Error(`Unsupported runtime: ${RUNTIME}`);
   }
-}
-
-/**
- * Create a Bun SQLite database
- */
-function createBunDatabase(path: string): SQLiteDatabase {
-  // Dynamic import for Bun
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Database } = require('bun:sqlite');
-  const db = new Database(path);
-
-  return {
-    prepare(sql: string): SQLiteStatement {
-      const stmt = db.prepare(sql);
-      return {
-        run(...params: any[]) {
-          return stmt.run(...params);
-        },
-        get(...params: any[]) {
-          return stmt.get(...params);
-        },
-        all(...params: any[]) {
-          return stmt.all(...params);
-        },
-      };
-    },
-    exec(sql: string): void {
-      db.exec(sql);
-    },
-    close(): void {
-      db.close();
-    },
-  };
 }
 
 /**

@@ -8,10 +8,8 @@
   "scripts": {
     "build": "pnpm --filter @toiroakr/lines-db build",
     "test": "pnpm --filter @toiroakr/lines-db-tests-unit test",
-    "test:runtime": "pnpm test:cjs && pnpm test:deno && pnpm test:bun",
+    "test:runtime": "pnpm test:cjs",
     "test:cjs": "pnpm --filter @toiroakr/lines-db-tests-runtime-cjs test",
-    "test:deno": "cd tests/runtime-deno && deno task test",
-    "test:bun": "cd tests/runtime-bun && bun test",
     "test:all": "pnpm test && pnpm test:runtime",
     "typecheck": "pnpm -r run typecheck",
     "lint": "eslint .",

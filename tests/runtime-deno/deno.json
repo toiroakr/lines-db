@@ -1,9 +1,0 @@
-{
-  "imports": {
-    "lines-db": "../../lib/dist/index.js",
-    "@standard-schema/spec": "npm:@standard-schema/spec@^1.0.0"
-  },
-  "tasks": {
-    "test": "deno test --allow-read --allow-write --allow-ffi --allow-sys --unstable-ffi"
-  }
-}

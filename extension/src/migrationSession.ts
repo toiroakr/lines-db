@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { JsonlReader } from '../../lib/dist/index.cjs';
 
 export interface MigrationSessionInfo {
   migrationFilePath: string;
@@ -75,7 +76,6 @@ export class MigrationSessionManager {
 
     try {
       // Read JSONL data directly so we can proceed even when validation fails
-      const { JsonlReader } = await import('lines-db');
       const rows = await JsonlReader.read(originalFilePath);
 
       if (rows.length > 0) {
