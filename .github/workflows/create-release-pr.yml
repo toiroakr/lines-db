@@ -37,5 +37,7 @@ jobs:
           title: "chore: release @toiroakr/lines-db"
           commit: "chore: version packages"
           version: pnpm changeset version
+          setupGitUser: true
+          createGithubReleases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
