@@ -15,27 +15,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           fetch-depth: 0
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install deps
+        uses: ./.github/actions/install-deps
 
       - name: Create Release Pull Request
-        uses: changesets/action@v1
+        uses: changesets/action@e0145edc7d9d8679003495b11f87bd8ef63c0cba # v1.5.3
         with:
-          title: 'chore: release @toiroakr/lines-db'
-          commit: 'chore: version packages'
+          title: "chore: release @toiroakr/lines-db"
+          commit: "chore: version packages"
           version: pnpm changeset version
           setupGitUser: true
           createGithubReleases: true
