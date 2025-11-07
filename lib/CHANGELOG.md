@@ -1,5 +1,11 @@
 # @toiroakr/lines-db
 
+## 0.2.1
+
+### Patch Changes
+
+- 0881a89: fix: use tsx for load typescript
+
 ## 0.2.0
 
 ### Minor Changes
