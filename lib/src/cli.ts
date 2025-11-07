@@ -237,8 +237,6 @@ program
         const transformedRows = rowsToMigrate.map((row) => transform(row));
 
         // Perform the migration in a transaction
-        console.log('\nApplying migration in transaction...\n');
-
         try {
           await db.transaction(async () => {
             db.batchUpdate(tableName, transformedRows as Parameters<typeof db.batchUpdate>[1], {

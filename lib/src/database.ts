@@ -69,7 +69,6 @@ export class LinesDB<Tables extends TableDefs> {
     const data = await JsonlReader.read(config.jsonlPath);
 
     if (data.length === 0) {
-      console.warn(`Warning: Table ${tableName} has no data`);
       return;
     }
 
@@ -80,19 +79,7 @@ export class LinesDB<Tables extends TableDefs> {
         validationSchema = await SchemaLoader.loadSchema(config.jsonlPath);
       } catch (error) {
         // Schema file not found or failed to load - this is OK, table can still be used without validation
-        console.log(
-          `[LinesDB] No validation schema for table '${tableName}':`,
-          error instanceof Error ? error.message : String(error),
-        );
       }
-    }
-    console.log(
-      `[LinesDB] Loaded validation schema for table '${tableName}':`,
-      validationSchema ? 'FOUND' : 'NOT FOUND',
-    );
-    if (validationSchema) {
-      console.log(`[LinesDB] Schema type:`, typeof validationSchema);
-      console.log(`[LinesDB] Schema has '~standard':`, '~standard' in validationSchema);
     }
     this.validationSchemas.set(tableName, validationSchema);
 
@@ -407,14 +394,9 @@ export class LinesDB<Tables extends TableDefs> {
    */
   private validateData(tableName: string, data: unknown): void {
     const schema = this.validationSchemas.get(tableName);
-    console.log(`[LinesDB] validateData called for table '${tableName}', schema exists:`, !!schema);
     if (!schema) {
-      console.log(
-        `[LinesDB] No validation schema found for table '${tableName}', skipping validation`,
-      );
       return;
     }
-    console.log(`[LinesDB] Validating data:`, JSON.stringify(data));
 
     const result = schema['~standard'].validate(data);
 
