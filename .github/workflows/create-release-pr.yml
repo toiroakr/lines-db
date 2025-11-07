@@ -25,8 +25,8 @@ jobs:
       - name: Create Release Pull Request
         uses: changesets/action@e0145edc7d9d8679003495b11f87bd8ef63c0cba # v1.5.3
         with:
-          title: "chore: release @toiroakr/lines-db"
-          commit: "chore: version packages"
+          title: 'chore: release @toiroakr/lines-db'
+          commit: 'chore: version packages'
           version: pnpm changeset version
           setupGitUser: true
           createGithubReleases: true
