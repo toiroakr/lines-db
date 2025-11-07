@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import { JsonlReader, ensureTableRowsValid } from '../../lib/dist/index.cjs';
 import { MigrationSessionManager } from './migrationSession.js';
 import { parseMigrationSource, type MigrationRow } from './migration-parser.js';
 
@@ -31,7 +30,16 @@ export class MigrationValidator {
       // Parse and extract transform and filter functions
       const { transform, filter } = await this.parseMigrationFile(migrationContent);
 
-      const allRows = (await JsonlReader.read(session.originalFilePath)) as MigrationRow[];
+      if (!global.__linesDbModule?.JsonlReader) {
+        return {
+          valid: false,
+          errors: [{ line: 0, message: '@toiroakr/lines-db not found in workspace' }],
+        };
+      }
+
+      const allRows = (await global.__linesDbModule.JsonlReader.read(
+        session.originalFilePath,
+      )) as MigrationRow[];
       const plan = this.createMigrationPlan(allRows, transform, filter);
 
       if (plan.transformedRows.length === 0) {
@@ -43,11 +51,13 @@ export class MigrationValidator {
       }
 
       try {
-        await ensureTableRowsValid({
-          dataDir: session.dataDir,
-          tableName: session.tableName,
-          rows: plan.updatedRows,
-        });
+        if (global.__linesDbModule?.ensureTableRowsValid) {
+          await global.__linesDbModule.ensureTableRowsValid({
+            dataDir: session.dataDir,
+            tableName: session.tableName,
+            rows: plan.updatedRows,
+          });
+        }
       } catch (validationError) {
         return this.processValidationError(
           validationError,

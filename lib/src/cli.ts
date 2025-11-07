@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+// Register tsx for TypeScript schema file support
+import { register } from 'node:module';
+register('tsx', import.meta.url, { data: {} });
+
 import { TypeGenerator } from './type-generator.js';
 import { Validator } from './validator.js';
 import { LinesDB } from './database.js';

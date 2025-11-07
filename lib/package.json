@@ -59,6 +59,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "^1.0.0",
-    "commander": "^14.0.2"
+    "commander": "^14.0.2",
+    "tsx": "^4.19.2"
   }
 }

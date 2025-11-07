@@ -129,7 +129,7 @@ export class DiagnosticsProvider {
               }
               return issue.message;
             });
-            message = messages.join(', ');
+            message = messages.join('\n');
           }
 
           const diagnostic = new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error);

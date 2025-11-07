@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
-import { ensureTableRowsValid } from '../../lib/dist/index.cjs';
 import { registerCommands } from './commands';
 import { DiagnosticsProvider } from './diagnostics';
 import { JsonlCodeLensProvider } from './codeLens';
@@ -38,6 +37,7 @@ const originalLog = console.log;
 const originalWarn = console.warn;
 const originalError = console.error;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 console.log = (...args: any[]) => {
   const message = args
     .map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a)))
@@ -46,6 +46,7 @@ console.log = (...args: any[]) => {
   originalLog(...args);
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 console.warn = (...args: any[]) => {
   const message = args
     .map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a)))
@@ -54,6 +55,7 @@ console.warn = (...args: any[]) => {
   originalWarn(...args);
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 console.error = (...args: any[]) => {
   const message = args
     .map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a)))
@@ -62,13 +64,61 @@ console.error = (...args: any[]) => {
   originalError(...args);
 };
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   outputChannel.appendLine('=== LinesDB Extension Activating ===');
   console.log('LinesDB extension is now active');
   context.subscriptions.push(outputChannel);
 
+  // Load @toiroakr/lines-db and tsx from workspace
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (workspaceFolders && workspaceFolders.length > 0) {
+    const workspaceRoot = workspaceFolders[0].uri.fsPath;
+
+    // Try to load @toiroakr/lines-db from workspace
+    try {
+      // Dynamic require is necessary here to load from user's workspace
+
+      const nodeRequire = require;
+      const linesDbPath = nodeRequire.resolve('@toiroakr/lines-db', { paths: [workspaceRoot] });
+      outputChannel.appendLine(`Found @toiroakr/lines-db at: ${linesDbPath}`);
+
+      global.__linesDbModule = nodeRequire(linesDbPath);
+      outputChannel.appendLine('@toiroakr/lines-db loaded successfully');
+    } catch (linesDbError) {
+      outputChannel.appendLine(`@toiroakr/lines-db not found in workspace: ${linesDbError}`);
+      vscode.window.showWarningMessage(
+        'LinesDB extension requires @toiroakr/lines-db to be installed in your workspace. Please run: pnpm add @toiroakr/lines-db',
+      );
+    }
+
+    // Register tsx for TypeScript schema file support
+    try {
+      // Dynamic imports are necessary for runtime module loading
+
+      const nodeRequire = require;
+      const { register } = await import('node:module');
+      const { pathToFileURL } = await import('node:url');
+
+      try {
+        // Try to resolve tsx entry point from workspace's node_modules
+        const tsxPath = nodeRequire.resolve('tsx', { paths: [workspaceRoot] });
+        outputChannel.appendLine(`Found tsx at: ${tsxPath}`);
+
+        // Register tsx using the workspace path as parent URL
+        register('tsx', pathToFileURL(workspaceRoot + '/'), { data: {} });
+        outputChannel.appendLine('tsx registered successfully');
+      } catch (tsxError) {
+        outputChannel.appendLine(
+          `tsx not found in workspace, TypeScript schemas may not work: ${tsxError}`,
+        );
+      }
+    } catch (error) {
+      outputChannel.appendLine(`Failed to register tsx: ${error}`);
+    }
+  }
+
   // Make output channel globally accessible
-  (global as any).__linesDbOutputChannel = outputChannel;
+  global.__linesDbOutputChannel = outputChannel;
 
   // Initialize migration session manager
   outputChannel.appendLine('Initializing MigrationSessionManager...');
@@ -199,6 +249,7 @@ export function activate(context: vscode.ExtensionContext) {
           const schemaPath = path.join(session.dataDir, `${session.tableName}.schema.ts`);
           outputChannel.appendLine(`Schema path: ${schemaPath}`);
 
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let schema: any;
           try {
             // Try to load the schema file
@@ -251,6 +302,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             if (validationErrors.length > 0) {
               outputChannel.appendLine(`Total validation errors: ${validationErrors.length}`);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const error: any = new Error(
                 `Validation failed for ${validationErrors.length} row(s)`,
               );
@@ -262,11 +314,15 @@ export function activate(context: vscode.ExtensionContext) {
             outputChannel.appendLine(
               'No schema found or schema invalid, using ensureTableRowsValid fallback',
             );
-            await ensureTableRowsValid({
-              dataDir: session.dataDir,
-              tableName: session.tableName,
-              rows: result.transformedRows,
-            });
+            if (global.__linesDbModule?.ensureTableRowsValid) {
+              await global.__linesDbModule.ensureTableRowsValid({
+                dataDir: session.dataDir,
+                tableName: session.tableName,
+                rows: result.transformedRows,
+              });
+            } else {
+              outputChannel.appendLine('linesDbModule not available, skipping validation');
+            }
           }
 
           outputChannel.appendLine('Preview validation: SUCCESS');
@@ -349,6 +405,7 @@ export function activate(context: vscode.ExtensionContext) {
             outputChannel.appendLine(
               `  Check 1 - is object: ${typeof validationError === 'object'}`,
             );
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             outputChannel.appendLine(`  Check 2 - has name: ${'name' in (validationError as any)}`);
             outputChannel.appendLine(
               `  Check 3 - name is ValidationError: ${(validationError as any)?.name === 'ValidationError'}`,

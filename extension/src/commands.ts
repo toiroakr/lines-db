@@ -1,12 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import {
-  Validator,
-  JsonlReader,
-  JsonlWriter,
-  ensureTableRowsValid,
-} from '../../lib/dist/index.cjs';
 import type { MigrationRow } from './migrationValidator.js';
 
 function getTabUri(tab: vscode.Tab): vscode.Uri | undefined {
@@ -61,7 +55,14 @@ export function registerCommands(context: vscode.ExtensionContext) {
       }
 
       try {
-        const validator = new Validator({ path: validationPath });
+        if (!global.__linesDbModule?.Validator) {
+          vscode.window.showErrorMessage(
+            'LinesDB: @toiroakr/lines-db not found in workspace. Please install it.',
+          );
+          return;
+        }
+
+        const validator = new global.__linesDbModule.Validator({ path: validationPath });
         const result = await validator.validate();
 
         if (result.valid) {
@@ -221,7 +222,16 @@ export function registerCommands(context: vscode.ExtensionContext) {
       const migrationContent = fs.readFileSync(uri.fsPath, 'utf-8');
       const { transform, filter } = await MigrationValidator.parseMigrationFile(migrationContent);
 
-      const allRows = (await JsonlReader.read(session.originalFilePath)) as MigrationRow[];
+      if (!global.__linesDbModule?.JsonlReader) {
+        vscode.window.showErrorMessage(
+          'LinesDB: @toiroakr/lines-db not found in workspace. Please install it.',
+        );
+        return;
+      }
+
+      const allRows = (await global.__linesDbModule.JsonlReader.read(
+        session.originalFilePath,
+      )) as MigrationRow[];
       const plan = MigrationValidator.createMigrationPlan(allRows, transform, filter);
 
       if (plan.transformedRows.length === 0) {
@@ -233,11 +243,13 @@ export function registerCommands(context: vscode.ExtensionContext) {
 
       // Validate one more time before executing
       try {
-        await ensureTableRowsValid({
-          dataDir: session.dataDir,
-          tableName: session.tableName,
-          rows: plan.updatedRows,
-        });
+        if (global.__linesDbModule?.ensureTableRowsValid) {
+          await global.__linesDbModule.ensureTableRowsValid({
+            dataDir: session.dataDir,
+            tableName: session.tableName,
+            rows: plan.updatedRows,
+          });
+        }
       } catch (validationError) {
         const result = MigrationValidator.processValidationError(
           validationError,
