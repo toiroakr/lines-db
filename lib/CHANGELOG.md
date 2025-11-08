@@ -1,5 +1,13 @@
 # @toiroakr/lines-db
 
+## 0.3.0
+
+### Minor Changes
+
+- 50266c5: - Enhanced database initialization with dependency resolution and error handling
+  - Added support for undefined values in schema inference
+  - Implemented validation that automatically adds columns during data insertion
+
 ## 0.2.1
 
 ### Patch Changes
