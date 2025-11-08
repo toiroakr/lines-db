@@ -40,95 +40,172 @@ export class LinesDB<Tables extends TableDefs> {
 
   /**
    * Initialize database by loading all JSONL files
+   * Uses dependency resolution to ensure foreign key references are loaded in correct order
    */
   async initialize(): Promise<void> {
     // Scan directory for JSONL files
     this.tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
 
-    // Load all tables
-    for (const [tableName, tableConfig] of this.tables) {
-      try {
-        await this.loadTable(tableName, tableConfig);
-      } catch (error) {
-        // Log error but continue loading other tables
-        console.warn(
-          `Warning: Failed to load table '${tableName}':`,
-          error instanceof Error ? error.message : String(error),
-        );
-        // Remove the failed table from the tables map
-        this.tables.delete(tableName);
+    // Track loaded tables and tables currently being loaded (for circular dependency detection)
+    const loadedTables = new Set<string>();
+    const loadingTables = new Set<string>();
+
+    // Load all tables with dependency resolution
+    for (const [tableName] of this.tables) {
+      if (!loadedTables.has(tableName)) {
+        try {
+          await this.loadTableWithDependencies(tableName, loadedTables, loadingTables);
+        } catch (error) {
+          // Log error but continue loading other tables
+          console.warn(
+            `Warning: Failed to load table '${tableName}':`,
+            error instanceof Error ? error.message : String(error),
+          );
+          // Remove the failed table from the tables map
+          this.tables.delete(tableName);
+          this.schemas.delete(tableName);
+          this.validationSchemas.delete(tableName);
+        }
       }
     }
   }
 
   /**
-   * Load a single table from JSONL file
+   * Load a table and its dependencies recursively
    */
-  private async loadTable(tableName: string, config: TableConfig): Promise<void> {
-    // Read JSONL file
-    const data = await JsonlReader.read(config.jsonlPath);
-
-    if (data.length === 0) {
+  private async loadTableWithDependencies(
+    tableName: string,
+    loadedTables: Set<string>,
+    loadingTables: Set<string>,
+  ): Promise<void> {
+    // Skip if already loaded
+    if (loadedTables.has(tableName)) {
       return;
     }
 
-    // Load validation schema if provided or try to auto-load
-    let validationSchema = config.validationSchema;
-    if (!validationSchema) {
+    // Check for circular dependencies
+    if (loadingTables.has(tableName)) {
+      throw new Error(`Circular dependency detected for table '${tableName}'`);
+    }
+
+    // Get table config
+    const tableConfig = this.tables.get(tableName);
+    if (!tableConfig) {
+      throw new Error(`Table configuration not found for '${tableName}'`);
+    }
+
+    // Mark as currently loading
+    loadingTables.add(tableName);
+
+    try {
+      // Load schema module to check for foreign key dependencies
+      // We need to load the entire module to access foreignKeys export
+      let foreignKeys: BiDirectionalSchema['foreignKeys'];
+
       try {
-        validationSchema = await SchemaLoader.loadSchema(config.jsonlPath);
-      } catch (error) {
-        // Schema file not found or failed to load - this is OK, table can still be used without validation
+        const { pathToFileURL } = await import('node:url');
+        const schemaPath = tableConfig.jsonlPath.replace('.jsonl', '.schema.ts');
+        const schemaUrl = pathToFileURL(schemaPath).href;
+        const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
+        foreignKeys = schemaModule.foreignKeys;
+      } catch {
+        // Schema file not found - will continue without validation
       }
-    }
-    this.validationSchemas.set(tableName, validationSchema);
 
-    // Determine schema
-    let schema: TableSchema;
-    if (config.schema) {
-      schema = config.schema;
-    } else if (config.autoInferSchema !== false) {
-      schema = JsonlReader.inferSchema(tableName, data);
-    } else {
-      throw new Error(`No schema provided for table ${tableName} and autoInferSchema is disabled`);
-    }
-
-    // Enhance schema with constraints from validation schema (if available)
-    if (validationSchema) {
-      const biSchema = validationSchema as BiDirectionalSchema;
-      if (biSchema.primaryKey && !schema.columns.some((col) => col.primaryKey)) {
-        // Add primary key constraint to columns
-        for (const pkColumn of biSchema.primaryKey) {
-          const col = schema.columns.find((c) => c.name === pkColumn);
-          if (col) {
-            col.primaryKey = true;
+      // If there are foreign key dependencies, load them first
+      if (foreignKeys && foreignKeys.length > 0) {
+        for (const fk of foreignKeys) {
+          const referencedTable = fk.references.table;
+          if (!loadedTables.has(referencedTable)) {
+            // Check if referenced table exists in our tables map
+            if (this.tables.has(referencedTable)) {
+              await this.loadTableWithDependencies(referencedTable, loadedTables, loadingTables);
+            } else {
+              throw new Error(
+                `Foreign key reference to non-existent table '${referencedTable}' in table '${tableName}'`,
+              );
+            }
           }
         }
       }
-      if (biSchema.foreignKeys) {
-        schema.foreignKeys = biSchema.foreignKeys;
+
+      // Now load this table
+      const wasLoaded = await this.loadTable(tableName, tableConfig);
+      if (wasLoaded) {
+        loadedTables.add(tableName);
+      } else {
+        // Table was not loaded (e.g., empty data)
+        this.tables.delete(tableName);
       }
-      if (biSchema.indexes) {
-        schema.indexes = biSchema.indexes;
+    } finally {
+      // Remove from loading set
+      loadingTables.delete(tableName);
+    }
+  }
+
+  /**
+   * Load a single table from JSONL file
+   * @returns true if table was loaded, false if skipped
+   */
+  private async loadTable(tableName: string, config: TableConfig): Promise<boolean> {
+    // Read JSONL file
+    const data = await JsonlReader.read(config.jsonlPath);
+
+    // Load validation schema if provided or try to auto-load
+    let validationSchema = config.validationSchema;
+    const schemaMetadata: {
+      primaryKey?: readonly string[];
+      foreignKeys?: BiDirectionalSchema['foreignKeys'];
+      indexes?: BiDirectionalSchema['indexes'];
+    } = {};
+
+    if (!validationSchema) {
+      try {
+        validationSchema = await SchemaLoader.loadSchema(config.jsonlPath);
+      } catch (_error) {
+        // Schema file not found or failed to load - this is OK, table can still be used without validation
       }
     }
 
-    this.schemas.set(tableName, schema);
+    // Load schema metadata (foreignKeys, primaryKey, indexes) from schema module
+    // SchemaLoader.loadSchema() only returns the validation schema object, not metadata
+    if (!config.validationSchema) {
+      // Only load if not already provided via config
+      try {
+        const { pathToFileURL } = await import('node:url');
+        const schemaPath = config.jsonlPath.replace('.jsonl', '.schema.ts');
+        const schemaUrl = pathToFileURL(schemaPath).href;
+        const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
 
-    // Create table
-    this.createTable(schema);
+        if (schemaModule.primaryKey) {
+          schemaMetadata.primaryKey = schemaModule.primaryKey;
+        }
+        if (schemaModule.foreignKeys) {
+          schemaMetadata.foreignKeys = schemaModule.foreignKeys;
+        }
+        if (schemaModule.indexes) {
+          schemaMetadata.indexes = schemaModule.indexes;
+        }
+      } catch (_error) {
+        // Schema file not found - this is OK
+      }
+    }
 
-    // Validate data before inserting
+    this.validationSchemas.set(tableName, validationSchema);
+
+    // Validate data first and collect validated (transformed) data
     const validationErrors: Array<{
       rowIndex: number;
       rowData: JsonObject;
       error: ValidationError;
     }> = [];
+    const validatedData: JsonObject[] = [];
 
     for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
       const row = data[rowIndex];
       try {
-        this.validateData(tableName, row);
+        const validatedRow = this.validateAndTransform(tableName, row);
+        validatedData.push(validatedRow);
       } catch (error) {
         if (error instanceof Error && error.name === 'ValidationError') {
           validationErrors.push({
@@ -154,15 +231,60 @@ export class LinesDB<Tables extends TableDefs> {
       throw enhancedError;
     }
 
-    this.insertData(tableName, schema, data);
+    // Determine schema - infer from validated data if auto-inference is enabled
+    let schema: TableSchema;
+    if (config.schema) {
+      schema = config.schema;
+    } else if (config.autoInferSchema !== false) {
+      if (validatedData.length === 0) {
+        return false;
+      }
+      // Infer schema from validated data (which may have additional fields added by validation)
+      schema = JsonlReader.inferSchema(tableName, validatedData);
+    } else {
+      throw new Error(`No schema provided for table ${tableName} and autoInferSchema is disabled`);
+    }
+
+    // Enhance schema with constraints from validation schema and schema metadata
+    // Priority: config.validationSchema (as BiDirectionalSchema) > schemaMetadata
+    const biSchema = validationSchema as BiDirectionalSchema;
+    const primaryKey = biSchema?.primaryKey || schemaMetadata.primaryKey;
+    const foreignKeys = biSchema?.foreignKeys || schemaMetadata.foreignKeys;
+    const indexes = biSchema?.indexes || schemaMetadata.indexes;
+
+    if (primaryKey && !schema.columns.some((col) => col.primaryKey)) {
+      // Add primary key constraint to columns
+      for (const pkColumn of primaryKey) {
+        const col = schema.columns.find((c) => c.name === pkColumn);
+        if (col) {
+          col.primaryKey = true;
+        }
+      }
+    }
+    if (foreignKeys) {
+      schema.foreignKeys = foreignKeys;
+    }
+    if (indexes) {
+      schema.indexes = indexes;
+    }
+
+    this.schemas.set(tableName, schema);
+
+    // Create table
+    this.createTable(schema);
+
+    // Insert validated data
+    this.insertData(tableName, schema, validatedData);
+
+    return true;
   }
 
   /**
    * Create table in SQLite with constraints and indexes
    */
   private createTable(schema: TableSchema): void {
-    // Enable foreign key constraints
-    this.db.exec('PRAGMA foreign_keys = ON');
+    // Note: Foreign key constraints are enabled at database connection level (see sqlite-adapter.ts)
+    // No need to enable them here for each table
 
     // Quote table name to handle special characters
     const quotedTableName = this.quoteTableName(schema.name);
@@ -389,13 +511,13 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
-   * Validate data using StandardSchema
+   * Validate data using StandardSchema and return the transformed value
    * Note: Only synchronous validation is supported
    */
-  private validateData(tableName: string, data: unknown): void {
+  private validateAndTransform(tableName: string, data: unknown): JsonObject {
     const schema = this.validationSchemas.get(tableName);
     if (!schema) {
-      return;
+      return data as JsonObject;
     }
 
     const result = schema['~standard'].validate(data);
@@ -434,6 +556,27 @@ export class LinesDB<Tables extends TableDefs> {
       error.issues = result.issues;
       throw error;
     }
+
+    // Return the transformed value from validation
+    // When there are no issues, result.value should be present
+    const transformedValue = ('value' in result ? result.value : data) as JsonObject;
+
+    // Convert undefined values to null for JSON compatibility
+    const normalizedValue: JsonObject = {};
+    for (const [key, value] of Object.entries(transformedValue)) {
+      normalizedValue[key] = value === undefined ? null : value;
+    }
+
+    return normalizedValue;
+  }
+
+  /**
+   * Validate data using StandardSchema (without returning transformed value)
+   * Note: Only synchronous validation is supported
+   */
+  private validateData(tableName: string, data: unknown): void {
+    // Use validateAndTransform but discard the result
+    this.validateAndTransform(tableName, data);
   }
 
   /**
@@ -981,7 +1124,9 @@ export class LinesDB<Tables extends TableDefs> {
 
       return result;
     } catch (error) {
-      this.db.exec('ROLLBACK');
+      if (this.inTransaction) {
+        this.db.exec('ROLLBACK');
+      }
       this.inTransaction = false;
       throw error;
     }

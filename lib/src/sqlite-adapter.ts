@@ -39,6 +39,10 @@ function createNodeDatabase(path: string): SQLiteDatabase {
   const { DatabaseSync } = require('node:sqlite');
   const db = new DatabaseSync(path);
 
+  // CRITICAL: Enable foreign key constraints
+  // SQLite disables foreign keys by default, which is a major data integrity issue
+  db.exec('PRAGMA foreign_keys = ON');
+
   return {
     prepare(sql: string): SQLiteStatement {
       const stmt = db.prepare(sql);

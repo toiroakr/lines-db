@@ -319,6 +319,11 @@ program
           } else if (error instanceof Error) {
             console.error(`\n  ${error.message}`);
 
+            // Output stack trace for debugging
+            if (options.verbose && error.stack) {
+              console.error(`\nStack trace:\n${error.stack}`);
+            }
+
             // Check if it's a SQLite constraint error
             if (
               error.message.includes('UNIQUE constraint failed') ||

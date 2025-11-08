@@ -123,7 +123,7 @@ export class JsonlReader {
   }
 
   private static inferType(value: unknown): string {
-    if (value === null) return 'NULL';
+    if (value === null || value === undefined) return 'NULL';
     if (typeof value === 'number') {
       return Number.isInteger(value) ? 'INTEGER' : 'REAL';
     }

@@ -203,8 +203,9 @@ describe('LinesDB', () => {
   describe('boolean handling', () => {
     it('should handle boolean values correctly', () => {
       const products = db.find('products');
-      expect(products[0].inStock).toBe(1);
-      expect(products[2].inStock).toBe(0);
+      // Schema transforms 0/1 to boolean, so expect boolean values
+      expect(products[0].inStock).toBe(true);
+      expect(products[2].inStock).toBe(false);
     });
   });
 });
