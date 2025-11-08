@@ -1,5 +1,5 @@
 ---
-"@toiroakr/lines-db": minor
+'@toiroakr/lines-db': minor
 ---
 
 - Enhanced database initialization with dependency resolution and error handling
