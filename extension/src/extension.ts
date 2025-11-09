@@ -8,6 +8,9 @@ import { JsonlHoverProvider } from './hover';
 import { MigrationSessionManager } from './migrationSession';
 import { MigrationCodeLensProvider } from './migrationCodeLens';
 import { MigrationValidator } from './migrationValidator';
+import { TempFileManager } from './tempFileManager';
+import { JsonlDocumentLinkProvider } from './documentLinkProvider';
+import { JsonlCodeActionProvider } from './codeActionProvider';
 
 function getTabUri(tab: vscode.Tab): vscode.Uri | undefined {
   const input = tab.input;
@@ -125,6 +128,13 @@ export async function activate(context: vscode.ExtensionContext) {
   MigrationSessionManager.initialize(context);
   outputChannel.appendLine('MigrationSessionManager initialized');
 
+  // Initialize temp file manager
+  outputChannel.appendLine('Initializing TempFileManager...');
+  const tempFileManager = new TempFileManager(context);
+  global.__tempFileManager = tempFileManager;
+  context.subscriptions.push(tempFileManager);
+  outputChannel.appendLine('TempFileManager initialized');
+
   // Register commands
   registerCommands(context);
 
@@ -151,6 +161,18 @@ export async function activate(context: vscode.ExtensionContext) {
   const hoverProvider = new JsonlHoverProvider();
   context.subscriptions.push(
     vscode.languages.registerHoverProvider({ pattern: '**/*.schema.ts' }, hoverProvider),
+  );
+
+  // Register DocumentLink provider for JSONL files
+  const documentLinkProvider = new JsonlDocumentLinkProvider();
+  context.subscriptions.push(
+    vscode.languages.registerDocumentLinkProvider({ language: 'jsonl' }, documentLinkProvider),
+  );
+
+  // Register CodeAction provider for JSONL files
+  const codeActionProvider = new JsonlCodeActionProvider();
+  context.subscriptions.push(
+    vscode.languages.registerCodeActionsProvider({ language: 'jsonl' }, codeActionProvider),
   );
 
   // Watch for migration file saves
@@ -487,7 +509,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // Check all migration sessions to see if their tabs are still open
     const allSessions = MigrationSessionManager.getAllSessions();
 
-    for (const [migrationFilePath, session] of allSessions) {
+    const sessionEntries = Array.from(allSessions.entries());
+    for (const [migrationFilePath, session] of sessionEntries) {
       // Check if migration file tab still exists
       let migrationTabExists = false;
       for (const tabGroup of vscode.window.tabGroups.all) {

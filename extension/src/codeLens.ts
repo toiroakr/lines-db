@@ -36,6 +36,16 @@ export class JsonlCodeLensProvider implements vscode.CodeLensProvider {
       }),
     );
 
+    // Show Preview button
+    codeLenses.push(
+      new vscode.CodeLens(topOfDocument, {
+        title: '$(eye) Show Preview',
+        command: 'lines-db.previewJsonlLine',
+        arguments: [document.uri, 0],
+        tooltip: 'Show preview panel',
+      }),
+    );
+
     // Migrate button
     const migrateLens = new vscode.CodeLens(topOfDocument, {
       title: '$(arrow-right) Migrate',

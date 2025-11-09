@@ -1,7 +1,10 @@
 import * as vscode from 'vscode';
+import type { TempFileManager } from './tempFileManager';
 
 declare global {
   var __linesDbOutputChannel: vscode.OutputChannel | undefined;
+
+  var __tempFileManager: TempFileManager | undefined;
 
   var __linesDbModule:
     | {

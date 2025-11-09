@@ -2,7 +2,7 @@
   "name": "lines-db-vscode",
   "displayName": "LinesDB",
   "description": "VS Code extension for lines-db - JSONL utilities",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "publisher": "toiroakr",
   "author": "toiroakr",
   "engines": {
@@ -29,12 +29,30 @@
       {
         "command": "lines-db.migrate",
         "title": "LinesDB: Migrate Data"
+      },
+      {
+        "command": "lines-db.editJsonlLine",
+        "title": "LinesDB: Edit JSON Line"
+      },
+      {
+        "command": "lines-db.previewJsonlLine",
+        "title": "LinesDB: Preview JSON Line"
       }
     ],
     "menus": {
       "editor/context": [
         {
           "command": "lines-db.migrate",
+          "when": "resourceExtname == .jsonl",
+          "group": "lines-db"
+        },
+        {
+          "command": "lines-db.editJsonlLine",
+          "when": "resourceExtname == .jsonl",
+          "group": "lines-db"
+        },
+        {
+          "command": "lines-db.previewJsonlLine",
           "when": "resourceExtname == .jsonl",
           "group": "lines-db"
         }
@@ -87,16 +105,16 @@
     "test:integration": "pnpm run build && pnpm run compile:test && node ./dist-test/runTest.js"
   },
   "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.6",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
-    "@vscode/vsce": "^3.0.0",
+    "@vscode/test-electron": "^2.4.0",
+    "@vscode/vsce": "^3.7.0",
     "esbuild": "^0.19.0",
     "glob": "^10.3.10",
     "mocha": "^10.2.0",
-    "typescript": "^5.3.3",
-    "@types/glob": "^8.1.0",
-    "@types/mocha": "^10.0.6",
-    "@vscode/test-electron": "^2.4.0"
+    "typescript": "^5.3.3"
   },
   "repository": {
     "type": "git",
