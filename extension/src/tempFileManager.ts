@@ -1,8 +1,8 @@
-import * as vscode from "vscode";
-import * as path from "path";
-import * as fs from "fs";
-import * as os from "os";
-import { TypeScriptTypeExtractor, type FieldInfo } from './typeInfoExtractor.js';
+import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
+import { TypeScriptTypeExtractor } from './typeInfoExtractor.js';
 
 interface TempFileInfo {
   filePath: string;
@@ -29,7 +29,7 @@ export class TempFileManager {
   async createTempFile(
     originalUri: vscode.Uri,
     lineNumber: number,
-    lineText: string
+    lineText: string,
   ): Promise<string> {
     // Parse and format the JSON
     let formatted: string;
@@ -49,7 +49,7 @@ export class TempFileManager {
     const fileName = `.tmp-jsonl-edit-${tableName}-line${lineNumber}.json`;
     const tempFilePath = path.join(tempDir, fileName);
 
-    fs.writeFileSync(tempFilePath, formatted, "utf8");
+    fs.writeFileSync(tempFilePath, formatted, 'utf8');
 
     // Store mapping
     this.tempFiles.set(tempFilePath, {
@@ -78,10 +78,7 @@ export class TempFileManager {
   /**
    * Sort JSON object fields according to schema field order
    */
-  private async sortJsonBySchema(
-    jsonObject: any,
-    schemaFilePath: string
-  ): Promise<any> {
+  private async sortJsonBySchema(jsonObject: any, schemaFilePath: string): Promise<any> {
     try {
       // Extract field order from schema
       const fields = await TypeScriptTypeExtractor.extractSchemaType(schemaFilePath);
@@ -127,7 +124,7 @@ export class TempFileManager {
 
     try {
       // Read the edited content
-      const editedContent = fs.readFileSync(tempFilePath, "utf8");
+      const editedContent = fs.readFileSync(tempFilePath, 'utf8');
       let parsed = JSON.parse(editedContent);
 
       // Try to sort by schema if available
@@ -154,8 +151,7 @@ export class TempFileManager {
         .flatMap((group) => group.tabs)
         .filter(
           (tab) =>
-            tab.input instanceof vscode.TabInputText &&
-            tab.input.uri.fsPath === tempFilePath
+            tab.input instanceof vscode.TabInputText && tab.input.uri.fsPath === tempFilePath,
         );
       await vscode.window.tabGroups.close(tabs);
 

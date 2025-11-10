@@ -1,5 +1,5 @@
 ---
-"@toiroakr/lines-db": minor
+'@toiroakr/lines-db': minor
 ---
 
 - Add support for composite foreign keys

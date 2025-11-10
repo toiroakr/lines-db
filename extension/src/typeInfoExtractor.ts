@@ -24,7 +24,9 @@ export class TypeScriptTypeExtractor {
   static async extractSchemaType(schemaFilePath: string): Promise<FieldInfo[] | undefined> {
     const outputChannel = global.__linesDbOutputChannel!;
     try {
-      outputChannel.appendLine('[TypeScriptExtractor] Extracting type info from: ' + schemaFilePath);
+      outputChannel.appendLine(
+        '[TypeScriptExtractor] Extracting type info from: ' + schemaFilePath,
+      );
 
       // Open the schema file as a TextDocument
       const uri = vscode.Uri.file(schemaFilePath);
@@ -36,7 +38,9 @@ export class TypeScriptTypeExtractor {
         outputChannel.appendLine('[TypeScriptExtractor] Could not find schema export');
         return undefined;
       }
-      outputChannel.appendLine('[TypeScriptExtractor] Found schema export at line ' + schemaPosition.line);
+      outputChannel.appendLine(
+        '[TypeScriptExtractor] Found schema export at line ' + schemaPosition.line,
+      );
 
       // Get hover information at the schema position
       const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
@@ -52,7 +56,9 @@ export class TypeScriptTypeExtractor {
 
       // Extract type information from hover content
       const hoverContent = this.extractHoverContent(hovers);
-      outputChannel.appendLine('[TypeScriptExtractor] Hover content: ' + hoverContent.substring(0, 200));
+      outputChannel.appendLine(
+        '[TypeScriptExtractor] Hover content: ' + hoverContent.substring(0, 200),
+      );
 
       // Parse the type information to extract fields
       const fields = this.parseTypeFromHover(hoverContent, outputChannel);
@@ -126,8 +132,9 @@ export class TypeScriptTypeExtractor {
     // or: { id: number; name: string; ... }
 
     // Look for object type definition in angle brackets or after colon
-    const typeMatch = hoverContent.match(/BiDirectionalSchema<[^,]+,\s*({[^}]+})/s) ||
-                      hoverContent.match(/:\s*({[^}]+})/s);
+    const typeMatch =
+      hoverContent.match(/BiDirectionalSchema<[^,]+,\s*({[^}]+})/s) ||
+      hoverContent.match(/:\s*({[^}]+})/s);
 
     if (!typeMatch) {
       outputChannel.appendLine('[TypeScriptExtractor] No object type found in hover');
@@ -135,7 +142,9 @@ export class TypeScriptTypeExtractor {
     }
 
     const objectType = typeMatch[1];
-    outputChannel.appendLine('[TypeScriptExtractor] Found object type: ' + objectType.substring(0, 100));
+    outputChannel.appendLine(
+      '[TypeScriptExtractor] Found object type: ' + objectType.substring(0, 100),
+    );
 
     return this.parseObjectType(objectType, outputChannel);
   }
@@ -244,19 +253,18 @@ export class TypeScriptTypeExtractor {
 
     // Check for union type
     if (typeStr.includes('|')) {
-      const types = typeStr.split('|').map(t => t.trim());
+      const types = typeStr.split('|').map((t) => t.trim());
       const nullable = types.includes('null');
-      const nonNullTypes = types.filter(t => t !== 'null' && t !== 'undefined');
+      const nonNullTypes = types.filter((t) => t !== 'null' && t !== 'undefined');
 
       // Check if all non-null types are string literals (enum)
-      const stringLiterals = nonNullTypes.filter(t =>
-        (t.startsWith('"') && t.endsWith('"')) ||
-        (t.startsWith("'") && t.endsWith("'"))
+      const stringLiterals = nonNullTypes.filter(
+        (t) => (t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")),
       );
 
       if (stringLiterals.length > 0 && stringLiterals.length === nonNullTypes.length) {
         // This is a string literal union (enum)
-        const enumValues = stringLiterals.map(s => s.substring(1, s.length - 1));
+        const enumValues = stringLiterals.map((s) => s.substring(1, s.length - 1));
         return {
           name,
           type: 'enum',

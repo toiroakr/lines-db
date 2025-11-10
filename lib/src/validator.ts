@@ -118,7 +118,7 @@ export class Validator {
     const warnMessages: string[] = [];
     const originalWarn = console.warn;
     console.warn = (...args: unknown[]) => {
-      const message = args.map(arg => String(arg)).join(' ');
+      const message = args.map((arg) => String(arg)).join(' ');
       warnMessages.push(message);
       // Still output to console for debugging
       originalWarn(...args);
@@ -137,7 +137,7 @@ export class Validator {
           const tableNameMatch = message.match(/Failed to load table '([^']+)'/);
           const tableName = tableNameMatch ? tableNameMatch[1] : 'unknown';
 
-          const file = jsonlFiles.find(f => basename(f, '.jsonl') === tableName);
+          const file = jsonlFiles.find((f) => basename(f, '.jsonl') === tableName);
 
           errors.push({
             file: file || `${dirPath}/${tableName}.jsonl`,

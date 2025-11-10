@@ -1,197 +1,207 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JSONL Preview</title>
-  <style>
-    body {
-      font-family: var(--vscode-font-family);
-      font-size: var(--vscode-font-size);
-      color: var(--vscode-foreground);
-      background-color: var(--vscode-editor-background);
-      margin: 0;
-      padding: 20px;
-      line-height: 1.6;
-    }
-    code {
-      background-color: transparent;
-    }
-    .line-info {
-      color: var(--vscode-descriptionForeground);
-      margin-bottom: 10px;
-      font-size: 0.9em;
-    }
-    pre[class*="language-"] {
-      background-color: var(--vscode-textBlockQuote-background);
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 4px;
-      padding: 15px;
-      overflow: auto;
-      margin: 0;
-    }
-    code[class*="language-"] {
-      font-family: var(--vscode-editor-font-family);
-      font-size: var(--vscode-editor-font-size);
-      text-shadow: none;
-    }
-    .error {
-      color: var(--vscode-errorForeground);
-      font-family: var(--vscode-editor-font-family);
-      font-size: var(--vscode-editor-font-size);
-    }
-    /* Override Prism theme colors to match VS Code */
-    .token.property {
-      color: var(--vscode-debugTokenExpression-type);
-    }
-    .token.string {
-      color: var(--vscode-debugTokenExpression-string);
-    }
-    .token.number {
-      color: var(--vscode-debugTokenExpression-number);
-    }
-    .token.boolean {
-      color: var(--vscode-debugTokenExpression-boolean);
-    }
-    .token.null {
-      color: var(--vscode-debugTokenExpression-value);
-    }
-    .token.punctuation {
-      color: var(--vscode-foreground);
-    }
-    .token.comment {
-      color: var(--vscode-descriptionForeground);
-      font-style: italic;
-    }
-    .navigation {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 15px;
-    }
-    .navigation button {
-      background-color: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      border: none;
-      padding: 5px 10px;
-      border-radius: 3px;
-      cursor: pointer;
-      font-size: var(--vscode-font-size);
-    }
-    .navigation button:hover {
-      background-color: var(--vscode-button-hoverBackground);
-    }
-    .navigation button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-    .navigation input {
-      background-color: var(--vscode-input-background);
-      color: var(--vscode-input-foreground);
-      border: 1px solid var(--vscode-input-border);
-      padding: 5px;
-      border-radius: 3px;
-      width: 80px;
-      font-size: var(--vscode-font-size);
-    }
-    .line-counter {
-      color: var(--vscode-descriptionForeground);
-    }
-    .json-container {
-      position: relative;
-    }
-    .copy-button {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background-color: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      border: none;
-      padding: 5px 10px;
-      border-radius: 3px;
-      cursor: pointer;
-      font-size: 12px;
-      transition: opacity 0.2s;
-    }
-    .copy-button:hover {
-      background-color: var(--vscode-button-hoverBackground);
-    }
-    .copy-button.copied {
-      background-color: var(--vscode-testing-iconPassed);
-    }
-  </style>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
-</head>
-<body>
-  <div class="navigation">
-    <button onclick="navigate('prev')">&lt; Prev</button>
-    <input type="number" id="lineInput" value="{{LINE_NUMBER}}" min="1" max="{{TOTAL_LINES}}" onchange="goToLine(this.value)">
-    <span class="line-counter">/ {{TOTAL_LINES}}</span>
-    <button onclick="navigate('next')">Next &gt;</button>
-    <button onclick="editCurrentLine()">Edit</button>
-  </div>
-  <div class="json-container">
-    <pre><code class="language-json">{{CONTENT}}</code></pre>
-    <button class="copy-button" onclick="copyJson()">Copy JSON</button>
-    <pre class="original-json" hidden>{{ORIGINAL_CONTENT}}</pre>
-  </div>
-  <script>
-    // Highlight the code
-    Prism.highlightAll();
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JSONL Preview</title>
+    <style>
+      body {
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size);
+        color: var(--vscode-foreground);
+        background-color: var(--vscode-editor-background);
+        margin: 0;
+        padding: 20px;
+        line-height: 1.6;
+      }
+      code {
+        background-color: transparent;
+      }
+      .line-info {
+        color: var(--vscode-descriptionForeground);
+        margin-bottom: 10px;
+        font-size: 0.9em;
+      }
+      pre[class*='language-'] {
+        background-color: var(--vscode-textBlockQuote-background);
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 4px;
+        padding: 15px;
+        overflow: auto;
+        margin: 0;
+      }
+      code[class*='language-'] {
+        font-family: var(--vscode-editor-font-family);
+        font-size: var(--vscode-editor-font-size);
+        text-shadow: none;
+      }
+      .error {
+        color: var(--vscode-errorForeground);
+        font-family: var(--vscode-editor-font-family);
+        font-size: var(--vscode-editor-font-size);
+      }
+      /* Override Prism theme colors to match VS Code */
+      .token.property {
+        color: var(--vscode-debugTokenExpression-type);
+      }
+      .token.string {
+        color: var(--vscode-debugTokenExpression-string);
+      }
+      .token.number {
+        color: var(--vscode-debugTokenExpression-number);
+      }
+      .token.boolean {
+        color: var(--vscode-debugTokenExpression-boolean);
+      }
+      .token.null {
+        color: var(--vscode-debugTokenExpression-value);
+      }
+      .token.punctuation {
+        color: var(--vscode-foreground);
+      }
+      .token.comment {
+        color: var(--vscode-descriptionForeground);
+        font-style: italic;
+      }
+      .navigation {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 15px;
+      }
+      .navigation button {
+        background-color: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border: none;
+        padding: 5px 10px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: var(--vscode-font-size);
+      }
+      .navigation button:hover {
+        background-color: var(--vscode-button-hoverBackground);
+      }
+      .navigation button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .navigation input {
+        background-color: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        border: 1px solid var(--vscode-input-border);
+        padding: 5px;
+        border-radius: 3px;
+        width: 80px;
+        font-size: var(--vscode-font-size);
+      }
+      .line-counter {
+        color: var(--vscode-descriptionForeground);
+      }
+      .json-container {
+        position: relative;
+      }
+      .copy-button {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background-color: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border: none;
+        padding: 5px 10px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: opacity 0.2s;
+      }
+      .copy-button:hover {
+        background-color: var(--vscode-button-hoverBackground);
+      }
+      .copy-button.copied {
+        background-color: var(--vscode-testing-iconPassed);
+      }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+  </head>
+  <body>
+    <div class="navigation">
+      <button onclick="navigate('prev')">&lt; Prev</button>
+      <input
+        type="number"
+        id="lineInput"
+        value="{{LINE_NUMBER}}"
+        min="1"
+        max="{{TOTAL_LINES}}"
+        onchange="goToLine(this.value)"
+      />
+      <span class="line-counter">/ {{TOTAL_LINES}}</span>
+      <button onclick="navigate('next')">Next &gt;</button>
+      <button onclick="editCurrentLine()">Edit</button>
+    </div>
+    <div class="json-container">
+      <pre><code class="language-json">{{CONTENT}}</code></pre>
+      <button class="copy-button" onclick="copyJson()">Copy JSON</button>
+      <pre class="original-json" hidden>{{ORIGINAL_CONTENT}}</pre>
+    </div>
+    <script>
+      // Highlight the code
+      Prism.highlightAll();
 
-    // Get VS Code API
-    const vscode = acquireVsCodeApi();
+      // Get VS Code API
+      const vscode = acquireVsCodeApi();
 
-    // Navigation functions
-    function navigate(direction) {
-      vscode.postMessage({
-        command: 'navigate',
-        direction: direction
-      });
-    }
-
-    function goToLine(line) {
-      const lineNum = parseInt(line);
-      if (!isNaN(lineNum)) {
+      // Navigation functions
+      function navigate(direction) {
         vscode.postMessage({
-          command: 'goToLine',
-          line: lineNum
+          command: 'navigate',
+          direction: direction,
         });
       }
-    }
 
-    // Handle Enter key in input
-    document.getElementById('lineInput').addEventListener('keypress', function(e) {
-      if (e.key === 'Enter') {
-        goToLine(this.value);
+      function goToLine(line) {
+        const lineNum = parseInt(line);
+        if (!isNaN(lineNum)) {
+          vscode.postMessage({
+            command: 'goToLine',
+            line: lineNum,
+          });
+        }
       }
-    });
 
-    // Copy functionality
-    function copyJson() {
-      const content = document.querySelector('.original-json').textContent;
-      navigator.clipboard.writeText(content).then(() => {
-        const button = document.querySelector('.copy-button');
-        const originalText = button.textContent;
-        button.textContent = 'Copied!';
-        button.classList.add('copied');
-
-        setTimeout(() => {
-          button.textContent = originalText;
-          button.classList.remove('copied');
-        }, 2000);
-      }).catch(err => {
-        console.error('Failed to copy:', err);
+      // Handle Enter key in input
+      document.getElementById('lineInput').addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') {
+          goToLine(this.value);
+        }
       });
-    }
 
-    // Edit functionality
-    function editCurrentLine() {
-      vscode.postMessage({
-        command: 'editLine'
-      });
-    }
-  </script>
-</body>
+      // Copy functionality
+      function copyJson() {
+        const content = document.querySelector('.original-json').textContent;
+        navigator.clipboard
+          .writeText(content)
+          .then(() => {
+            const button = document.querySelector('.copy-button');
+            const originalText = button.textContent;
+            button.textContent = 'Copied!';
+            button.classList.add('copied');
+
+            setTimeout(() => {
+              button.textContent = originalText;
+              button.classList.remove('copied');
+            }, 2000);
+          })
+          .catch((err) => {
+            console.error('Failed to copy:', err);
+          });
+      }
+
+      // Edit functionality
+      function editCurrentLine() {
+        vscode.postMessage({
+          command: 'editLine',
+        });
+      }
+    </script>
+  </body>
 </html>

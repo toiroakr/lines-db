@@ -1,6 +1,6 @@
-import * as vscode from "vscode";
-import * as path from "path";
-import * as fs from "fs";
+import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 
 /**
  * Manages the JSONL preview panel
@@ -15,7 +15,7 @@ export class JsonlPreviewPanel {
 
   private constructor(
     panel: vscode.WebviewPanel,
-    private readonly extensionUri: vscode.Uri
+    private readonly extensionUri: vscode.Uri,
   ) {
     this.panel = panel;
 
@@ -26,19 +26,19 @@ export class JsonlPreviewPanel {
     this.panel.webview.onDidReceiveMessage(
       (message) => {
         switch (message.command) {
-          case "navigate":
+          case 'navigate':
             this.navigate(message.direction);
             break;
-          case "goToLine":
+          case 'goToLine':
             this.goToLine(message.line);
             break;
-          case "editLine":
+          case 'editLine':
             this.editCurrentLine();
             break;
         }
       },
       null,
-      this.disposables
+      this.disposables,
     );
 
     // Listen to active editor changes
@@ -50,21 +50,18 @@ export class JsonlPreviewPanel {
         }
       },
       null,
-      this.disposables
+      this.disposables,
     );
 
     // Listen to document changes
     vscode.workspace.onDidChangeTextDocument(
       (event) => {
-        if (
-          this.currentDocument &&
-          event.document === this.currentDocument
-        ) {
+        if (this.currentDocument && event.document === this.currentDocument) {
           this.updatePreview();
         }
       },
       null,
-      this.disposables
+      this.disposables,
     );
 
     // Listen to selection changes
@@ -83,7 +80,7 @@ export class JsonlPreviewPanel {
         }
       },
       null,
-      this.disposables
+      this.disposables,
     );
   }
 
@@ -101,16 +98,11 @@ export class JsonlPreviewPanel {
     }
 
     // Create a new panel
-    const panel = vscode.window.createWebviewPanel(
-      "jsonlPreview",
-      "JSONL Preview",
-      column,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [extensionUri],
-      }
-    );
+    const panel = vscode.window.createWebviewPanel('jsonlPreview', 'JSONL Preview', column, {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [extensionUri],
+    });
 
     JsonlPreviewPanel.currentPanel = new JsonlPreviewPanel(panel, extensionUri);
     JsonlPreviewPanel.currentPanel.initializeWithActiveEditor();
@@ -122,7 +114,7 @@ export class JsonlPreviewPanel {
   public static previewLine(
     extensionUri: vscode.Uri,
     document: vscode.TextDocument,
-    lineNumber: number
+    lineNumber: number,
   ): void {
     JsonlPreviewPanel.createOrShow(extensionUri);
     if (JsonlPreviewPanel.currentPanel) {
@@ -142,7 +134,7 @@ export class JsonlPreviewPanel {
       this.currentLine = editor.selection.active.line;
       this.updatePreview();
     } else {
-      this.showMessage("No JSONL file is currently active");
+      this.showMessage('No JSONL file is currently active');
     }
   }
 
@@ -156,28 +148,28 @@ export class JsonlPreviewPanel {
 
     const lineText = this.currentDocument.lineAt(this.currentLine).text.trim();
     let formattedJson: string;
-    let originalContent: string = lineText;
+    const originalContent: string = lineText;
 
     if (!lineText) {
-      formattedJson = "Empty line";
+      formattedJson = 'Empty line';
     } else {
       try {
-        const multilineMarker = "[toiroakr.lines-db.multiline]";
+        const multilineMarker = '[toiroakr.lines-db.multiline]';
         const parsed = JSON.parse(lineText);
         formattedJson = JSON.stringify(
           parsed,
           (_, value) => {
             // Convert strings containing newlines to arrays
-            if (typeof value === "string" && value.includes("\n")) {
-              const lines = value.split("\n");
+            if (typeof value === 'string' && value.includes('\n')) {
+              const lines = value.split('\n');
               return [multilineMarker, ...lines];
             }
             return value;
           },
-          2
+          2,
         ).replace(
-          new RegExp(`"\\${multilineMarker}",`, "g"),
-          `// Displayed as array for multiline string readability`
+          new RegExp(`"\\${multilineMarker}",`, 'g'),
+          `// Displayed as array for multiline string readability`,
         );
       } catch (error) {
         formattedJson = `Invalid JSON: ${error}`;
@@ -188,7 +180,7 @@ export class JsonlPreviewPanel {
       this.currentLine + 1,
       this.currentDocument.lineCount,
       formattedJson,
-      originalContent
+      originalContent,
     );
     this.panel.webview.html = html;
   }
@@ -196,13 +188,13 @@ export class JsonlPreviewPanel {
   /**
    * Navigates to the next or previous line
    */
-  private navigate(direction: "prev" | "next"): void {
+  private navigate(direction: 'prev' | 'next'): void {
     if (!this.currentDocument) {
       return;
     }
 
     const newLine =
-      direction === "prev"
+      direction === 'prev'
         ? Math.max(0, this.currentLine - 1)
         : Math.min(this.currentDocument.lineCount - 1, this.currentLine + 1);
 
@@ -223,7 +215,7 @@ export class JsonlPreviewPanel {
         editor.selection = new vscode.Selection(position, position);
         editor.revealRange(
           new vscode.Range(position, position),
-          vscode.TextEditorRevealType.InCenter
+          vscode.TextEditorRevealType.InCenter,
         );
       }
     }
@@ -255,12 +247,12 @@ export class JsonlPreviewPanel {
         editor.selection = new vscode.Selection(position, position);
         editor.revealRange(
           new vscode.Range(position, position),
-          vscode.TextEditorRevealType.InCenter
+          vscode.TextEditorRevealType.InCenter,
         );
       }
     } else {
       vscode.window.showErrorMessage(
-        `Line ${lineNumber} is out of range (1-${this.currentDocument.lineCount})`
+        `Line ${lineNumber} is out of range (1-${this.currentDocument.lineCount})`,
       );
     }
   }
@@ -274,9 +266,9 @@ export class JsonlPreviewPanel {
     }
 
     vscode.commands.executeCommand(
-      "lines-db.editJsonlLine",
+      'lines-db.editJsonlLine',
       this.currentDocument.uri,
-      this.currentLine
+      this.currentLine,
     );
   }
 
@@ -315,19 +307,15 @@ export class JsonlPreviewPanel {
     lineNumber: number,
     totalLines: number,
     content: string,
-    originalContent: string
+    originalContent: string,
   ): string {
-    const templatePath = path.join(
-      this.extensionUri.fsPath,
-      "dist",
-      "preview-template.html"
-    );
+    const templatePath = path.join(this.extensionUri.fsPath, 'dist', 'preview-template.html');
 
-    let html = fs.readFileSync(templatePath, "utf8");
+    let html = fs.readFileSync(templatePath, 'utf8');
 
     // Prepare content based on whether it's valid JSON or an error
-    let contentHtml = "";
-    const isError = content.startsWith("Invalid") || content.startsWith("Empty");
+    let contentHtml = '';
+    const isError = content.startsWith('Invalid') || content.startsWith('Empty');
 
     if (isError) {
       contentHtml = `<div class="error">${this.escapeHtml(content)}</div>`;
@@ -339,7 +327,7 @@ export class JsonlPreviewPanel {
     html = html.replace(/{{LINE_NUMBER}}/g, lineNumber.toString());
     html = html.replace(/{{TOTAL_LINES}}/g, totalLines.toString());
     html = html.replace(/<pre><code class="language-json">{{CONTENT}}<\/code><\/pre>/, contentHtml);
-    html = html.replace("{{ORIGINAL_CONTENT}}", this.escapeHtml(originalContent));
+    html = html.replace('{{ORIGINAL_CONTENT}}', this.escapeHtml(originalContent));
 
     // Remove Copy JSON button for errors/empty lines
     if (isError) {
@@ -354,11 +342,11 @@ export class JsonlPreviewPanel {
    */
   private escapeHtml(text: string): string {
     const map: { [key: string]: string } = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#039;",
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;',
     };
     return text.replace(/[&<>"']/g, (m) => map[m]);
   }
@@ -367,10 +355,7 @@ export class JsonlPreviewPanel {
    * Checks if a document is a JSONL file
    */
   private isJsonlFile(document: vscode.TextDocument): boolean {
-    return (
-      document.languageId === "jsonl" ||
-      document.fileName.endsWith(".jsonl")
-    );
+    return document.languageId === 'jsonl' || document.fileName.endsWith('.jsonl');
   }
 
   /**

@@ -537,7 +537,7 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
       }
       outputChannel.appendLine('[Completion] currentValue: "' + currentValue + '"');
       outputChannel.appendLine(
-        `[Completion] valueRange: ${valueStartPos ? `(${valueStartPos.line}, ${valueStartPos.character})` : 'none'} to ${valueEndPos ? `(${valueEndPos.line}, ${valueEndPos.character})` : 'none'}`
+        `[Completion] valueRange: ${valueStartPos ? `(${valueStartPos.line}, ${valueStartPos.character})` : 'none'} to ${valueEndPos ? `(${valueEndPos.line}, ${valueEndPos.character})` : 'none'}`,
       );
     }
 
@@ -551,7 +551,7 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
         insideQuotes,
         currentValue,
         valueStartPos,
-        valueEndPos
+        valueEndPos,
       );
     }
 
@@ -600,10 +600,10 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
         if (valueStartPos && valueEndPos) {
           item.range = new vscode.Range(valueStartPos, valueEndPos);
           outputChannel.appendLine(
-            `[Completion] Setting enum completion range from (${valueStartPos.line}, ${valueStartPos.character}) to (${valueEndPos.line}, ${valueEndPos.character}) for value "${value}"`
+            `[Completion] Setting enum completion range from (${valueStartPos.line}, ${valueStartPos.character}) to (${valueEndPos.line}, ${valueEndPos.character}) for value "${value}"`,
           );
           outputChannel.appendLine(
-            `[Completion] VSCode will filter "${value}" against current input "${currentValue}"`
+            `[Completion] VSCode will filter "${value}" against current input "${currentValue}"`,
           );
         }
       }
