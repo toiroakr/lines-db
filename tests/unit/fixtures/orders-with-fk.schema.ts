@@ -10,11 +10,11 @@ const orderSchema = v.object({
 });
 
 export const schema = defineSchema(orderSchema, {
-  primaryKey: ['id'],
+  primaryKey: 'id',
   foreignKeys: [
     {
-      columns: ['customerId'],
-      references: { table: 'customers', columns: ['id'] },
+      column: 'customerId',
+      references: { table: 'customers', column: 'id' },
       onDelete: 'CASCADE',
     },
   ],

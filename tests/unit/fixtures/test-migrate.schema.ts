@@ -9,7 +9,7 @@ const testMigrateSchema = v.object({
 });
 
 export const schema = defineSchema(testMigrateSchema, {
-  primaryKey: ['id'],
+  primaryKey: 'id',
 });
 
 export type TestMigrate = InferOutput<typeof schema>;

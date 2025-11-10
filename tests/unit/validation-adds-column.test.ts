@@ -45,7 +45,7 @@ export const schema = defineSchema(
         return { value };
       },
     },
-    primaryKey: ['id'],
+    primaryKey: 'id',
   },
 );
 `,

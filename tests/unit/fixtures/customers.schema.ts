@@ -9,7 +9,7 @@ const customerSchema = v.object({
 });
 
 export const schema = defineSchema(customerSchema, {
-  primaryKey: ['id'],
+  primaryKey: 'id',
   indexes: [{ columns: ['email'], unique: true }],
 });
 

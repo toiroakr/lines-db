@@ -13,7 +13,7 @@ const userSchema = v.object({
 // Wrap with defineSchema to create BiDirectionalSchema
 // No backward transformation needed since Input = Output
 export const schema = defineSchema(userSchema, {
-  primaryKey: ['id'],
+  primaryKey: 'id',
   indexes: [{ columns: ['email'], unique: true }],
 });
 
