@@ -1,5 +1,5 @@
 ---
-"@toiroakr/lines-db": patch
+'@toiroakr/lines-db': patch
 ---
 
 Fix constraint validation in validator to properly detect primary key and unique index violations
