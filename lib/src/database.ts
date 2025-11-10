@@ -157,7 +157,7 @@ export class LinesDB<Tables extends TableDefs> {
     // Load validation schema if provided or try to auto-load
     let validationSchema = config.validationSchema;
     const schemaMetadata: {
-      primaryKey?: readonly string[];
+      primaryKey?: string;
       foreignKeys?: BiDirectionalSchema['foreignKeys'];
       indexes?: BiDirectionalSchema['indexes'];
     } = {};
@@ -267,12 +267,10 @@ export class LinesDB<Tables extends TableDefs> {
     const indexes = biSchema?.indexes || schemaMetadata.indexes;
 
     if (primaryKey && !schema.columns.some((col) => col.primaryKey)) {
-      // Add primary key constraint to columns
-      for (const pkColumn of primaryKey) {
-        const col = schema.columns.find((c) => c.name === pkColumn);
-        if (col) {
-          col.primaryKey = true;
-        }
+      // Add primary key constraint to column
+      const col = schema.columns.find((c) => c.name === primaryKey);
+      if (col) {
+        col.primaryKey = true;
       }
     } else if (!primaryKey && !schema.columns.some((col) => col.primaryKey)) {
       // If no primary key is defined, use 'id' column as primary key if it exists
@@ -325,10 +323,8 @@ export class LinesDB<Tables extends TableDefs> {
     if (schema.foreignKeys && schema.foreignKeys.length > 0) {
       for (const fk of schema.foreignKeys) {
         const fkParts = [
-          `FOREIGN KEY (${fk.columns.map((col) => this.quoteIdentifier(col)).join(', ')})`,
-          `REFERENCES ${this.quoteTableName(fk.references.table)}(${fk.references.columns
-            .map((col) => this.quoteIdentifier(col))
-            .join(', ')})`,
+          `FOREIGN KEY (${this.quoteIdentifier(fk.column)})`,
+          `REFERENCES ${this.quoteTableName(fk.references.table)}(${this.quoteIdentifier(fk.references.column)})`,
         ];
         if (fk.onDelete) {
           fkParts.push(`ON DELETE ${fk.onDelete}`);

@@ -8,5 +8,5 @@ const rawSchema = v.object({
 });
 
 export const schema = defineSchema(rawSchema, {
-  primaryKey: ['id'],
+  primaryKey: 'id',
 });

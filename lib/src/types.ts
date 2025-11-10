@@ -18,10 +18,10 @@ export type InferInput<T> = T extends StandardSchemaV1<infer I, unknown> ? I : n
 export type InferOutput<T> = T extends StandardSchemaV1<unknown, infer O> ? O : never;
 
 export interface ForeignKeyDefinition {
-  columns: string[];
+  column: string;
   references: {
     table: string;
-    columns: string[];
+    column: string;
   };
   onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
   onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';

@@ -5,9 +5,9 @@ import type { StandardSchema, Table, ForeignKeyDefinition, IndexDefinition } fro
  */
 export interface SchemaOptions {
   /**
-   * Primary key columns
+   * Primary key column
    */
-  primaryKey?: string[];
+  primaryKey?: string;
 
   /**
    * Foreign key constraints
@@ -39,9 +39,9 @@ export interface BiDirectionalSchema<Input extends Table = Table, Output extends
   backward?: (output: Output) => Input;
 
   /**
-   * Primary key columns
+   * Primary key column
    */
-  primaryKey?: string[];
+  primaryKey?: string;
 
   /**
    * Foreign key constraints
@@ -79,9 +79,9 @@ export interface BiDirectionalSchema<Input extends Table = Table, Output extends
  * const schema = defineSchema(
  *   v.object({ id: v.number(), customerId: v.number() }),
  *   {
- *     primaryKey: ['id'],
+ *     primaryKey: 'id',
  *     foreignKeys: [
- *       { columns: ['customerId'], references: { table: 'users', columns: ['id'] } }
+ *       { column: 'customerId', references: { table: 'users', column: 'id' } }
  *     ]
  *   }
  * );
