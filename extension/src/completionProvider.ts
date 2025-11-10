@@ -217,6 +217,10 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
     const line = document.lineAt(position.line).text;
     const beforeCursor = line.substring(0, position.character);
 
+    outputChannel.appendLine(
+      '[Completion] analyzeContext: beforeCursor = ' + beforeCursor.substring(0, 200),
+    );
+
     // Simple heuristic to determine if we're in a field name or value
     // Look for the last unquoted colon
     const isFieldName = this.isInFieldNamePosition(beforeCursor);
@@ -251,7 +255,15 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
 
     // If inside quotes after a colon, we're in a value
     const colonIndex = afterBrace.lastIndexOf(':');
+    const commaIndex = afterBrace.lastIndexOf(',');
+
     if (colonIndex !== -1 && insideQuotes) {
+      // If there's a comma after the colon, we're starting a new field
+      if (commaIndex > colonIndex) {
+        return true;
+      }
+
+      // Otherwise, we're in a value position
       const afterColon = afterBrace.substring(colonIndex + 1).trim();
       if (afterColon.length === 0 || afterColon === '"') {
         return false;
@@ -332,17 +344,25 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
 
     // Find the last opening brace
     const lastBrace = textBeforeCursor.lastIndexOf('{');
-    if (lastBrace === -1) return fields;
+    if (lastBrace === -1) {
+      outputChannel.appendLine('[Completion] extractExistingFields: no opening brace found');
+      return fields;
+    }
 
     const objectText = textBeforeCursor.substring(lastBrace);
+    outputChannel.appendLine(
+      '[Completion] extractExistingFields: objectText = ' + objectText.substring(0, 200),
+    );
 
     // Extract field names using regex
     const fieldPattern = /"([^"]+)"\s*:/g;
     let match;
     while ((match = fieldPattern.exec(objectText)) !== null) {
       fields.add(match[1]);
+      outputChannel.appendLine('[Completion] extractExistingFields: found field = ' + match[1]);
     }
 
+    outputChannel.appendLine('[Completion] extractExistingFields: total fields = ' + fields.size);
     return fields;
   }
 
@@ -386,95 +406,125 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
 
     outputChannel.appendLine(`[Completion] quoteBefore: ${quoteBefore}, quoteAfter: ${quoteAfter}`);
 
-    return fields
-      .filter((field) => !existingFields.has(field.name))
-      .map((field) => {
-        const item = new vscode.CompletionItem(field.name, vscode.CompletionItemKind.Field);
+    const filteredFields = fields.filter((field) => !existingFields.has(field.name));
+    outputChannel.appendLine(
+      `[Completion] After filtering existing fields: ${filteredFields.length} fields remaining`,
+    );
+    outputChannel.appendLine(
+      `[Completion] Remaining fields: ${filteredFields.map((f) => f.name).join(', ')}`,
+    );
 
-        // Add type information in detail
-        item.detail = this.formatFieldType(field);
+    return filteredFields.map((field) => {
+      const item = new vscode.CompletionItem(field.name, vscode.CompletionItemKind.Field);
 
-        // Add documentation
-        const doc = new vscode.MarkdownString();
-        doc.appendCodeblock(field.name, 'typescript');
-        if (field.description) {
-          doc.appendText(field.description);
-        }
-        doc.appendText(`\n\nType: ${this.formatFieldType(field)}`);
+      // Add type information in detail
+      item.detail = this.formatFieldType(field);
 
-        if (field.optional) {
-          doc.appendText(' (optional)');
-        }
-        if (field.nullable) {
-          doc.appendText(' (nullable)');
-        }
+      // Add documentation
+      const doc = new vscode.MarkdownString();
+      doc.appendCodeblock(field.name, 'typescript');
+      if (field.description) {
+        doc.appendText(field.description);
+      }
+      doc.appendText(`\n\nType: ${this.formatFieldType(field)}`);
 
-        item.documentation = doc;
+      if (field.optional) {
+        doc.appendText(' (optional)');
+      }
+      if (field.nullable) {
+        doc.appendText(' (nullable)');
+      }
 
-        // Generate insert text using helper function
-        const insertText = generateFieldNameInsertText(field.name, field.type, quoteBefore);
+      item.documentation = doc;
 
-        item.insertText = new vscode.SnippetString(insertText);
+      // Generate insert text using helper function
+      const insertText = generateFieldNameInsertText(field.name, field.type, quoteBefore);
 
-        // Set the range to replace
-        if (quoteBefore && !quoteAfter) {
-          // Case: "gende| or "gende |
-          // We need to replace from the opening quote to cursor
-          // Find the last quote position in beforeCursor
-          const lastQuoteIndex = beforeCursor.lastIndexOf('"');
-          outputChannel.appendLine(
-            `[Completion] quoteBefore=true, quoteAfter=false, lastQuoteIndex=${lastQuoteIndex}, position.character=${position.character}`,
-          );
-          if (lastQuoteIndex !== -1) {
-            const start = position.translate(0, -(position.character - lastQuoteIndex));
-            const end = position;
-            item.range = new vscode.Range(start, end);
+      item.insertText = new vscode.SnippetString(insertText);
 
-            // Set filterText to the partial field name (without quotes)
-            // This allows VSCode to match user input with completion items
-            const partialFieldName = beforeCursor.substring(lastQuoteIndex + 1);
-            item.filterText = partialFieldName;
-
-            outputChannel.appendLine(
-              `[Completion] Setting item.range from (${start.line}, ${start.character}) to (${end.line}, ${end.character})`,
-            );
-            outputChannel.appendLine(
-              `[Completion] This will replace: ${beforeCursor.substring(lastQuoteIndex)}`,
-            );
-            outputChannel.appendLine(`[Completion] filterText set to: "${partialFieldName}"`);
-          }
-        } else if (quoteBefore && quoteAfter) {
-          // Case: "gende|" or "|"
-          // We need to replace from the opening quote to the closing quote
-          const lastQuoteIndex = beforeCursor.lastIndexOf('"');
-          if (lastQuoteIndex !== -1) {
-            const start = position.translate(0, -(position.character - lastQuoteIndex));
-            const end = position.translate(0, 1); // Include closing quote
-            item.range = new vscode.Range(start, end);
-
-            // Set filterText to the partial field name (without quotes)
-            const partialFieldName = beforeCursor.substring(lastQuoteIndex + 1);
-            item.filterText = partialFieldName;
-
-            outputChannel.appendLine(
-              `[Completion] Setting item.range (quoteBefore && quoteAfter) from (${start.line}, ${start.character}) to (${end.line}, ${end.character})`,
-            );
-            outputChannel.appendLine(`[Completion] filterText set to: "${partialFieldName}"`);
-          }
-        } else if (!quoteBefore && quoteAfter) {
-          // Case: |"
-          // Just replace the closing quote
-          const start = position;
-          const end = position.translate(0, 1);
+      // Set the range to replace
+      if (quoteBefore && !quoteAfter) {
+        // Case: "gende| or "gende |
+        // We need to replace from the opening quote to cursor
+        // Find the last quote position in beforeCursor
+        const lastQuoteIndex = beforeCursor.lastIndexOf('"');
+        outputChannel.appendLine(
+          `[Completion] quoteBefore=true, quoteAfter=false, lastQuoteIndex=${lastQuoteIndex}, position.character=${position.character}`,
+        );
+        if (lastQuoteIndex !== -1) {
+          const start = position.translate(0, -(position.character - lastQuoteIndex));
+          const end = position;
           item.range = new vscode.Range(start, end);
+
+          // Set filterText to the partial field name (without quotes)
+          // This allows VSCode to match user input with completion items
+          const partialFieldName = beforeCursor.substring(lastQuoteIndex + 1);
+          item.filterText = partialFieldName;
+
           outputChannel.appendLine(
-            `[Completion] Setting item.range (!quoteBefore && quoteAfter) from (${start.line}, ${start.character}) to (${end.line}, ${end.character})`,
+            `[Completion] Setting item.range from (${start.line}, ${start.character}) to (${end.line}, ${end.character})`,
+          );
+          outputChannel.appendLine(
+            `[Completion] This will replace: ${beforeCursor.substring(lastQuoteIndex)}`,
+          );
+          outputChannel.appendLine(`[Completion] filterText set to: "${partialFieldName}"`);
+        }
+      } else if (quoteBefore && quoteAfter) {
+        // Case: "gende|" or "|"
+        // Replace from content between quotes up to and including the closing quote
+        const lastQuoteIndex = beforeCursor.lastIndexOf('"');
+        const partialFieldName = beforeCursor.substring(lastQuoteIndex + 1);
+
+        // Find the closing quote in afterCursor
+        const closingQuoteIndex = afterCursor.indexOf('"');
+        if (lastQuoteIndex !== -1 && closingQuoteIndex !== -1) {
+          // Range: from after opening " to after closing " (inclusive of closing quote)
+          // This replaces the content and the closing quote
+          const start = new vscode.Position(
+            position.line,
+            lastQuoteIndex + 1, // After the opening quote
+          );
+          const end = new vscode.Position(
+            position.line,
+            position.character + closingQuoteIndex + 1, // After the closing quote (inclusive)
+          );
+          item.range = new vscode.Range(start, end);
+
+          // Adjust insertText to not include opening quote (but keep closing quote)
+          // Since we're replacing the closing quote, we need to keep it in insertText
+          // The insertText already doesn't have opening quote when quoteBefore=true
+          // So we can use it as-is
+          // Original generated: name": "${1}" (no opening quote since quoteBefore=true)
+          // This is what we want to insert
+
+          // Set filterText to partial field name for proper matching
+          // When empty, use field name to ensure completions are shown
+          item.filterText = partialFieldName || field.name;
+
+          outputChannel.appendLine(
+            `[Completion] quoteBefore && quoteAfter: range from (${start.line}, ${start.character}) to (${end.line}, ${end.character})`,
+          );
+          outputChannel.appendLine(
+            `[Completion] insertText (no adjustment needed): "${insertText}"`,
+          );
+          outputChannel.appendLine(
+            `[Completion] filterText: "${item.filterText}" (length: ${item.filterText.length})`,
           );
         }
-        // If no quotes, use default behavior (replace current word)
+      } else if (!quoteBefore && quoteAfter) {
+        // Case: |"
+        // Just replace the closing quote
+        const start = position;
+        const end = position.translate(0, 1);
+        item.range = new vscode.Range(start, end);
+        outputChannel.appendLine(
+          `[Completion] Setting item.range (!quoteBefore && quoteAfter) from (${start.line}, ${start.character}) to (${end.line}, ${end.character})`,
+        );
+      }
+      // If no quotes, use default behavior (replace current word)
 
-        return item;
-      });
+      return item;
+    });
   }
 
   /**

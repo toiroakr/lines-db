@@ -364,4 +364,144 @@ describe('Validator', () => {
       );
     });
   });
+
+  describe('constraint validation', () => {
+    it('should detect primary key constraint violations', async () => {
+      const jsonlPath = join(testDir, 'users.jsonl');
+      const schemaPath = join(testDir, 'users.schema.ts');
+
+      // Write data with duplicate id
+      await writeFile(
+        jsonlPath,
+        '{"id":"1","name":"Alice","email":"alice@example.com"}\n{"id":"1","name":"Bob","email":"bob@example.com"}\n',
+      );
+      await writeFile(
+        schemaPath,
+        `
+        export const schema = {
+          '~standard': {
+            version: 1,
+            vendor: 'test',
+            validate: (data) => ({ value: data, issues: [] })
+          },
+          primaryKey: 'id'
+        };
+      `,
+      );
+
+      const validator = new Validator({ path: jsonlPath });
+      const result = await validator.validate();
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].rowIndex).toBe(1);
+      expect(result.errors[0].issues[0].message).toContain('UNIQUE constraint failed');
+      expect(result.errors[0].issues[0].message).toContain('id');
+    });
+
+    it('should detect unique index constraint violations', async () => {
+      const jsonlPath = join(testDir, 'users.jsonl');
+      const schemaPath = join(testDir, 'users.schema.ts');
+
+      // Write data with duplicate email
+      await writeFile(
+        jsonlPath,
+        '{"id":"1","name":"Alice","email":"alice@example.com"}\n{"id":"2","name":"Bob","email":"alice@example.com"}\n',
+      );
+      await writeFile(
+        schemaPath,
+        `
+        export const schema = {
+          '~standard': {
+            version: 1,
+            vendor: 'test',
+            validate: (data) => ({ value: data, issues: [] })
+          },
+          primaryKey: 'id',
+          indexes: [
+            { name: 'users_email_unique', columns: ['email'], unique: true }
+          ]
+        };
+      `,
+      );
+
+      const validator = new Validator({ path: jsonlPath });
+      const result = await validator.validate();
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].rowIndex).toBe(1);
+      expect(result.errors[0].issues[0].message).toContain('UNIQUE constraint failed');
+      expect(result.errors[0].issues[0].message).toContain('email');
+    });
+
+    it('should use id column as primary key when primaryKey is not specified', async () => {
+      const jsonlPath = join(testDir, 'users.jsonl');
+      const schemaPath = join(testDir, 'users.schema.ts');
+
+      // Write data with duplicate id (no primaryKey specified in schema)
+      await writeFile(jsonlPath, '{"id":"1","name":"Alice"}\n{"id":"1","name":"Bob"}\n');
+      await writeFile(
+        schemaPath,
+        `
+        export const schema = {
+          '~standard': {
+            version: 1,
+            vendor: 'test',
+            validate: (data) => ({ value: data, issues: [] })
+          }
+          // Note: no primaryKey specified
+        };
+      `,
+      );
+
+      const validator = new Validator({ path: jsonlPath });
+      const result = await validator.validate();
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].rowIndex).toBe(1);
+      expect(result.errors[0].issues[0].message).toContain('UNIQUE constraint failed');
+      expect(result.errors[0].issues[0].message).toContain('id');
+    });
+
+    it('should detect multiple constraint violations in single file', async () => {
+      const jsonlPath = join(testDir, 'users.jsonl');
+      const schemaPath = join(testDir, 'users.schema.ts');
+
+      // Write data with both duplicate id and duplicate email
+      await writeFile(
+        jsonlPath,
+        '{"id":"1","name":"Alice","email":"alice@example.com"}\n{"id":"1","name":"Bob","email":"bob@example.com"}\n{"id":"2","name":"Charlie","email":"alice@example.com"}\n',
+      );
+      await writeFile(
+        schemaPath,
+        `
+        export const schema = {
+          '~standard': {
+            version: 1,
+            vendor: 'test',
+            validate: (data) => ({ value: data, issues: [] })
+          },
+          primaryKey: 'id',
+          indexes: [
+            { name: 'users_email_unique', columns: ['email'], unique: true }
+          ]
+        };
+      `,
+      );
+
+      const validator = new Validator({ path: jsonlPath });
+      const result = await validator.validate();
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(2);
+      // First error: duplicate id
+      expect(result.errors[0].rowIndex).toBe(1);
+      expect(result.errors[0].issues[0].message).toContain('id');
+      // Second error: duplicate email
+      expect(result.errors[1].rowIndex).toBe(2);
+      expect(result.errors[1].issues[0].message).toContain('email');
+    });
+  });
 });

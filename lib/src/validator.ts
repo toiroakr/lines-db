@@ -91,7 +91,7 @@ export class Validator {
       allWarnings.push(...result.warnings);
     }
 
-    // Then, validate by actually loading into database
+    // Validate by loading into database with detailed error tracking
     if (filesWithSchema.length > 0 && allErrors.length === 0) {
       const dbErrors = await this.validateWithDatabase(dirPath, filesWithSchema);
       allErrors.push(...dbErrors);
@@ -105,8 +105,8 @@ export class Validator {
   }
 
   /**
-   * Validate by loading data into an actual database
-   * This catches constraint violations (unique, primary key, foreign key, etc.)
+   * Validate by loading data into database one row at a time
+   * This catches constraint violations and extracts detailed error information
    */
   private async validateWithDatabase(
     dirPath: string,
@@ -114,47 +114,84 @@ export class Validator {
   ): Promise<ValidationErrorDetail[]> {
     const errors: ValidationErrorDetail[] = [];
 
-    // Capture console.warn messages
-    const warnMessages: string[] = [];
-    const originalWarn = console.warn;
-    console.warn = (...args: unknown[]) => {
-      const message = args.map((arg) => String(arg)).join(' ');
-      warnMessages.push(message);
-      // Still output to console for debugging
-      originalWarn(...args);
-    };
-
     try {
-      // Try to initialize database with the data directory
-      const db = LinesDB.create({ dataDir: dirPath });
-      await db.initialize();
-      await db.close();
+      const db = LinesDB.create({ dataDir: ':memory:' });
 
-      // Check if there were any loading errors
-      for (const message of warnMessages) {
-        if (message.includes('Failed to load table')) {
-          // Extract table name from message
-          const tableNameMatch = message.match(/Failed to load table '([^']+)'/);
-          const tableName = tableNameMatch ? tableNameMatch[1] : 'unknown';
+      // Load all tables one by one, checking each row
+      for (const file of jsonlFiles) {
+        const tableName = basename(file, '.jsonl');
+        const data = await JsonlReader.read(file);
 
-          const file = jsonlFiles.find((f) => basename(f, '.jsonl') === tableName);
+        // Load schema and metadata
+        let schema: any;
+        let foreignKeys: any[] = [];
+        let indexes: any[] = [];
+        let primaryKey: string | undefined;
+        try {
+          schema = await SchemaLoader.loadSchema(file);
+          const { pathToFileURL } = await import('node:url');
+          const schemaPath = file.replace('.jsonl', '.schema.ts');
+          const schemaUrl = pathToFileURL(schemaPath).href;
+          const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
+          const schemaExport = schemaModule.schema || schemaModule.default;
+          if (schemaExport?.foreignKeys) {
+            foreignKeys = schemaExport.foreignKeys;
+          }
+          if (schemaExport?.indexes) {
+            indexes = schemaExport.indexes;
+          }
+          if (schemaExport?.primaryKey) {
+            primaryKey = schemaExport.primaryKey;
+          }
+        } catch (_error) {
+          // Schema not found or failed to load
+          continue;
+        }
 
-          errors.push({
-            file: file || `${dirPath}/${tableName}.jsonl`,
+        // Create table schema
+        try {
+          const tableSchema = this.createTableSchema(
             tableName,
-            rowIndex: 0,
-            issues: [
-              {
-                message: message.replace(/^Warning:\s*/, ''),
-                path: [],
-              },
-            ],
-            type: 'schema',
-          });
+            data,
+            schema,
+            foreignKeys,
+            indexes,
+            primaryKey,
+          );
+
+          // Create the table in the database
+          this.createTableInDb(db, tableSchema);
+
+          // Insert rows one by one to catch constraint violations
+          for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
+            const row = data[rowIndex];
+            try {
+              this.insertRowIntoDb(db, tableName, tableSchema, row);
+            } catch (error) {
+              // Constraint violation occurred
+              const constraintError = this.analyzeConstraintError(
+                error,
+                file,
+                tableName,
+                rowIndex,
+                row,
+                foreignKeys,
+                db,
+              );
+              if (constraintError) {
+                errors.push(constraintError);
+              }
+            }
+          }
+        } catch (_error) {
+          // Skip this table and continue if table creation fails
+          continue;
         }
       }
+
+      await db.close();
     } catch (error) {
-      // If initialization itself fails, report it
+      // Database initialization failed
       errors.push({
         file: dirPath,
         tableName: 'database',
@@ -167,12 +204,183 @@ export class Validator {
         ],
         type: 'schema',
       });
-    } finally {
-      // Restore console.warn
-      console.warn = originalWarn;
     }
 
     return errors;
+  }
+
+  /**
+   * Create table schema from data and validation schema
+   */
+  private createTableSchema(
+    tableName: string,
+    data: any[],
+    validationSchema: any,
+    foreignKeys: any[],
+    indexes: any[],
+    primaryKey?: string,
+  ): any {
+    if (data.length === 0) {
+      throw new Error(`No data found in ${tableName}`);
+    }
+
+    // Infer schema from data
+    const schema = JsonlReader.inferSchema(tableName, data);
+
+    // Set primary key if specified
+    if (primaryKey) {
+      const pkColumn = schema.columns.find((col: any) => col.name === primaryKey);
+      if (pkColumn) {
+        pkColumn.primaryKey = true;
+      }
+    } else if (!schema.columns.some((col: any) => col.primaryKey)) {
+      // If no primary key is defined, use 'id' column as primary key if it exists
+      // This matches the behavior of database.ts
+      const idColumn = schema.columns.find((c: any) => c.name === 'id');
+      if (idColumn) {
+        idColumn.primaryKey = true;
+      }
+    }
+
+    // Add foreign keys
+    if (foreignKeys && foreignKeys.length > 0) {
+      schema.foreignKeys = foreignKeys;
+    }
+
+    // Add indexes
+    if (indexes && indexes.length > 0) {
+      schema.indexes = indexes;
+    }
+
+    return schema;
+  }
+
+  /**
+   * Create table in database
+   */
+  private createTableInDb(db: LinesDB<any>, schema: any): void {
+    const columns = schema.columns.map((col: any) => {
+      let colDef = `${this.quoteIdentifier(col.name)} ${col.type.toUpperCase()}`;
+      if (col.primaryKey) {
+        colDef += ' PRIMARY KEY';
+      }
+      return colDef;
+    });
+
+    // Add foreign key constraints
+    if (schema.foreignKeys && schema.foreignKeys.length > 0) {
+      for (const fk of schema.foreignKeys) {
+        columns.push(
+          `FOREIGN KEY (${this.quoteIdentifier(fk.column)}) REFERENCES ${this.quoteIdentifier(fk.references.table)}(${this.quoteIdentifier(fk.references.column)})`,
+        );
+      }
+    }
+
+    const sql = `CREATE TABLE IF NOT EXISTS ${this.quoteIdentifier(schema.name)} (${columns.join(', ')})`;
+    db.execute(sql);
+
+    // Create indexes
+    if (schema.indexes && schema.indexes.length > 0) {
+      for (const index of schema.indexes) {
+        const indexName = index.name || `idx_${schema.name}_${index.columns.join('_')}`;
+        const uniqueKeyword = index.unique ? 'UNIQUE' : '';
+        const indexColumns = index.columns
+          .map((col: string) => this.quoteIdentifier(col))
+          .join(', ');
+        const indexSql = `CREATE ${uniqueKeyword} INDEX IF NOT EXISTS ${this.quoteIdentifier(indexName)} ON ${this.quoteIdentifier(schema.name)} (${indexColumns})`;
+        db.execute(indexSql);
+      }
+    }
+  }
+
+  /**
+   * Insert a row into database
+   */
+  private insertRowIntoDb(db: LinesDB<any>, tableName: string, schema: any, row: any): void {
+    const columnNames = schema.columns.map((col: any) => col.name);
+    const quotedColumns = columnNames.map((name: string) => this.quoteIdentifier(name));
+    const placeholders = columnNames.map(() => '?').join(', ');
+    const sql = `INSERT INTO ${this.quoteIdentifier(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
+
+    const values = columnNames.map((col: string) => {
+      const value = row[col];
+      if (value === null || value === undefined) return null;
+      if (typeof value === 'object') return JSON.stringify(value);
+      if (typeof value === 'boolean') return value ? 1 : 0;
+      return value;
+    });
+
+    db.execute(sql, values);
+  }
+
+  /**
+   * Analyze constraint error and extract detailed information
+   */
+  private analyzeConstraintError(
+    error: any,
+    file: string,
+    tableName: string,
+    rowIndex: number,
+    row: any,
+    foreignKeys: any[],
+    db: LinesDB<any>,
+  ): ValidationErrorDetail | null {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // Foreign key constraint
+    if (errorMessage.includes('FOREIGN KEY constraint failed')) {
+      // Find which foreign key failed
+      for (const fk of foreignKeys) {
+        const fkValue = row[fk.column];
+        if (fkValue === null || fkValue === undefined) continue;
+
+        // Check if referenced value exists
+        try {
+          const result = db.query(
+            `SELECT COUNT(*) as count FROM ${this.quoteIdentifier(fk.references.table)} WHERE ${this.quoteIdentifier(fk.references.column)} = ?`,
+            [fkValue],
+          );
+          if (result.length > 0 && (result[0] as any).count === 0) {
+            return {
+              file,
+              tableName,
+              rowIndex,
+              issues: [],
+              type: 'foreignKey',
+              foreignKeyError: {
+                column: fk.column,
+                value: fkValue,
+                referencedTable: fk.references.table,
+                referencedColumn: fk.references.column,
+              },
+            };
+          }
+        } catch (_) {
+          // Referenced table doesn't exist yet
+        }
+      }
+    }
+
+    // Other constraint errors (primary key, unique, etc.)
+    return {
+      file,
+      tableName,
+      rowIndex,
+      issues: [
+        {
+          message: errorMessage,
+          path: [],
+        },
+      ],
+      type: 'schema',
+    };
+  }
+
+  /**
+   * Quote SQL identifier
+   */
+  private quoteIdentifier(name: string): string {
+    return `"${name.replace(/"/g, '""')}"`;
   }
 
   /**
@@ -208,11 +416,20 @@ export class Validator {
       }
     }
 
-    // If schema validation passed, validate with database
+    // If schema validation passed, validate database constraints
     if (errors.length === 0) {
       const dirPath = dirname(filePath);
-      const dbErrors = await this.validateWithDatabase(dirPath, [filePath]);
-      errors.push(...dbErrors);
+
+      // Get all JSONL files in the directory
+      const entries = await readdir(dirPath, { withFileTypes: true });
+      const allJsonlFiles = entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
+        .map((entry) => join(dirPath, entry.name));
+
+      // Validate database constraints (including foreign keys)
+      const dbErrors = await this.validateWithDatabase(dirPath, allJsonlFiles);
+      // Only include errors for the current file
+      errors.push(...dbErrors.filter((e) => e.file === filePath));
     }
 
     return {
