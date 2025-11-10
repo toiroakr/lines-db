@@ -3,9 +3,10 @@
   "compilerOptions": {
     "module": "commonjs",
     "outDir": "./dist-test",
-    "rootDir": "./src/test",
+    "rootDir": "./src",
     "noEmit": false,
     "sourceMap": true
   },
-  "include": ["src/test/runTest.ts", "src/test/suite/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/test/workspace/**"]
 }

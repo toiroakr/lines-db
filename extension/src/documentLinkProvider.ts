@@ -1,13 +1,10 @@
-import * as vscode from "vscode";
+import * as vscode from 'vscode';
 
 /**
  * Provides clickable links for each JSONL line
  */
 export class JsonlDocumentLinkProvider implements vscode.DocumentLinkProvider {
-  provideDocumentLinks(
-    document: vscode.TextDocument,
-    token: vscode.CancellationToken
-  ): vscode.DocumentLink[] {
+  provideDocumentLinks(document: vscode.TextDocument): vscode.DocumentLink[] {
     const links: vscode.DocumentLink[] = [];
 
     for (let i = 0; i < document.lineCount; i++) {
@@ -28,13 +25,13 @@ export class JsonlDocumentLinkProvider implements vscode.DocumentLinkProvider {
           line.range,
           vscode.Uri.parse(
             `command:lines-db.editJsonlLine?${encodeURIComponent(
-              JSON.stringify([document.uri, i])
-            )}`
-          )
+              JSON.stringify([document.uri, i]),
+            )}`,
+          ),
         );
-        link.tooltip = "Click to edit this JSON line";
+        link.tooltip = 'Click to edit this JSON line';
         links.push(link);
-      } catch (error) {
+      } catch {
         // Not valid JSON, skip
         continue;
       }

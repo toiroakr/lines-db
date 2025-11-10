@@ -11,6 +11,7 @@ import { MigrationValidator } from './migrationValidator';
 import { TempFileManager } from './tempFileManager';
 import { JsonlDocumentLinkProvider } from './documentLinkProvider';
 import { JsonlCodeActionProvider } from './codeActionProvider';
+import { JsonlCompletionProvider } from './completionProvider';
 
 function getTabUri(tab: vscode.Tab): vscode.Uri | undefined {
   const input = tab.input;
@@ -34,6 +35,8 @@ function getTabUri(tab: vscode.Tab): vscode.Uri | undefined {
 
 // Create output channel for debugging
 const outputChannel = vscode.window.createOutputChannel('LinesDB');
+// Make output channel globally accessible
+global.__linesDbOutputChannel = outputChannel;
 
 // Intercept ALL console methods at extension startup
 const originalLog = console.log;
@@ -120,9 +123,6 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  // Make output channel globally accessible
-  global.__linesDbOutputChannel = outputChannel;
-
   // Initialize migration session manager
   outputChannel.appendLine('Initializing MigrationSessionManager...');
   MigrationSessionManager.initialize(context);
@@ -174,6 +174,42 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerCodeActionsProvider({ language: 'jsonl' }, codeActionProvider),
   );
+
+  // Register Completion provider for JSONL files
+  outputChannel.appendLine('Registering CompletionProvider...');
+  try {
+    const completionProvider = new JsonlCompletionProvider();
+    context.subscriptions.push(completionProvider); // Add provider itself for disposal
+    context.subscriptions.push(
+      vscode.languages.registerCompletionItemProvider(
+        { language: 'jsonl' },
+        completionProvider,
+        '"',
+        ':',
+        ',',
+        '{',
+        ' ',
+      ),
+    );
+    outputChannel.appendLine('CompletionProvider registered for JSONL files');
+
+    // Register Completion provider for temporary edit files
+    context.subscriptions.push(
+      vscode.languages.registerCompletionItemProvider(
+        { pattern: '**/.tmp-jsonl-edit-*.json' },
+        completionProvider,
+        '"',
+        ':',
+        ',',
+        '{',
+        ' ',
+      ),
+    );
+    outputChannel.appendLine('CompletionProvider registered for temp files');
+  } catch (error) {
+    outputChannel.appendLine('ERROR: Failed to register CompletionProvider: ' + error);
+    console.error('Failed to register CompletionProvider:', error);
+  }
 
   // Watch for migration file saves
   const watcher = vscode.workspace.onDidSaveTextDocument(async (document) => {

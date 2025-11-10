@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import type { TempFileManager } from './tempFileManager';
 
 declare global {
-  var __linesDbOutputChannel: vscode.OutputChannel | undefined;
+  var __linesDbOutputChannel: vscode.OutputChannel;
 
   var __tempFileManager: TempFileManager | undefined;
 
@@ -28,6 +28,10 @@ declare global {
         };
         JsonlReader: {
           read: (path: string) => Promise<unknown[]>;
+        };
+        SchemaLoader: {
+          hasSchema: (jsonlPath: string) => Promise<boolean>;
+          loadSchema: (jsonlPath: string) => Promise<unknown>;
         };
         ensureTableRowsValid: (options: {
           dataDir: string;

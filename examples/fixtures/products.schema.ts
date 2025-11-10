@@ -8,10 +8,7 @@ const productSchema = v.object({
   id: v.pipe(v.number(), v.integer(), v.minValue(1)),
   name: v.pipe(v.string(), v.minLength(1)),
   price: v.pipe(v.number(), v.minValue(0)),
-  inStock: v.pipe(
-    v.union([v.boolean(), v.number()]),
-    v.transform((input) => (typeof input === 'number' ? input !== 0 : input)),
-  ),
+  inStock: v.boolean(),
 });
 
 // Wrap with defineSchema to create BiDirectionalSchema
