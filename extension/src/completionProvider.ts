@@ -487,7 +487,9 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
   ): vscode.CompletionItem[] | undefined {
     const line = document.lineAt(position.line).text;
     const beforeCursor = line.substring(0, position.character);
+    const afterCursor = line.substring(position.character);
     outputChannel.appendLine('[Completion] beforeCursor: ' + beforeCursor);
+    outputChannel.appendLine('[Completion] afterCursor: ' + afterCursor);
 
     // Find the current field name
     const fieldName = this.findCurrentFieldName(beforeCursor);
@@ -513,12 +515,44 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
     const insideQuotes = quoteCount % 2 === 1;
     outputChannel.appendLine('[Completion] insideQuotes: ' + insideQuotes);
 
+    // Extract current value if any (for filtering)
+    let currentValue = '';
+    let valueStartPos: vscode.Position | undefined;
+    let valueEndPos: vscode.Position | undefined;
+
+    if (insideQuotes) {
+      // Find the opening quote
+      const lastQuoteIndex = beforeCursor.lastIndexOf('"');
+      if (lastQuoteIndex !== -1) {
+        currentValue = beforeCursor.substring(lastQuoteIndex + 1);
+        valueStartPos = position.translate(0, -(position.character - lastQuoteIndex - 1));
+
+        // Find the closing quote
+        const nextQuoteIndex = afterCursor.indexOf('"');
+        if (nextQuoteIndex !== -1) {
+          valueEndPos = position.translate(0, nextQuoteIndex);
+        } else {
+          valueEndPos = position;
+        }
+      }
+      outputChannel.appendLine('[Completion] currentValue: "' + currentValue + '"');
+      outputChannel.appendLine(
+        `[Completion] valueRange: ${valueStartPos ? `(${valueStartPos.line}, ${valueStartPos.character})` : 'none'} to ${valueEndPos ? `(${valueEndPos.line}, ${valueEndPos.character})` : 'none'}`
+      );
+    }
+
     // Generate completions based on field type
     if (field.enumValues && field.enumValues.length > 0) {
       outputChannel.appendLine(
         '[Completion] Returning enum completions: ' + field.enumValues.join(', '),
       );
-      return this.createEnumCompletions(field.enumValues, insideQuotes);
+      return this.createEnumCompletions(
+        field.enumValues,
+        insideQuotes,
+        currentValue,
+        valueStartPos,
+        valueEndPos
+      );
     }
 
     if (field.type === 'boolean') {
@@ -543,7 +577,13 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
   /**
    * Create enum value completions
    */
-  private createEnumCompletions(values: string[], insideQuotes: boolean): vscode.CompletionItem[] {
+  private createEnumCompletions(
+    values: string[],
+    insideQuotes: boolean,
+    currentValue: string = '',
+    valueStartPos?: vscode.Position,
+    valueEndPos?: vscode.Position,
+  ): vscode.CompletionItem[] {
     return values.map((value) => {
       const item = new vscode.CompletionItem(value, vscode.CompletionItemKind.EnumMember);
       item.detail = 'enum value';
@@ -551,8 +591,22 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
       // If cursor is not inside quotes, wrap the value in quotes
       if (!insideQuotes) {
         item.insertText = `"${value}"`;
+      } else {
+        // If cursor is inside quotes, just insert the value
+        item.insertText = value;
+
+        // Set the range to replace the current partial value
+        // VSCode will automatically filter completions based on the text in this range
+        if (valueStartPos && valueEndPos) {
+          item.range = new vscode.Range(valueStartPos, valueEndPos);
+          outputChannel.appendLine(
+            `[Completion] Setting enum completion range from (${valueStartPos.line}, ${valueStartPos.character}) to (${valueEndPos.line}, ${valueEndPos.character}) for value "${value}"`
+          );
+          outputChannel.appendLine(
+            `[Completion] VSCode will filter "${value}" against current input "${currentValue}"`
+          );
+        }
       }
-      // If cursor is inside quotes, just insert the value (default behavior)
 
       return item;
     });
