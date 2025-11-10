@@ -39,9 +39,13 @@ export class TempFileManager {
       throw new Error(`Invalid JSON on line ${lineNumber + 1}: ${error}`);
     }
 
-    // Create temp file
+    // Extract table name from original file
+    const originalFileName = path.basename(originalUri.fsPath);
+    const tableName = originalFileName.replace('.jsonl', '');
+
+    // Create temp file with pattern: .tmp-jsonl-edit-{tableName}-line{lineNumber}.json
     const tempDir = os.tmpdir();
-    const fileName = `lines-db-edit-${Date.now()}.json`;
+    const fileName = `.tmp-jsonl-edit-${tableName}-line${lineNumber}.json`;
     const tempFilePath = path.join(tempDir, fileName);
 
     fs.writeFileSync(tempFilePath, formatted, "utf8");
@@ -120,6 +124,39 @@ export class TempFileManager {
    */
   isTempFile(uri: vscode.Uri): boolean {
     return this.tempFiles.has(uri.fsPath);
+  }
+
+  /**
+   * Checks if a file path matches the temp file pattern
+   */
+  static isTempFilePattern(filePath: string): boolean {
+    const fileName = path.basename(filePath);
+    const tempFilePattern = /^\.tmp-jsonl-edit-(.+)-line\d+\.json$/;
+    return tempFilePattern.test(fileName);
+  }
+
+  /**
+   * Gets the original JSONL file info for a temp file
+   */
+  getTempFileInfo(uri: vscode.Uri): TempFileInfo | undefined {
+    return this.tempFiles.get(uri.fsPath);
+  }
+
+  /**
+   * Extracts the original JSONL path from a temp file path
+   */
+  static getOriginalJsonlPath(tempFilePath: string): string | null {
+    const fileName = path.basename(tempFilePath);
+    const tempFilePattern = /^\.tmp-jsonl-edit-(.+)-line\d+\.json$/;
+    const match = fileName.match(tempFilePattern);
+
+    if (match) {
+      const tableName = match[1];
+      const dir = path.dirname(tempFilePath);
+      return path.join(dir, `${tableName}.jsonl`);
+    }
+
+    return null;
   }
 
   /**

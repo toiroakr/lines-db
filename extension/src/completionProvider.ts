@@ -188,6 +188,17 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
     const match = fileName.match(tempFilePattern);
 
     if (match) {
+      // Try to get the original path from TempFileManager
+      const tempFileManager = global.__tempFileManager;
+      if (tempFileManager) {
+        const tempFileInfo = tempFileManager.getTempFileInfo(vscode.Uri.file(filePath));
+        if (tempFileInfo) {
+          return tempFileInfo.originalUri.fsPath;
+        }
+      }
+
+      // Fallback: this won't work correctly because temp files are in tmpdir
+      // But we keep it for backwards compatibility
       const tableName = match[1];
       const dir = path.dirname(filePath);
       return path.join(dir, `${tableName}.jsonl`);

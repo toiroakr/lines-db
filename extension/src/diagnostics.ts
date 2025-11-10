@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { Validator } from '../../lib/dist/index.cjs';
+import * as fs from 'fs';
+import { Validator, SchemaLoader } from '../../lib/dist/index.cjs';
+import { TempFileManager } from './tempFileManager.js';
 
 export class DiagnosticsProvider {
   private diagnosticCollection: vscode.DiagnosticCollection;
@@ -70,8 +72,11 @@ export class DiagnosticsProvider {
   }
 
   private async validateDocument(document: vscode.TextDocument) {
-    // Only validate JSONL files
-    if (document.languageId !== 'jsonl' && !document.fileName.endsWith('.jsonl')) {
+    // Check if this is a temp edit file
+    const isTempFile = TempFileManager.isTempFilePattern(document.uri.fsPath);
+
+    // Only validate JSONL files or temp edit files
+    if (!isTempFile && document.languageId !== 'jsonl' && !document.fileName.endsWith('.jsonl')) {
       return;
     }
 
@@ -84,6 +89,12 @@ export class DiagnosticsProvider {
     // Skip validation for preview files (they are validated separately with explicit schema)
     const filePath = document.uri.fsPath;
     if (filePath.includes('.preview.jsonl')) {
+      return;
+    }
+
+    // Handle temp file validation separately
+    if (isTempFile) {
+      await this.validateTempFile(document);
       return;
     }
 
@@ -142,6 +153,104 @@ export class DiagnosticsProvider {
     } catch (_error) {
       // If validation fails (e.g., no schema), clear diagnostics for this document only
       this.diagnosticCollection.set(document.uri, []);
+    }
+  }
+
+  /**
+   * Validate a temporary edit file
+   */
+  private async validateTempFile(document: vscode.TextDocument) {
+    try {
+      // Get the original JSONL file path from TempFileManager
+      const tempFileManager = global.__tempFileManager;
+      if (!tempFileManager) {
+        return;
+      }
+
+      const tempFileInfo = tempFileManager.getTempFileInfo(document.uri);
+      if (!tempFileInfo) {
+        return;
+      }
+
+      const originalJsonlPath = tempFileInfo.originalUri.fsPath;
+
+      // Read and parse the temp file content
+      const content = document.getText();
+      let parsedData: unknown;
+      try {
+        parsedData = JSON.parse(content);
+      } catch (parseError) {
+        // If JSON is invalid, show a parse error diagnostic
+        const diagnostic = new vscode.Diagnostic(
+          new vscode.Range(0, 0, document.lineCount - 1, Number.MAX_VALUE),
+          `Invalid JSON: ${parseError}`,
+          vscode.DiagnosticSeverity.Error,
+        );
+        diagnostic.source = 'lines-db';
+        this.diagnosticCollection.set(document.uri, [diagnostic]);
+        return;
+      }
+
+      // Load the schema for the original JSONL file
+      const schema = await SchemaLoader.loadSchema(originalJsonlPath);
+
+      // Validate the data against the schema
+      const result = schema['~standard'].validate(parsedData);
+
+      // Check if validation is asynchronous (should not be)
+      if (result instanceof Promise) {
+        throw new Error('Asynchronous validation is not supported.');
+      }
+
+      const diagnostics: vscode.Diagnostic[] = [];
+
+      // If there are validation issues, create diagnostics
+      if (result.issues && result.issues.length > 0) {
+        // Group issues by path to create more targeted diagnostics
+        for (const issue of result.issues) {
+          // Try to determine the line in the formatted JSON
+          let line = 0;
+          let message = issue.message;
+
+          if (issue.path && issue.path.length > 0) {
+            const pathStr = issue.path
+              .map((segment) => {
+                if (typeof segment === 'object' && segment !== null && 'key' in segment) {
+                  return String(segment.key);
+                }
+                return String(segment);
+              })
+              .join('.');
+
+            // Search for the field in the document
+            const fieldName = issue.path[issue.path.length - 1];
+            const fieldStr =
+              typeof fieldName === 'object' && fieldName !== null && 'key' in fieldName
+                ? String(fieldName.key)
+                : String(fieldName);
+
+            const searchPattern = `"${fieldStr}"`;
+            const text = document.getText();
+            const index = text.indexOf(searchPattern);
+            if (index !== -1) {
+              line = document.positionAt(index).line;
+            }
+
+            message = `${pathStr}: ${issue.message}`;
+          }
+
+          const range = new vscode.Range(line, 0, line, Number.MAX_VALUE);
+          const diagnostic = new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error);
+          diagnostic.source = 'lines-db';
+          diagnostics.push(diagnostic);
+        }
+      }
+
+      this.diagnosticCollection.set(document.uri, diagnostics);
+    } catch (error) {
+      // If validation fails (e.g., no schema), clear diagnostics for this document
+      this.diagnosticCollection.set(document.uri, []);
+      console.error('Failed to validate temp file:', error);
     }
   }
 
