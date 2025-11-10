@@ -107,7 +107,10 @@ export class LinesDB<Tables extends TableDefs> {
         const schemaPath = tableConfig.jsonlPath.replace('.jsonl', '.schema.ts');
         const schemaUrl = pathToFileURL(schemaPath).href;
         const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
-        foreignKeys = schemaModule.foreignKeys;
+
+        // Try to get foreign keys from exported 'schema' or directly from module
+        const schemaExport = schemaModule.schema || schemaModule.default;
+        foreignKeys = schemaExport?.foreignKeys || schemaModule.foreignKeys;
       } catch {
         // Schema file not found - will continue without validation
       }
@@ -177,13 +180,24 @@ export class LinesDB<Tables extends TableDefs> {
         const schemaUrl = pathToFileURL(schemaPath).href;
         const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
 
-        if (schemaModule.primaryKey) {
+        // Try to get metadata from exported 'schema' or directly from module
+        const schemaExport = schemaModule.schema || schemaModule.default;
+
+        if (schemaExport?.primaryKey) {
+          schemaMetadata.primaryKey = schemaExport.primaryKey;
+        } else if (schemaModule.primaryKey) {
           schemaMetadata.primaryKey = schemaModule.primaryKey;
         }
-        if (schemaModule.foreignKeys) {
+
+        if (schemaExport?.foreignKeys) {
+          schemaMetadata.foreignKeys = schemaExport.foreignKeys;
+        } else if (schemaModule.foreignKeys) {
           schemaMetadata.foreignKeys = schemaModule.foreignKeys;
         }
-        if (schemaModule.indexes) {
+
+        if (schemaExport?.indexes) {
+          schemaMetadata.indexes = schemaExport.indexes;
+        } else if (schemaModule.indexes) {
           schemaMetadata.indexes = schemaModule.indexes;
         }
       } catch (_error) {
@@ -259,6 +273,13 @@ export class LinesDB<Tables extends TableDefs> {
         if (col) {
           col.primaryKey = true;
         }
+      }
+    } else if (!primaryKey && !schema.columns.some((col) => col.primaryKey)) {
+      // If no primary key is defined, use 'id' column as primary key if it exists
+      // This matches the behavior of JsonlReader.inferSchema()
+      const idColumn = schema.columns.find((c) => c.name === 'id');
+      if (idColumn) {
+        idColumn.primaryKey = true;
       }
     }
     if (foreignKeys) {

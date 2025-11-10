@@ -12,7 +12,10 @@ const userSchema = v.object({
 
 // Wrap with defineSchema to create BiDirectionalSchema
 // No backward transformation needed since Input = Output
-export const schema = defineSchema(userSchema);
+export const schema = defineSchema(userSchema, {
+  primaryKey: ['id'],
+  indexes: [{ columns: ['email'], unique: true }],
+});
 
 // Export inferred type from schema using StandardSchema
 export type User = InferOutput<typeof schema>;

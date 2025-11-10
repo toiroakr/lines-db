@@ -98,6 +98,112 @@ describe('Schema Constraints (Primary Keys, Foreign Keys, Indexes)', () => {
     });
   });
 
+  describe('Composite Foreign Key Constraints', () => {
+    it('should have composite foreign key defined in schema', () => {
+      const inventorySchema = db.getSchema('inventory');
+      expect(inventorySchema).toBeTruthy();
+      expect(inventorySchema?.foreignKeys).toBeTruthy();
+      expect(inventorySchema?.foreignKeys?.length).toBe(1);
+
+      const fk = inventorySchema?.foreignKeys?.[0];
+      expect(fk?.columns).toEqual(['category', 'productSku']);
+      expect(fk?.references.table).toBe('products-composite-pk');
+      expect(fk?.references.columns).toEqual(['category', 'sku']);
+      expect(fk?.onDelete).toBe('CASCADE');
+    });
+
+    it('should enforce composite foreign key constraint on insert', () => {
+      // Try to insert inventory with non-existent product (both columns must match)
+      expect(() => {
+        db.execute(
+          'INSERT INTO inventory (warehouseId, category, productSku, quantity) VALUES (?, ?, ?, ?)',
+          [3, 'electronics', 'NONEXISTENT', 10],
+        );
+      }).toThrow();
+
+      // Try with valid category but invalid sku
+      expect(() => {
+        db.execute(
+          'INSERT INTO inventory (warehouseId, category, productSku, quantity) VALUES (?, ?, ?, ?)',
+          [3, 'electronics', 'SKU999', 10],
+        );
+      }).toThrow();
+
+      // Try with valid sku but invalid category
+      expect(() => {
+        db.execute(
+          'INSERT INTO inventory (warehouseId, category, productSku, quantity) VALUES (?, ?, ?, ?)',
+          [3, 'furniture', 'SKU001', 10],
+        );
+      }).toThrow();
+
+      // Valid insert should succeed
+      expect(() => {
+        db.execute(
+          'INSERT INTO inventory (warehouseId, category, productSku, quantity) VALUES (?, ?, ?, ?)',
+          [3, 'electronics', 'SKU001', 10],
+        );
+      }).not.toThrow();
+    });
+
+    it('should cascade delete with composite foreign key', () => {
+      // Get inventory for electronics SKU001
+      const inventoryBefore = db.query(
+        'SELECT * FROM inventory WHERE category = ? AND productSku = ?',
+        ['electronics', 'SKU001'],
+      );
+      expect(inventoryBefore.length).toBe(1);
+
+      // Delete the product
+      db.execute('DELETE FROM "products-composite-pk" WHERE category = ? AND sku = ?', [
+        'electronics',
+        'SKU001',
+      ]);
+
+      // Inventory should be cascaded
+      const inventoryAfter = db.query(
+        'SELECT * FROM inventory WHERE category = ? AND productSku = ?',
+        ['electronics', 'SKU001'],
+      );
+      expect(inventoryAfter.length).toBe(0);
+    });
+
+    it('should verify composite primary key exists', () => {
+      const productsSchema = db.getSchema('products-composite-pk');
+      expect(productsSchema).toBeTruthy();
+
+      // Find primary key columns
+      const pkColumns = productsSchema?.columns.filter((col) => col.primaryKey);
+      expect(pkColumns?.length).toBe(2);
+      expect(pkColumns?.map((col) => col.name)).toEqual(
+        expect.arrayContaining(['category', 'sku']),
+      );
+    });
+
+    it('should prevent duplicate composite primary key', () => {
+      // Try to insert duplicate (category, sku) combination
+      expect(() => {
+        db.execute(
+          'INSERT INTO "products-composite-pk" (category, sku, name, price) VALUES (?, ?, ?, ?)',
+          ['electronics', 'SKU001', 'Duplicate Product', 100],
+        );
+      }).toThrow();
+    });
+
+    it('should allow same sku in different categories', () => {
+      // SKU001 exists in both electronics and books categories
+      const products = db.query<{ category: string; sku: string; name: string; price: number }>(
+        'SELECT * FROM "products-composite-pk" WHERE sku = ?',
+        ['SKU001'],
+      );
+      expect(products.length).toBe(2);
+
+      const categories = products.map((p) => p.category);
+      expect(categories).toContain('electronics');
+      expect(categories).toContain('books');
+    });
+  });
+
   describe('Index Constraints', () => {
     it('should have indexes defined in schema', () => {
       const customersSchema = db.getSchema('customers');

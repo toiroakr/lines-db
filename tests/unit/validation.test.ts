@@ -131,6 +131,30 @@ describe('LinesDB Validation', () => {
         expect(validationError.issues.length).toBeGreaterThan(0);
       }
     });
+
+    it('should reject duplicate id (primary key constraint)', () => {
+      // id: 1 already exists in fixtures/users.jsonl
+      expect(() => {
+        db.insert('users', {
+          id: 1,
+          name: 'Duplicate User',
+          age: 25,
+          email: 'newuser@example.com',
+        });
+      }).toThrow();
+    });
+
+    it('should reject duplicate email (unique index constraint)', () => {
+      // alice@example.com already exists in fixtures/users.jsonl
+      expect(() => {
+        db.insert('users', {
+          id: 99,
+          name: 'Another User',
+          age: 25,
+          email: 'alice@example.com',
+        });
+      }).toThrow();
+    });
   });
 
   describe('update', () => {

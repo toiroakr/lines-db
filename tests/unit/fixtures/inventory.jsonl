@@ -1,0 +1,4 @@
+{"warehouseId":1,"category":"electronics","productSku":"SKU001","quantity":50}
+{"warehouseId":1,"category":"electronics","productSku":"SKU002","quantity":100}
+{"warehouseId":2,"category":"books","productSku":"SKU001","quantity":30}
+{"warehouseId":2,"category":"books","productSku":"SKU002","quantity":25}
