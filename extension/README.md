@@ -131,13 +131,7 @@ pnpm --filter lines-db-vscode watch
 
 ## Release Notes
 
-### 0.1.0 (Initial Release)
-
-- ✅ Real-time validation diagnostics
-- ✅ Command palette integration (validate/migrate)
-- ✅ CodeLens with record counts
-- ✅ Hover information for schema files
-- ✅ JSONL syntax highlighting
+See [CHANGELOG.md](./CHANGELOG.md) for detailed release notes and version history.
 
 ## Contributing
 

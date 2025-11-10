@@ -1,3 +1,3 @@
-{"id":1,"name":"Alice","age":0,"email":"alice@example.com","gender":"female"}
-{"id":2,"name":"Bob","age":25,"email":"bob@example.com","gender":"female"}
-{"id":3,"name":"Charlie","age":5,"email":"charlie@example.com","gender":"other"}
+{"id":1,"name":"Alice","age":10,"email":"alice@example.com","gender":"male"}
+{"id":2,"name":"Bob","age":25,"email":"bob@example.com","gender":"male"}
+{"id":3,"name":"Charlie","age":15,"email":"charlie@example.com","gender":"male"}

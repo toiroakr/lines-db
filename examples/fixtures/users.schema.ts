@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { defineSchema } from '@toiroakr/lines-db';
 import type { InferOutput } from '@toiroakr/lines-db';
 
+// Define user schema using Zod
 // Wrap with defineSchema to create BiDirectionalSchema
 // No backward transformation needed since Input = Output
 export const schema = defineSchema(
