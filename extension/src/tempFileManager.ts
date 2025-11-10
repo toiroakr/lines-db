@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
+import { TypeScriptTypeExtractor, type FieldInfo } from './typeInfoExtractor.js';
 
 interface TempFileInfo {
   filePath: string;
@@ -61,6 +62,61 @@ export class TempFileManager {
   }
 
   /**
+   * Get schema file path for a JSONL file
+   */
+  private getSchemaFilePath(jsonlFilePath: string): string | null {
+    const dir = path.dirname(jsonlFilePath);
+    const fileName = path.basename(jsonlFilePath, '.jsonl');
+    const schemaPath = path.join(dir, `${fileName}.schema.ts`);
+
+    if (fs.existsSync(schemaPath)) {
+      return schemaPath;
+    }
+    return null;
+  }
+
+  /**
+   * Sort JSON object fields according to schema field order
+   */
+  private async sortJsonBySchema(
+    jsonObject: any,
+    schemaFilePath: string
+  ): Promise<any> {
+    try {
+      // Extract field order from schema
+      const fields = await TypeScriptTypeExtractor.extractSchemaType(schemaFilePath);
+
+      if (!fields || fields.length === 0) {
+        // If schema extraction fails, return original object
+        return jsonObject;
+      }
+
+      // Create a new object with fields in schema order
+      const sorted: any = {};
+
+      // Add fields in schema order
+      for (const field of fields) {
+        if (field.name in jsonObject) {
+          sorted[field.name] = jsonObject[field.name];
+        }
+      }
+
+      // Add any extra fields not in schema (at the end)
+      for (const key in jsonObject) {
+        if (!(key in sorted)) {
+          sorted[key] = jsonObject[key];
+        }
+      }
+
+      return sorted;
+    } catch (error) {
+      console.error(`Failed to sort JSON by schema: ${error}`);
+      // Return original object if sorting fails
+      return jsonObject;
+    }
+  }
+
+  /**
    * Saves the edited content back to the original JSONL file
    */
   async saveToOriginalDocument(tempFilePath: string): Promise<void> {
@@ -72,7 +128,14 @@ export class TempFileManager {
     try {
       // Read the edited content
       const editedContent = fs.readFileSync(tempFilePath, "utf8");
-      const parsed = JSON.parse(editedContent);
+      let parsed = JSON.parse(editedContent);
+
+      // Try to sort by schema if available
+      const schemaPath = this.getSchemaFilePath(info.originalUri.fsPath);
+      if (schemaPath) {
+        parsed = await this.sortJsonBySchema(parsed, schemaPath);
+      }
+
       const compacted = JSON.stringify(parsed);
 
       // Update the original document
