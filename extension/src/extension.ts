@@ -71,8 +71,13 @@ console.error = (...args: any[]) => {
 };
 
 export async function activate(context: vscode.ExtensionContext) {
+  // Get version from package.json
+  const packageJson = require('../package.json');
+  const version = packageJson.version || 'unknown';
+
   outputChannel.appendLine('=== LinesDB Extension Activating ===');
-  console.log('LinesDB extension is now active');
+  outputChannel.appendLine(`Version: ${version}`);
+  console.log(`LinesDB extension is now active (v${version})`);
   context.subscriptions.push(outputChannel);
 
   // Load @toiroakr/lines-db and tsx from workspace
@@ -290,8 +295,9 @@ export async function activate(context: vscode.ExtensionContext) {
           await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
         }
 
-        // Validate preview file content directly with schema
+        // Validate preview file content using LinesDB.initialize
         outputChannel.appendLine('\n--- Validating Preview Content ---');
+        outputChannel.appendLine(`Extension version: ${require('../package.json').version}`);
         outputChannel.appendLine(`Number of rows to validate: ${result.transformedRows.length}`);
         outputChannel.appendLine(`DataDir: ${session.dataDir}`);
         outputChannel.appendLine(`TableName: ${session.tableName}`);
@@ -302,208 +308,99 @@ export async function activate(context: vscode.ExtensionContext) {
 
         let previewValidationSuccess = false;
         try {
-          outputChannel.appendLine('Loading schema file directly...');
-          const path = await import('path');
-          const schemaPath = path.join(session.dataDir, `${session.tableName}.schema.ts`);
-          outputChannel.appendLine(`Schema path: ${schemaPath}`);
+          outputChannel.appendLine('Using LinesDB.initialize for validation...');
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let schema: any;
+          // Check if LinesDB module is available
+          if (!global.__linesDbModule?.LinesDB || !global.__linesDbModule?.JsonlReader) {
+            throw new Error('LinesDB module not available');
+          }
+
+          const db = global.__linesDbModule.LinesDB.create({ dataDir: session.dataDir });
+
           try {
-            // Try to load the schema file
-            const fs = await import('fs');
-            const schemaExists = fs.existsSync(schemaPath);
-            outputChannel.appendLine(`Schema file exists: ${schemaExists}`);
+            // Use JsonlReader.withOverrides to temporarily provide transformed rows
+            const tablePath = path.join(session.dataDir, `${session.tableName}.jsonl`);
+            const overrides = new Map([[tablePath, result.transformedRows]]);
 
-            if (schemaExists) {
-              outputChannel.appendLine('Importing schema...');
-              const schemaModule = await import(schemaPath);
-              schema = schemaModule.schema || schemaModule.default;
-              outputChannel.appendLine(`Schema loaded: ${!!schema}`);
-              outputChannel.appendLine(`Schema type: ${typeof schema}`);
-              outputChannel.appendLine(`Schema has ~standard: ${'~standard' in schema}`);
-            }
-          } catch (err) {
-            outputChannel.appendLine(`Failed to load schema: ${err}`);
-          }
+            outputChannel.appendLine(`Table path: ${tablePath}`);
+            outputChannel.appendLine('Setting up overrides for validation...');
 
-          // If we have a schema, validate directly
-          if (schema && '~standard' in schema) {
-            outputChannel.appendLine('Validating rows directly with schema...');
-            const validationErrors: Array<{
-              rowIndex: number;
-              rowData: Record<string, unknown>;
-              error: { issues: Array<{ message: string; path?: Array<unknown> }> };
-            }> = [];
-
-            for (let i = 0; i < result.transformedRows.length; i++) {
-              const row = result.transformedRows[i];
-              outputChannel.appendLine(`Validating row ${i}: ${JSON.stringify(row)}`);
-              const validationResult = schema['~standard'].validate(row);
-              outputChannel.appendLine(
-                `Row ${i} validation result: ${JSON.stringify(validationResult)}`,
-              );
-
-              if (validationResult.issues && validationResult.issues.length > 0) {
-                outputChannel.appendLine(
-                  `Row ${i}: INVALID - ${validationResult.issues.length} issues`,
-                );
-                validationErrors.push({
-                  rowIndex: i,
-                  rowData: row,
-                  error: { issues: validationResult.issues },
-                });
-              } else {
-                outputChannel.appendLine(`Row ${i}: VALID`);
-              }
-            }
-
-            if (validationErrors.length > 0) {
-              outputChannel.appendLine(`Total validation errors: ${validationErrors.length}`);
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const error: any = new Error(
-                `Validation failed for ${validationErrors.length} row(s)`,
-              );
-              error.name = 'ValidationError';
-              error.validationErrors = validationErrors;
-              throw error;
-            }
-          } else {
-            outputChannel.appendLine(
-              'No schema found or schema invalid, using ensureTableRowsValid fallback',
-            );
-            if (global.__linesDbModule?.ensureTableRowsValid) {
-              await global.__linesDbModule.ensureTableRowsValid({
-                dataDir: session.dataDir,
+            await global.__linesDbModule.JsonlReader.withOverrides(overrides, async () => {
+              outputChannel.appendLine('Calling db.initialize with detailedValidate...');
+              const validationResult = await db.initialize({
                 tableName: session.tableName,
-                rows: result.transformedRows,
+                detailedValidate: true
               });
-            } else {
-              outputChannel.appendLine('linesDbModule not available, skipping validation');
-            }
-          }
 
-          outputChannel.appendLine('Preview validation: SUCCESS');
-          // If validation succeeds, clear diagnostics
-          MigrationSessionManager.clearDiagnostics(previewDoc.uri);
-          previewValidationSuccess = true;
-        } catch (validationError) {
-          // Process validation errors for transformedRows
-          outputChannel.appendLine('Preview validation: FAILED');
-          outputChannel.appendLine(`Error type: ${typeof validationError}`);
-          outputChannel.appendLine(`Error: ${validationError}`);
-          outputChannel.appendLine(`Error name: ${(validationError as any)?.name}`);
-          outputChannel.appendLine(
-            `Has validationErrors: ${(validationError as any)?.validationErrors !== undefined}`,
-          );
+              outputChannel.appendLine(`Validation result: valid=${validationResult.valid}, errors=${validationResult.errors.length}`);
 
-          const diagnostics: vscode.Diagnostic[] = [];
+              if (!validationResult.valid) {
+                outputChannel.appendLine('Validation failed, generating diagnostics...');
+                // ValidationErrorDetail[] から diagnostics を生成
+                const diagnostics: vscode.Diagnostic[] = [];
 
-          if (
-            validationError &&
-            typeof validationError === 'object' &&
-            'name' in validationError &&
-            (validationError as { name: unknown }).name === 'ValidationError' &&
-            'validationErrors' in validationError &&
-            Array.isArray((validationError as { validationErrors?: unknown }).validationErrors)
-          ) {
-            outputChannel.appendLine('Validation error structure matches expected format');
-            const validationErrors = (
-              validationError as {
-                validationErrors: Array<{
-                  rowIndex: number;
-                  rowData: Record<string, unknown>;
-                  error: { issues: Array<{ message: string; path?: Array<unknown> }> };
-                }>;
-              }
-            ).validationErrors;
+                for (const error of validationResult.errors) {
+                  outputChannel.appendLine(`Processing error for rowIndex=${error.rowIndex}, type=${error.type}`);
 
-            outputChannel.appendLine(`Number of validation errors: ${validationErrors.length}`);
+                  const range = new vscode.Range(error.rowIndex, 0, error.rowIndex, Number.MAX_VALUE);
+                  let message = '';
 
-            for (const { rowIndex, error: rowError } of validationErrors) {
-              outputChannel.appendLine(`Processing error for rowIndex=${rowIndex}`);
-              outputChannel.appendLine(`  Issues count: ${rowError.issues.length}`);
-
-              const messages = rowError.issues.map((issue) => {
-                outputChannel.appendLine(`  Issue: ${JSON.stringify(issue)}`);
-                let pathStr = 'root';
-                if (issue.path && issue.path.length > 0) {
-                  pathStr = issue.path
-                    .map((segment) => {
-                      if (typeof segment === 'object' && segment !== null && 'key' in segment) {
-                        return String(segment.key);
+                  if (error.type === 'foreignKey' && error.foreignKeyError) {
+                    const fk = error.foreignKeyError;
+                    message = `Foreign key constraint failed: ${fk.column} = ${JSON.stringify(fk.value)} does not exist in ${fk.referencedTable}.${fk.referencedColumn}`;
+                    outputChannel.appendLine(`  Foreign key error: ${message}`);
+                  } else {
+                    const messages = error.issues.map((issue: { message: string; path?: unknown[] }) => {
+                      if (issue.path && issue.path.length > 0) {
+                        const pathStr = issue.path
+                          .map((segment: unknown) => typeof segment === 'object' && segment !== null && 'key' in segment
+                            ? String((segment as { key: unknown }).key)
+                            : String(segment))
+                          .join('.');
+                        return `${pathStr}: ${issue.message}`;
                       }
-                      return String(segment);
-                    })
-                    .join('.');
-                  return `${pathStr}: ${issue.message}`;
+                      return issue.message;
+                    });
+                    message = messages.join(', ');
+                    outputChannel.appendLine(`  Schema validation error: ${message}`);
+                  }
+
+                  const diagnostic = new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error);
+                  diagnostic.source = 'lines-db-migration';
+                  diagnostics.push(diagnostic);
                 }
-                return issue.message;
-              });
 
-              const message = messages.join(', ');
-              outputChannel.appendLine(`  Combined message: ${message}`);
+                outputChannel.appendLine(`Setting ${diagnostics.length} diagnostics on preview file`);
+                outputChannel.appendLine(`Preview URI: ${previewDoc.uri.toString()}`);
 
-              const range = new vscode.Range(rowIndex, 0, rowIndex, Number.MAX_VALUE);
-              outputChannel.appendLine(`  Range: line ${rowIndex}, col 0 to ${Number.MAX_VALUE}`);
+                for (let i = 0; i < diagnostics.length; i++) {
+                  const diag = diagnostics[i];
+                  outputChannel.appendLine(`  Diagnostic ${i}: line=${diag.range.start.line}, message=${diag.message}`);
+                }
 
-              const diagnostic = new vscode.Diagnostic(
-                range,
-                message,
-                vscode.DiagnosticSeverity.Error,
-              );
-              diagnostic.source = 'lines-db-migration';
-              diagnostics.push(diagnostic);
-              outputChannel.appendLine(`  Diagnostic created and added to array`);
-            }
-          } else {
-            outputChannel.appendLine(
-              'ERROR: Validation error structure does NOT match expected format',
-            );
-            outputChannel.appendLine(
-              `  Check 1 - is object: ${typeof validationError === 'object'}`,
-            );
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            outputChannel.appendLine(`  Check 2 - has name: ${'name' in (validationError as any)}`);
-            outputChannel.appendLine(
-              `  Check 3 - name is ValidationError: ${(validationError as any)?.name === 'ValidationError'}`,
-            );
-            outputChannel.appendLine(
-              `  Check 4 - has validationErrors: ${'validationErrors' in (validationError as any)}`,
-            );
-            outputChannel.appendLine(
-              `  Check 5 - validationErrors is array: ${Array.isArray((validationError as any)?.validationErrors)}`,
-            );
+                MigrationSessionManager.setDiagnostics(previewDoc.uri, diagnostics);
+
+                // Verify diagnostics were set
+                const allDiagnostics = vscode.languages.getDiagnostics(previewDoc.uri);
+                outputChannel.appendLine(`Verification: getDiagnostics returned ${allDiagnostics.length} diagnostics`);
+
+                throw new Error('Validation failed');
+              }
+            });
+
+            outputChannel.appendLine('Preview validation: SUCCESS');
+            // If validation succeeds, clear diagnostics
+            MigrationSessionManager.clearDiagnostics(previewDoc.uri);
+            previewValidationSuccess = true;
+          } finally {
+            outputChannel.appendLine('Closing database...');
+            await db.close();
           }
-
-          outputChannel.appendLine(
-            `FINAL: Setting ${diagnostics.length} diagnostics on preview file`,
-          );
-          outputChannel.appendLine(`Preview URI: ${previewDoc.uri.toString()}`);
-          outputChannel.appendLine(`Preview URI scheme: ${previewDoc.uri.scheme}`);
-          outputChannel.appendLine(`Preview URI fsPath: ${previewDoc.uri.fsPath}`);
-
-          for (let i = 0; i < diagnostics.length; i++) {
-            const diag = diagnostics[i];
-            outputChannel.appendLine(`  Diagnostic ${i}:`);
-            outputChannel.appendLine(`    line=${diag.range.start.line}`);
-            outputChannel.appendLine(`    message=${diag.message}`);
-            outputChannel.appendLine(`    severity=${diag.severity}`);
-            outputChannel.appendLine(`    source=${diag.source}`);
-          }
-
-          outputChannel.appendLine('Calling MigrationSessionManager.setDiagnostics...');
-          MigrationSessionManager.setDiagnostics(previewDoc.uri, diagnostics);
-          outputChannel.appendLine('MigrationSessionManager.setDiagnostics returned');
-
-          // Verify diagnostics were set
-          const allDiagnostics = vscode.languages.getDiagnostics(previewDoc.uri);
-          outputChannel.appendLine(
-            `Verification: getDiagnostics returned ${allDiagnostics.length} diagnostics`,
-          );
-          for (let i = 0; i < allDiagnostics.length; i++) {
-            outputChannel.appendLine(`  Verified diagnostic ${i}: ${allDiagnostics[i].message}`);
-          }
+        } catch (validationError) {
+          outputChannel.appendLine('Preview validation: FAILED');
+          outputChannel.appendLine(`Error: ${validationError}`);
+          // Diagnostics are already set if validation failed
+          previewValidationSuccess = false;
         }
 
         // Open or update preview in the group below
