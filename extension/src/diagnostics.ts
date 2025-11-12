@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { Validator, SchemaLoader } from '../../lib/dist/index.cjs';
+import { LinesDB, SchemaLoader } from '../../lib/dist/index.cjs';
 import { TempFileManager } from './tempFileManager.js';
 
 export class DiagnosticsProvider {
@@ -101,8 +101,9 @@ export class DiagnosticsProvider {
       const dirPath = path.dirname(filePath);
 
       // Validate entire directory to check foreign key constraints
-      const validator = new Validator({ path: dirPath });
-      const result = await validator.validate();
+      const db = LinesDB.create({ dataDir: dirPath });
+      const result = await db.initialize({ detailedValidate: true });
+      await db.close();
 
       const diagnostics: vscode.Diagnostic[] = [];
 
