@@ -1,5 +1,23 @@
 # @toiroakr/lines-db
 
+## 0.6.0
+
+### Minor Changes
+
+- 042c14e: feat!: Refactor validation process and remove Validator class
+
+  fix: extension for latest lines-fb
+
+- b22f4f0: feat: Refactor validation process and enhance database initialization
+  - Added detailedValidate option to initialize() for detailed constraint violation reporting
+  - Enhanced migrate command to apply transforms during initialization for better performance
+  - Implemented batch insert for improved performance with SQLite parameter limits
+  - Added support for self-referencing foreign keys (e.g., nullable parent_id columns)
+  - Improved error handling and reporting for validation failures
+  - Added transform option to initialize() method for data transformation during load
+  - Enhanced foreign key dependency resolution
+  - Added type-fest as dev dependency
+
 ## 0.5.0
 
 ### Minor Changes
