@@ -3,7 +3,6 @@ import { defineSchema } from '@toiroakr/lines-db';
 import type { InferOutput } from '@toiroakr/lines-db';
 
 // Define product schema using Valibot
-// SQLite stores booleans as 0/1, so we need to transform them
 const productSchema = v.object({
   id: v.pipe(v.number(), v.integer(), v.minValue(1)),
   name: v.pipe(v.string(), v.minLength(1)),
@@ -11,13 +10,7 @@ const productSchema = v.object({
   inStock: v.boolean(),
 });
 
-// Wrap with defineSchema to create BiDirectionalSchema
-export const schema = defineSchema(productSchema, {
-  backward: (output) => ({
-    ...output,
-    inStock: output.inStock ? 1 : 0,
-  }),
-});
+export const schema = defineSchema(productSchema);
 
 // Export inferred type from schema using StandardSchema
 export type Product = InferOutput<typeof schema>;

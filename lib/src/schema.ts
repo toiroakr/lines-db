@@ -2,8 +2,9 @@ import type { StandardSchema, Table, ForeignKeyDefinition, IndexDefinition } fro
 
 /**
  * Schema options for defining constraints and indexes
+ * When Input and Output types differ, backward transformation is required
  */
-export interface SchemaOptions {
+export type SchemaOptions<Input extends Table, Output extends Table> = {
   /**
    * Primary key column
    */
@@ -18,13 +19,19 @@ export interface SchemaOptions {
    * Indexes to create
    */
   indexes?: IndexDefinition[];
-
-  /**
-   * Backward transformation from Output to Input
-   * Required when Input and Output types differ (e.g., with transformations)
-   */
-  backward?: (output: Table) => Table;
-}
+} & (Output extends Input
+  ? {
+      /**
+       * Backward transformation from Output to Input (optional when output is substitutable for input)
+       */
+      backward?: (output: Output) => Input;
+    }
+  : {
+      /**
+       * Backward transformation from Output to Input (REQUIRED when types differ)
+       */
+      backward: (output: Output) => Input;
+    });
 
 /**
  * BiDirectional Schema interface
@@ -58,8 +65,7 @@ export interface BiDirectionalSchema<Input extends Table = Table, Output extends
  * Define a bidirectional schema with optional backward transformation
  *
  * @param schema - Standard Schema for validation
- * @param optionsOrBackward - Optional SchemaOptions object or backward transformation function (Output → Input)
- *                            Required when schema performs transformations
+ * @param options - SchemaOptions object. When Input and Output types differ, backward transformation is required
  *
  * @example
  * // No transformation - backward not needed
@@ -68,10 +74,12 @@ export interface BiDirectionalSchema<Input extends Table = Table, Output extends
  * );
  *
  * @example
- * // With transformation - backward recommended (legacy)
+ * // With transformation - backward REQUIRED
  * const schema = defineSchema(
  *   v.pipe(v.string(), v.transform(Number)),
- *   (num) => String(num)  // backward: number → string
+ *   {
+ *     backward: (num) => String(num)  // backward: number → string (REQUIRED)
+ *   }
  * );
  *
  * @example
@@ -88,30 +96,27 @@ export interface BiDirectionalSchema<Input extends Table = Table, Output extends
  */
 export function defineSchema<Input extends Table, Output extends Table>(
   schema: StandardSchema<Input, Output>,
-  optionsOrBackward?: SchemaOptions | ((output: Output) => Input),
+  ...args: Output extends Input
+    ? [options?: SchemaOptions<Input, Output>]
+    : [options: SchemaOptions<Input, Output>]
 ): BiDirectionalSchema<Input, Output> {
+  const options = args[0];
   // Create a new object that extends the schema
   const bidirectionalSchema = Object.create(schema) as BiDirectionalSchema<Input, Output>;
 
-  // Handle options or backward function
-  if (optionsOrBackward) {
-    if (typeof optionsOrBackward === 'function') {
-      // Legacy: backward function only
-      bidirectionalSchema.backward = optionsOrBackward;
-    } else {
-      // New: options object
-      if (optionsOrBackward.backward) {
-        bidirectionalSchema.backward = optionsOrBackward.backward as (output: Output) => Input;
-      }
-      if (optionsOrBackward.primaryKey) {
-        bidirectionalSchema.primaryKey = optionsOrBackward.primaryKey;
-      }
-      if (optionsOrBackward.foreignKeys) {
-        bidirectionalSchema.foreignKeys = optionsOrBackward.foreignKeys;
-      }
-      if (optionsOrBackward.indexes) {
-        bidirectionalSchema.indexes = optionsOrBackward.indexes;
-      }
+  // Handle options object
+  if (options) {
+    if (options.backward) {
+      bidirectionalSchema.backward = options.backward as (output: Output) => Input;
+    }
+    if (options.primaryKey) {
+      bidirectionalSchema.primaryKey = options.primaryKey;
+    }
+    if (options.foreignKeys) {
+      bidirectionalSchema.foreignKeys = options.foreignKeys;
+    }
+    if (options.indexes) {
+      bidirectionalSchema.indexes = options.indexes;
     }
   }
 

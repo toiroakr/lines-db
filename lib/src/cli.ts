@@ -7,7 +7,7 @@ register('tsx', import.meta.url, { data: {} });
 import { TypeGenerator } from './type-generator.js';
 import { LinesDB } from './database.js';
 import { ErrorFormatter } from './error-formatter.js';
-import type { ValidationError } from './types.js';
+import type { ValidationError, JsonObject } from './types.js';
 import { Command } from 'commander';
 import { styleText } from 'node:util';
 import { writeFile, stat, readdir } from 'node:fs/promises';
@@ -244,7 +244,7 @@ async function migrateDirectory(
 
   // Initialize database
   const db = LinesDB.create({ dataDir: dirPath });
-  const initResult = await db.initialize();
+  const initResult = await db.initialize({ detailedValidate: true });
 
   // Display warnings if any
   if (initResult.warnings.length > 0) {
@@ -322,7 +322,7 @@ async function migrateDirectory(
         console.log(`  Found ${rowsToMigrate.length} row(s) to migrate`);
 
         // Apply transformation
-        const transformedRows = rowsToMigrate.map((row) => transform(row));
+        const transformedRows = rowsToMigrate.map((row) => transform(row as JsonObject));
 
         // Perform the migration in a transaction
         await db.transaction(async () => {
@@ -417,9 +417,24 @@ async function migrateFile(
   const lastSlashIndex = filePath.lastIndexOf('/');
   const dataDir = lastSlashIndex > 0 ? filePath.substring(0, lastSlashIndex) : '.';
 
-  // Initialize database
+  // Parse transform function first (before initialization)
+  let transform: (row: JsonObject) => JsonObject;
+  try {
+    const parsedTransform = runInSandbox<unknown>(`(${transformStr})`);
+    if (typeof parsedTransform !== 'function') {
+      console.error('Error: Transform must be a function');
+      process.exit(1);
+    }
+    transform = parsedTransform as (row: JsonObject) => JsonObject;
+  } catch (error) {
+    console.error('Error: Failed to parse transform function');
+    console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+
+  // Initialize database with transform applied
   const db = LinesDB.create({ dataDir });
-  const initResult = await db.initialize();
+  const initResult = await db.initialize({ tableName, transform, detailedValidate: true });
 
   // Display warnings if any
   if (initResult.warnings.length > 0) {
@@ -448,14 +463,6 @@ async function migrateFile(
   }
 
   try {
-    // Parse transform function
-    const transform = runInSandbox<unknown>(`(${transformStr})`);
-
-    if (typeof transform !== 'function') {
-      console.error('Error: Transform must be a function');
-      process.exit(1);
-    }
-
     // Parse filter if provided
     let filter: unknown = undefined;
     if (options.filter) {
@@ -468,136 +475,156 @@ async function migrateFile(
       }
     }
 
-    // Get rows to migrate
-    let rowsToMigrate;
-    try {
-      rowsToMigrate = filter
-        ? db.find(tableName, filter as Parameters<typeof db.find>[1])
-        : db.find(tableName);
-    } catch (error) {
-      console.error(`Error: Failed to access table '${tableName}'`);
-      console.error(`  ${error instanceof Error ? error.message : String(error)}`);
-      console.error(`\nThe table may have failed to load during initialization.`);
-      console.error(`Check the table's data and schema for any constraint violations.`);
-      await db.close();
-      process.exit(1);
-    }
+    // If filter is provided, we need to apply transform only to matching rows
+    if (filter) {
+      // Get rows to migrate
+      let rowsToMigrate;
+      try {
+        rowsToMigrate = db.find(tableName, filter as Parameters<typeof db.find>[1]);
+      } catch (error) {
+        console.error(`Error: Failed to access table '${tableName}'`);
+        console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`\nThe table may have failed to load during initialization.`);
+        console.error(`Check the table's data and schema for any constraint violations.`);
+        await db.close();
+        process.exit(1);
+      }
 
-    console.log(`Found ${rowsToMigrate.length} row(s) to migrate in table '${tableName}'`);
+      console.log(`Found ${rowsToMigrate.length} row(s) to migrate in table '${tableName}'`);
 
-    if (rowsToMigrate.length === 0) {
-      console.log('No rows to migrate. Exiting.');
-      await db.close();
-      process.exit(0);
-    }
+      if (rowsToMigrate.length === 0) {
+        console.log('No rows to migrate. Exiting.');
+        await db.close();
+        process.exit(0);
+      }
 
-    // Apply transformation
-    const transformedRows = rowsToMigrate.map((row) => transform(row));
+      // Apply transformation
+      const transformedRows = rowsToMigrate.map((row) => transform(row as JsonObject));
 
-    // Perform the migration in a transaction
-    try {
-      await db.transaction(async () => {
-        db.batchUpdate(tableName, transformedRows as Parameters<typeof db.batchUpdate>[1], {
-          validate: true,
+      // Perform the migration in a transaction
+      try {
+        await db.transaction(async () => {
+          db.batchUpdate(tableName, transformedRows as Parameters<typeof db.batchUpdate>[1], {
+            validate: true,
+          });
         });
-      });
 
-      await db.close();
+        await db.close();
 
-      console.log(`\nMigration completed successfully:`);
-      console.log(`  ✓ ${rowsToMigrate.length} row(s) updated`);
-      process.exit(0);
-    } catch (error) {
-      await db.close();
+        console.log(`\nMigration completed successfully:`);
+        console.log(`  ✓ ${rowsToMigrate.length} row(s) updated`);
+        process.exit(0);
+      } catch (error) {
+        await db.close();
 
-      // Write transformed data to error output file if --errorOutput is specified
-      if (options.errorOutput) {
-        try {
-          const jsonlContent = transformedRows.map((row) => JSON.stringify(row)).join('\n');
-          await writeFile(options.errorOutput, jsonlContent, 'utf-8');
-          console.error(
-            styleText(
-              'yellow',
-              `\n⚠ Transformed data (${transformedRows.length} rows) written to: ${options.errorOutput}`,
-            ),
-          );
-        } catch (writeError) {
-          console.error(
-            styleText(
-              'red',
-              `\n✗ Failed to write error output file: ${writeError instanceof Error ? writeError.message : String(writeError)}`,
-            ),
-          );
+        // Write transformed data to error output file if --errorOutput is specified
+        if (options.errorOutput) {
+          try {
+            const jsonlContent = transformedRows.map((row) => JSON.stringify(row)).join('\n');
+            await writeFile(options.errorOutput, jsonlContent, 'utf-8');
+            console.error(
+              styleText(
+                'yellow',
+                `\n⚠ Transformed data (${transformedRows.length} rows) written to: ${options.errorOutput}`,
+              ),
+            );
+          } catch (writeError) {
+            console.error(
+              styleText(
+                'red',
+                `\n✗ Failed to write error output file: ${writeError instanceof Error ? writeError.message : String(writeError)}`,
+              ),
+            );
+          }
         }
-      }
 
-      const formatter = new ErrorFormatter({ verbose: options.verbose });
-      console.error(formatter.formatMigrationFailureHeader());
+        const formatter = new ErrorFormatter({ verbose: options.verbose });
+        console.error(formatter.formatMigrationFailureHeader());
 
-      // Display detailed error information
-      if (error instanceof Error && error.name === 'ValidationError') {
-        const validationError = error as ValidationError & {
-          validationErrors?: Array<{
-            rowIndex: number;
-            rowData: unknown;
-            pkValue: unknown;
-            error: ValidationError;
-          }>;
-        };
-
-        // Display all validation errors
-        if (validationError.validationErrors) {
-          console.error(
-            `\nFound ${validationError.validationErrors.length} validation error(s) in transformed data:\n`,
-          );
-
-          const errorInfos = validationError.validationErrors.map(
-            ({ rowIndex, rowData, error: rowError }) => ({
-              file: filePath,
-              rowIndex,
-              issues: rowError.issues,
-              data: rowData,
-              originalData: rowsToMigrate[rowIndex],
-            }),
-          );
-
-          const formatted = formatter.formatValidationErrors(errorInfos);
-          console.error(formatted);
-        } else {
-          // Fallback for single validation error (backward compatibility)
-          console.error('\nValidation error:\n');
-          const errorInfo = {
-            file: filePath,
-            rowIndex: 0,
-            issues: validationError.issues,
+        // Display detailed error information
+        if (error instanceof Error && error.name === 'ValidationError') {
+          const validationError = error as ValidationError & {
+            validationErrors?: Array<{
+              rowIndex: number;
+              rowData: unknown;
+              pkValue: unknown;
+              error: ValidationError;
+            }>;
           };
-          const formatted = formatter.formatValidationErrors([errorInfo]);
-          console.error(formatted);
-        }
-      } else if (error instanceof Error) {
-        console.error(`\n  ${error.message}`);
 
-        // Output stack trace for debugging
-        if (options.verbose && error.stack) {
-          console.error(`\nStack trace:\n${error.stack}`);
+          // Display all validation errors
+          if (validationError.validationErrors) {
+            console.error(
+              `\nFound ${validationError.validationErrors.length} validation error(s) in transformed data:\n`,
+            );
+
+            const errorInfos = validationError.validationErrors.map(
+              ({ rowIndex, rowData, error: rowError }) => ({
+                file: filePath,
+                rowIndex,
+                issues: rowError.issues,
+                data: rowData,
+                originalData: rowsToMigrate[rowIndex],
+              }),
+            );
+
+            const formatted = formatter.formatValidationErrors(errorInfos);
+            console.error(formatted);
+          } else {
+            // Fallback for single validation error (backward compatibility)
+            console.error('\nValidation error:\n');
+            const errorInfo = {
+              file: filePath,
+              rowIndex: 0,
+              issues: validationError.issues,
+            };
+            const formatted = formatter.formatValidationErrors([errorInfo]);
+            console.error(formatted);
+          }
+        } else if (error instanceof Error) {
+          console.error(`\n  ${error.message}`);
+
+          // Output stack trace for debugging
+          if (options.verbose && error.stack) {
+            console.error(`\nStack trace:\n${error.stack}`);
+          }
+
+          // Check if it's a SQLite constraint error
+          if (
+            error.message.includes('UNIQUE constraint failed') ||
+            error.message.includes('FOREIGN KEY constraint failed') ||
+            error.message.includes('NOT NULL constraint failed') ||
+            error.message.includes('CHECK constraint failed')
+          ) {
+            console.error('\n  This is a SQLite constraint violation.');
+            console.error('  Please check your data and schema requirements.');
+          }
+        } else {
+          console.error(`\n  ${String(error)}`);
         }
 
-        // Check if it's a SQLite constraint error
-        if (
-          error.message.includes('UNIQUE constraint failed') ||
-          error.message.includes('FOREIGN KEY constraint failed') ||
-          error.message.includes('NOT NULL constraint failed') ||
-          error.message.includes('CHECK constraint failed')
-        ) {
-          console.error('\n  This is a SQLite constraint violation.');
-          console.error('  Please check your data and schema requirements.');
-        }
-      } else {
-        console.error(`\n  ${String(error)}`);
+        console.error('');
+        process.exit(1);
       }
+    } else {
+      // No filter - all rows have been transformed during initialization
+      // Just sync to write back to JSONL file
+      try {
+        const allRows = db.find(tableName);
+        console.log(`Migrated ${allRows.length} row(s) in table '${tableName}'`);
 
-      console.error('');
-      process.exit(1);
+        await db.sync(tableName);
+        await db.close();
+
+        console.log(`\nMigration completed successfully:`);
+        console.log(`  ✓ ${allRows.length} row(s) updated`);
+        process.exit(0);
+      } catch (error) {
+        await db.close();
+        console.error('Error: Failed to sync changes to file');
+        console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+        process.exit(1);
+      }
     }
   } catch (error) {
     await db.close();

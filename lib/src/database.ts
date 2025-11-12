@@ -46,16 +46,19 @@ export class LinesDB<Tables extends TableDefs> {
    * @param options Optional configuration for initialization
    * @param options.tableName Optional table name to initialize. If not provided, initializes all tables
    * @param options.detailedValidate If true, performs detailed validation by inserting rows one by one to catch constraint violations
+   * @param options.transform Optional transform function to apply to rows before validation (only applied to the specified tableName)
    * @returns ValidationResult containing validation status, errors, and warnings
    */
   async initialize(options?: {
     tableName?: string;
     detailedValidate?: boolean;
+    transform?: (row: JsonObject) => JsonObject;
   }): Promise<ValidationResult> {
     const allErrors: ValidationErrorDetail[] = [];
     const allWarnings: string[] = [];
     const tableName = options?.tableName;
     const detailedValidate = options?.detailedValidate ?? false;
+    const transform = options?.transform;
 
     // Scan directory for JSONL files
     this.tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
@@ -80,12 +83,15 @@ export class LinesDB<Tables extends TableDefs> {
     // Load tables with dependency resolution
     for (const tableNameToLoad of tablesToLoad) {
       if (!attemptedTables.has(tableNameToLoad)) {
+        // Only apply transform to the specified table
+        const tableTransform = tableNameToLoad === tableName ? transform : undefined;
         const { errors, warnings } = await this.loadTableWithDependencies(
           tableNameToLoad,
           loadedTables,
           loadingTables,
           attemptedTables,
           detailedValidate,
+          tableTransform,
         );
         allErrors.push(...errors);
         allWarnings.push(...warnings);
@@ -108,6 +114,7 @@ export class LinesDB<Tables extends TableDefs> {
     loadingTables: Set<string>,
     attemptedTables: Set<string>,
     detailedValidate: boolean,
+    transform?: (row: JsonObject) => JsonObject,
   ): Promise<{ errors: ValidationErrorDetail[]; warnings: string[] }> {
     const errors: ValidationErrorDetail[] = [];
     const warnings: string[] = [];
@@ -165,12 +172,14 @@ export class LinesDB<Tables extends TableDefs> {
           if (!attemptedTables.has(referencedTable)) {
             // Check if referenced table exists in our tables map
             if (this.tables.has(referencedTable)) {
+              // Dependencies should not have transform applied
               const depResult = await this.loadTableWithDependencies(
                 referencedTable,
                 loadedTables,
                 loadingTables,
                 attemptedTables,
                 detailedValidate,
+                undefined,
               );
               errors.push(...depResult.errors);
               warnings.push(...depResult.warnings);
@@ -188,6 +197,7 @@ export class LinesDB<Tables extends TableDefs> {
         tableName,
         tableConfig,
         detailedValidate,
+        transform,
       );
       errors.push(...loadErrors);
 
@@ -214,9 +224,15 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: string,
     config: TableConfig,
     detailedValidate: boolean,
+    transform?: (row: JsonObject) => JsonObject,
   ): Promise<{ loaded: boolean; errors: ValidationErrorDetail[] }> {
     // Read JSONL file
-    const data = await JsonlReader.read(config.jsonlPath);
+    let data = await JsonlReader.read(config.jsonlPath);
+
+    // Apply transform if provided (before validation)
+    if (transform) {
+      data = data.map((row) => transform(row));
+    }
 
     // Load validation schema if provided or try to auto-load
     let validationSchema = config.validationSchema;
@@ -313,14 +329,30 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Determine schema - infer from validated data if auto-inference is enabled
     let schema: TableSchema;
+    let inferredSchema: TableSchema | undefined;
+
+    // Always infer schema from validated data to capture valueType information (e.g., boolean)
+    if (validatedData.length > 0) {
+      inferredSchema = JsonlReader.inferSchema(tableName, validatedData);
+    }
+
     if (config.schema) {
       schema = config.schema;
+      // Merge valueType information from inferred schema
+      if (inferredSchema) {
+        for (const inferredCol of inferredSchema.columns) {
+          const schemaCol = schema.columns.find((c) => c.name === inferredCol.name);
+          if (schemaCol && inferredCol.valueType && !schemaCol.valueType) {
+            schemaCol.valueType = inferredCol.valueType;
+          }
+        }
+      }
     } else if (config.autoInferSchema !== false) {
       if (validatedData.length === 0) {
         return { loaded: false, errors: [] };
       }
-      // Infer schema from validated data (which may have additional fields added by validation)
-      schema = JsonlReader.inferSchema(tableName, validatedData);
+      // Use inferred schema
+      schema = inferredSchema!;
     } else {
       // Critical error - throw exception
       throw new Error(`No schema provided for table ${tableName} and autoInferSchema is disabled`);
@@ -1314,10 +1346,20 @@ export class LinesDB<Tables extends TableDefs> {
   /**
    * Sync database changes back to JSONL files
    * Uses backward transformation when available
+   * @param tableName Optional table name to sync. If not provided, syncs all loaded tables
    */
-  async sync(): Promise<void> {
-    for (const [tableName] of this.tables) {
+  async sync(tableName?: string): Promise<void> {
+    if (tableName) {
+      // Sync only the specified table
+      if (!this.schemas.has(tableName)) {
+        throw new Error(`Table '${tableName}' is not loaded`);
+      }
       await this.syncTable(tableName);
+    } else {
+      // Sync all tables that are loaded (present in schemas map)
+      for (const [name] of this.schemas) {
+        await this.syncTable(name);
+      }
     }
   }
 
