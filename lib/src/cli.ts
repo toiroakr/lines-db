@@ -5,13 +5,13 @@ import { register } from 'node:module';
 register('tsx', import.meta.url, { data: {} });
 
 import { TypeGenerator } from './type-generator.js';
-import { Validator } from './validator.js';
 import { LinesDB } from './database.js';
 import { ErrorFormatter } from './error-formatter.js';
 import type { ValidationError } from './types.js';
 import { Command } from 'commander';
 import { styleText } from 'node:util';
 import { writeFile, stat, readdir } from 'node:fs/promises';
+import { basename, dirname } from 'node:path';
 import { runInNewContext } from 'node:vm';
 
 const originalEmitWarning = process.emitWarning;
@@ -81,8 +81,29 @@ program
   .option('-v, --verbose', 'Show verbose error output', false)
   .action(async (path: string, options: { verbose: boolean }) => {
     try {
-      const validator = new Validator({ path });
-      const result = await validator.validate();
+      // Determine if path is a file or directory
+      const stats = await stat(path);
+      let dataDir: string;
+      let tableName: string | undefined;
+
+      if (stats.isDirectory()) {
+        dataDir = path;
+        // Validate all tables in directory
+      } else if (stats.isFile() && path.endsWith('.jsonl')) {
+        dataDir = dirname(path);
+        tableName = basename(path, '.jsonl');
+      } else {
+        throw new Error(`Invalid path: ${path}. Must be a directory or .jsonl file.`);
+      }
+
+      // Use LinesDB.initialize() with detailed validation
+      const db = LinesDB.create({ dataDir });
+      let result;
+      try {
+        result = await db.initialize({ tableName, detailedValidate: true });
+      } finally {
+        await db.close();
+      }
 
       // Display warnings if any
       if (result.warnings.length > 0) {
@@ -223,7 +244,33 @@ async function migrateDirectory(
 
   // Initialize database
   const db = LinesDB.create({ dataDir: dirPath });
-  await db.initialize();
+  const initResult = await db.initialize();
+
+  // Display warnings if any
+  if (initResult.warnings.length > 0) {
+    for (const warning of initResult.warnings) {
+      console.warn(styleText('yellow', `⚠ ${warning}`));
+    }
+  }
+
+  // Check for initialization errors
+  if (!initResult.valid) {
+    console.error(`Error: Failed to initialize database due to validation errors:`);
+    const formatter = new ErrorFormatter({ verbose: options.verbose });
+    for (const error of initResult.errors) {
+      console.error(
+        formatter.formatValidationErrors([
+          {
+            file: error.file,
+            rowIndex: error.rowIndex,
+            issues: error.issues,
+          },
+        ]),
+      );
+    }
+    await db.close();
+    process.exit(1);
+  }
 
   const tableNames = db.getTableNames();
   if (tableNames.length === 0) {
@@ -372,7 +419,33 @@ async function migrateFile(
 
   // Initialize database
   const db = LinesDB.create({ dataDir });
-  await db.initialize();
+  const initResult = await db.initialize();
+
+  // Display warnings if any
+  if (initResult.warnings.length > 0) {
+    for (const warning of initResult.warnings) {
+      console.warn(styleText('yellow', `⚠ ${warning}`));
+    }
+  }
+
+  // Check for initialization errors
+  if (!initResult.valid) {
+    console.error(`Error: Failed to initialize database due to validation errors:`);
+    const formatter = new ErrorFormatter({ verbose: options.verbose });
+    for (const error of initResult.errors) {
+      console.error(
+        formatter.formatValidationErrors([
+          {
+            file: error.file,
+            rowIndex: error.rowIndex,
+            issues: error.issues,
+          },
+        ]),
+      );
+    }
+    await db.close();
+    process.exit(1);
+  }
 
   try {
     // Parse transform function

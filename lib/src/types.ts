@@ -17,6 +17,27 @@ export type { StandardSchemaV1 };
 export type InferInput<T> = T extends StandardSchemaV1<infer I, unknown> ? I : never;
 export type InferOutput<T> = T extends StandardSchemaV1<unknown, infer O> ? O : never;
 
+// Validation result types
+export interface ValidationResult {
+  valid: boolean;
+  errors: ValidationErrorDetail[];
+  warnings: string[];
+}
+
+export interface ValidationErrorDetail {
+  file: string;
+  tableName: string;
+  rowIndex: number;
+  issues: ReadonlyArray<StandardSchemaIssue>;
+  type?: 'schema' | 'foreignKey';
+  foreignKeyError?: {
+    column: string;
+    value: unknown;
+    referencedTable: string;
+    referencedColumn: string;
+  };
+}
+
 export interface ForeignKeyDefinition {
   column: string;
   references: {

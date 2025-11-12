@@ -10,11 +10,13 @@ import type {
   JsonObject,
   TableConfig,
   StandardSchema,
-  StandardSchemaIssue,
   ValidationError,
   Table,
   TableDefs,
   WhereCondition,
+  ValidationResult,
+  ValidationErrorDetail,
+  ForeignKeyDefinition,
 } from './types.js';
 import type { BiDirectionalSchema } from './schema.js';
 
@@ -39,35 +41,62 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
-   * Initialize database by loading all JSONL files
+   * Initialize database by loading all JSONL files or a specific table
    * Uses dependency resolution to ensure foreign key references are loaded in correct order
+   * @param options Optional configuration for initialization
+   * @param options.tableName Optional table name to initialize. If not provided, initializes all tables
+   * @param options.detailedValidate If true, performs detailed validation by inserting rows one by one to catch constraint violations
+   * @returns ValidationResult containing validation status, errors, and warnings
    */
-  async initialize(): Promise<void> {
+  async initialize(options?: {
+    tableName?: string;
+    detailedValidate?: boolean;
+  }): Promise<ValidationResult> {
+    const allErrors: ValidationErrorDetail[] = [];
+    const allWarnings: string[] = [];
+    const tableName = options?.tableName;
+    const detailedValidate = options?.detailedValidate ?? false;
+
     // Scan directory for JSONL files
     this.tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
+
+    // Determine which tables to load
+    const tablesToLoad = tableName ? [tableName] : Array.from(this.tables.keys());
+
+    // Validate that all requested tables exist BEFORE starting to load
+    for (const tableNameToLoad of tablesToLoad) {
+      if (!this.tables.has(tableNameToLoad)) {
+        throw new Error(
+          `Table '${tableNameToLoad}' not found in directory '${this.config.dataDir}'`,
+        );
+      }
+    }
 
     // Track loaded tables and tables currently being loaded (for circular dependency detection)
     const loadedTables = new Set<string>();
     const loadingTables = new Set<string>();
+    const attemptedTables = new Set<string>(); // Track all attempted tables (loaded or not)
 
-    // Load all tables with dependency resolution
-    for (const [tableName] of this.tables) {
-      if (!loadedTables.has(tableName)) {
-        try {
-          await this.loadTableWithDependencies(tableName, loadedTables, loadingTables);
-        } catch (error) {
-          // Log error but continue loading other tables
-          console.warn(
-            `Warning: Failed to load table '${tableName}':`,
-            error instanceof Error ? error.message : String(error),
-          );
-          // Remove the failed table from the tables map
-          this.tables.delete(tableName);
-          this.schemas.delete(tableName);
-          this.validationSchemas.delete(tableName);
-        }
+    // Load tables with dependency resolution
+    for (const tableNameToLoad of tablesToLoad) {
+      if (!attemptedTables.has(tableNameToLoad)) {
+        const { errors, warnings } = await this.loadTableWithDependencies(
+          tableNameToLoad,
+          loadedTables,
+          loadingTables,
+          attemptedTables,
+          detailedValidate,
+        );
+        allErrors.push(...errors);
+        allWarnings.push(...warnings);
       }
     }
+
+    return {
+      valid: allErrors.length === 0,
+      errors: allErrors,
+      warnings: allWarnings,
+    };
   }
 
   /**
@@ -77,11 +106,19 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: string,
     loadedTables: Set<string>,
     loadingTables: Set<string>,
-  ): Promise<void> {
-    // Skip if already loaded
-    if (loadedTables.has(tableName)) {
-      return;
+    attemptedTables: Set<string>,
+    detailedValidate: boolean,
+  ): Promise<{ errors: ValidationErrorDetail[]; warnings: string[] }> {
+    const errors: ValidationErrorDetail[] = [];
+    const warnings: string[] = [];
+
+    // Skip if already attempted (loaded or not)
+    if (attemptedTables.has(tableName)) {
+      return { errors, warnings };
     }
+
+    // Mark as attempted
+    attemptedTables.add(tableName);
 
     // Check for circular dependencies
     if (loadingTables.has(tableName)) {
@@ -119,10 +156,24 @@ export class LinesDB<Tables extends TableDefs> {
       if (foreignKeys && foreignKeys.length > 0) {
         for (const fk of foreignKeys) {
           const referencedTable = fk.references.table;
-          if (!loadedTables.has(referencedTable)) {
+
+          // Skip self-referencing foreign keys (e.g., nullable parent_id columns)
+          if (referencedTable === tableName) {
+            continue;
+          }
+
+          if (!attemptedTables.has(referencedTable)) {
             // Check if referenced table exists in our tables map
             if (this.tables.has(referencedTable)) {
-              await this.loadTableWithDependencies(referencedTable, loadedTables, loadingTables);
+              const depResult = await this.loadTableWithDependencies(
+                referencedTable,
+                loadedTables,
+                loadingTables,
+                attemptedTables,
+                detailedValidate,
+              );
+              errors.push(...depResult.errors);
+              warnings.push(...depResult.warnings);
             } else {
               throw new Error(
                 `Foreign key reference to non-existent table '${referencedTable}' in table '${tableName}'`,
@@ -133,24 +184,37 @@ export class LinesDB<Tables extends TableDefs> {
       }
 
       // Now load this table
-      const wasLoaded = await this.loadTable(tableName, tableConfig);
-      if (wasLoaded) {
+      const { loaded, errors: loadErrors } = await this.loadTable(
+        tableName,
+        tableConfig,
+        detailedValidate,
+      );
+      errors.push(...loadErrors);
+
+      if (loaded) {
         loadedTables.add(tableName);
       } else {
         // Table was not loaded (e.g., empty data)
+        warnings.push(`Table '${tableName}' was not loaded (no data or skipped)`);
         this.tables.delete(tableName);
       }
     } finally {
       // Remove from loading set
       loadingTables.delete(tableName);
     }
+
+    return { errors, warnings };
   }
 
   /**
    * Load a single table from JSONL file
-   * @returns true if table was loaded, false if skipped
+   * @returns Object with loaded status and validation errors
    */
-  private async loadTable(tableName: string, config: TableConfig): Promise<boolean> {
+  private async loadTable(
+    tableName: string,
+    config: TableConfig,
+    detailedValidate: boolean,
+  ): Promise<{ loaded: boolean; errors: ValidationErrorDetail[] }> {
     // Read JSONL file
     const data = await JsonlReader.read(config.jsonlPath);
 
@@ -233,16 +297,18 @@ export class LinesDB<Tables extends TableDefs> {
       }
     }
 
+    // Convert validation errors to ValidationErrorDetail format
+    const validationErrorDetails: ValidationErrorDetail[] = validationErrors.map((ve) => ({
+      file: config.jsonlPath,
+      tableName,
+      rowIndex: ve.rowIndex,
+      issues: ve.error.issues,
+      type: 'schema' as const,
+    }));
+
     if (validationErrors.length > 0) {
-      const enhancedError = new Error(
-        `Validation failed for ${validationErrors.length} row(s) in table ${tableName}`,
-      );
-      enhancedError.name = 'ValidationError';
-      (enhancedError as unknown as { validationErrors: typeof validationErrors }).validationErrors =
-        validationErrors;
-      (enhancedError as unknown as { issues: ReadonlyArray<StandardSchemaIssue> }).issues =
-        validationErrors[0].error.issues;
-      throw enhancedError;
+      // Return errors instead of throwing
+      return { loaded: false, errors: validationErrorDetails };
     }
 
     // Determine schema - infer from validated data if auto-inference is enabled
@@ -251,11 +317,12 @@ export class LinesDB<Tables extends TableDefs> {
       schema = config.schema;
     } else if (config.autoInferSchema !== false) {
       if (validatedData.length === 0) {
-        return false;
+        return { loaded: false, errors: [] };
       }
       // Infer schema from validated data (which may have additional fields added by validation)
       schema = JsonlReader.inferSchema(tableName, validatedData);
     } else {
+      // Critical error - throw exception
       throw new Error(`No schema provided for table ${tableName} and autoInferSchema is disabled`);
     }
 
@@ -292,10 +359,22 @@ export class LinesDB<Tables extends TableDefs> {
     // Create table
     this.createTable(schema);
 
-    // Insert validated data
-    this.insertData(tableName, schema, validatedData);
+    // Insert validated data (with detailed validation if requested)
+    if (detailedValidate) {
+      const insertErrors = this.insertDataWithDetailedValidation(
+        tableName,
+        schema,
+        validatedData,
+        config.jsonlPath,
+      );
+      if (insertErrors.length > 0) {
+        return { loaded: false, errors: insertErrors };
+      }
+    } else {
+      this.insertData(tableName, schema, validatedData);
+    }
 
-    return true;
+    return { loaded: true, errors: [] };
   }
 
   /**
@@ -372,9 +451,52 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
-   * Insert data into table
+   * Insert data into table using batch insert (multiple rows per SQL)
+   * SQLite has a parameter limit (default 999), so we batch rows accordingly
+   * Throws exception if any constraint violation occurs
    */
   private insertData(tableName: string, schema: TableSchema, data: JsonObject[]): void {
+    if (data.length === 0) return;
+
+    const columnNames = schema.columns.map((col) => col.name);
+    const quotedColumns = columnNames.map((name) => this.quoteIdentifier(name));
+    const columnCount = columnNames.length;
+
+    // Calculate batch size to stay under SQLite's parameter limit (999)
+    // Leave some margin for safety
+    const maxBatchSize = Math.floor(900 / columnCount);
+    const batchSize = Math.max(1, Math.min(maxBatchSize, 100));
+
+    // Process data in batches
+    for (let i = 0; i < data.length; i += batchSize) {
+      const batch = data.slice(i, i + batchSize);
+      const rowPlaceholders = columnNames.map(() => '?').join(', ');
+      const valuesPlaceholders = batch.map(() => `(${rowPlaceholders})`).join(', ');
+      const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES ${valuesPlaceholders}`;
+
+      const values: (string | number | bigint | null | Uint8Array)[] = [];
+      for (const row of batch) {
+        for (const col of columnNames) {
+          values.push(this.normalizeValue(row[col]));
+        }
+      }
+
+      const stmt = this.db.prepare(sql);
+      stmt.run(...values);
+    }
+  }
+
+  /**
+   * Insert data into table one row at a time with detailed error reporting
+   * This is used for validation to catch constraint violations
+   */
+  private insertDataWithDetailedValidation(
+    tableName: string,
+    schema: TableSchema,
+    data: JsonObject[],
+    filePath: string,
+  ): ValidationErrorDetail[] {
+    const errors: ValidationErrorDetail[] = [];
     const columnNames = schema.columns.map((col) => col.name);
     const quotedColumns = columnNames.map((name) => this.quoteIdentifier(name));
     const placeholders = columnNames.map(() => '?').join(', ');
@@ -382,10 +504,90 @@ export class LinesDB<Tables extends TableDefs> {
 
     const stmt = this.db.prepare(sql);
 
-    for (const row of data) {
-      const values = columnNames.map((col) => this.normalizeValue(row[col]));
-      stmt.run(...values);
+    for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
+      const row = data[rowIndex];
+      try {
+        const values = columnNames.map((col) => this.normalizeValue(row[col]));
+        stmt.run(...values);
+      } catch (error) {
+        // Constraint violation occurred - analyze and record details
+        const constraintError = this.analyzeConstraintError(
+          error,
+          filePath,
+          tableName,
+          rowIndex,
+          row,
+          schema.foreignKeys || [],
+        );
+        if (constraintError) {
+          errors.push(constraintError);
+        }
+      }
     }
+
+    return errors;
+  }
+
+  /**
+   * Analyze constraint error and extract detailed information
+   */
+  private analyzeConstraintError(
+    error: unknown,
+    file: string,
+    tableName: string,
+    rowIndex: number,
+    row: JsonObject,
+    foreignKeys: ForeignKeyDefinition[],
+  ): ValidationErrorDetail | null {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // Foreign key constraint
+    if (errorMessage.includes('FOREIGN KEY constraint failed')) {
+      // Find which foreign key failed
+      for (const fk of foreignKeys) {
+        const fkValue = row[fk.column];
+        if (fkValue === null || fkValue === undefined) continue;
+
+        // Check if referenced value exists
+        try {
+          const result = this.query(
+            `SELECT COUNT(*) as count FROM ${this.quoteIdentifier(fk.references.table)} WHERE ${this.quoteIdentifier(fk.references.column)} = ?`,
+            [this.normalizeValue(fkValue)],
+          );
+          if (result.length > 0 && (result[0] as { count: number }).count === 0) {
+            return {
+              file,
+              tableName,
+              rowIndex,
+              issues: [],
+              type: 'foreignKey',
+              foreignKeyError: {
+                column: fk.column,
+                value: fkValue,
+                referencedTable: fk.references.table,
+                referencedColumn: fk.references.column,
+              },
+            };
+          }
+        } catch (_) {
+          // Referenced table doesn't exist yet
+        }
+      }
+    }
+
+    // Other constraint errors (primary key, unique, etc.)
+    return {
+      file,
+      tableName,
+      rowIndex,
+      issues: [
+        {
+          message: errorMessage,
+          path: [],
+        },
+      ],
+      type: 'schema',
+    };
   }
 
   /**

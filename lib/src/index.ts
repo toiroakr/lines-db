@@ -5,14 +5,12 @@ export { SchemaLoader } from './schema-loader.js';
 export { DirectoryScanner } from './directory-scanner.js';
 export { defineSchema, hasBackward } from './schema.js';
 export { TypeGenerator } from './type-generator.js';
-export { Validator } from './validator.js';
 export { ensureTableRowsValid } from './jsonl-migration.js';
 export type { TableValidationOptions } from './jsonl-migration.js';
 export { detectRuntime, RUNTIME } from './runtime.js';
 export type { RuntimeEnvironment } from './runtime.js';
 export type { SQLiteDatabase, SQLiteStatement } from './sqlite-adapter.js';
 export type { TypeGeneratorOptions } from './type-generator.js';
-export type { ValidatorOptions, ValidationResult, ValidationErrorDetail } from './validator.js';
 export type {
   TableSchema,
   ColumnDefinition,
@@ -25,6 +23,8 @@ export type {
   StandardSchemaResult,
   StandardSchemaIssue,
   ValidationError,
+  ValidationResult,
+  ValidationErrorDetail,
   InferInput,
   InferOutput,
   Table,
