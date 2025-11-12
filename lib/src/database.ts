@@ -60,26 +60,31 @@ export class LinesDB<Tables extends TableDefs> {
     // Scan directory for JSONL files
     this.tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
 
-    // Track loaded tables and tables currently being loaded (for circular dependency detection)
-    const loadedTables = new Set<string>();
-    const loadingTables = new Set<string>();
-
     // Determine which tables to load
     const tablesToLoad = tableName ? [tableName] : Array.from(this.tables.keys());
 
-    // Load tables with dependency resolution
+    // Validate that all requested tables exist BEFORE starting to load
     for (const tableNameToLoad of tablesToLoad) {
       if (!this.tables.has(tableNameToLoad)) {
         throw new Error(
           `Table '${tableNameToLoad}' not found in directory '${this.config.dataDir}'`,
         );
       }
+    }
 
-      if (!loadedTables.has(tableNameToLoad)) {
+    // Track loaded tables and tables currently being loaded (for circular dependency detection)
+    const loadedTables = new Set<string>();
+    const loadingTables = new Set<string>();
+    const attemptedTables = new Set<string>(); // Track all attempted tables (loaded or not)
+
+    // Load tables with dependency resolution
+    for (const tableNameToLoad of tablesToLoad) {
+      if (!attemptedTables.has(tableNameToLoad)) {
         const { errors, warnings } = await this.loadTableWithDependencies(
           tableNameToLoad,
           loadedTables,
           loadingTables,
+          attemptedTables,
           detailedValidate,
         );
         allErrors.push(...errors);
@@ -101,15 +106,19 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: string,
     loadedTables: Set<string>,
     loadingTables: Set<string>,
+    attemptedTables: Set<string>,
     detailedValidate: boolean,
   ): Promise<{ errors: ValidationErrorDetail[]; warnings: string[] }> {
     const errors: ValidationErrorDetail[] = [];
     const warnings: string[] = [];
 
-    // Skip if already loaded
-    if (loadedTables.has(tableName)) {
+    // Skip if already attempted (loaded or not)
+    if (attemptedTables.has(tableName)) {
       return { errors, warnings };
     }
+
+    // Mark as attempted
+    attemptedTables.add(tableName);
 
     // Check for circular dependencies
     if (loadingTables.has(tableName)) {
@@ -153,13 +162,14 @@ export class LinesDB<Tables extends TableDefs> {
             continue;
           }
 
-          if (!loadedTables.has(referencedTable)) {
+          if (!attemptedTables.has(referencedTable)) {
             // Check if referenced table exists in our tables map
             if (this.tables.has(referencedTable)) {
               const depResult = await this.loadTableWithDependencies(
                 referencedTable,
                 loadedTables,
                 loadingTables,
+                attemptedTables,
                 detailedValidate,
               );
               errors.push(...depResult.errors);
