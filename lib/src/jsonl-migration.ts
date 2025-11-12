@@ -11,66 +11,34 @@ export interface TableValidationOptions {
 
 /**
  * Validate a table by temporarily supplying in-memory rows while reusing the existing LinesDB validation pipeline.
- * If validation fails, the underlying LinesDB error is rethrown so callers can inspect validation details.
+ * If validation fails, throws an error with validation details.
  */
 export async function ensureTableRowsValid(options: TableValidationOptions): Promise<void> {
-  console.log('[ensureTableRowsValid] START');
-  console.log('[ensureTableRowsValid] dataDir:', options.dataDir);
-  console.log('[ensureTableRowsValid] tableName:', options.tableName);
-  console.log('[ensureTableRowsValid] rows count:', options.rows.length);
-
   const tablePath = join(options.dataDir, `${options.tableName}.jsonl`);
   const overrides = new Map<string, JsonObject[]>([[tablePath, options.rows]]);
-  console.log('[ensureTableRowsValid] tablePath:', tablePath);
 
-  let capturedError: Error | null = null;
+  await JsonlReader.withOverrides(overrides, async () => {
+    const db = LinesDB.create({ dataDir: options.dataDir });
+    try {
+      // Initialize only the target table
+      const result = await db.initialize({ tableName: options.tableName });
 
-  // Intercept console.warn to capture validation errors
-  const originalWarn = console.warn;
-  const warnMessages: string[] = [];
-  console.warn = (...args: any[]) => {
-    const message = args.join(' ');
-    console.log('[ensureTableRowsValid] Captured warn:', message);
-    warnMessages.push(message);
-    // Check if this is a validation error for our table
-    if (
-      message.includes(`Failed to load table '${options.tableName}'`) &&
-      message.includes('Validation failed')
-    ) {
-      // Extract the original error from the warn message
-      capturedError = new Error(message);
-      console.log('[ensureTableRowsValid] Captured validation error!');
-    }
-  };
+      // If validation failed, throw an error with details
+      if (!result.valid) {
+        const errorCount = result.errors.length;
+        const errorDetails = result.errors
+          .map((e) => {
+            const issueMessages = e.issues.map((issue) => issue.message).join(', ');
+            return `  Row ${e.rowIndex}: ${issueMessages}`;
+          })
+          .join('\n');
 
-  try {
-    console.log('[ensureTableRowsValid] Calling JsonlReader.withOverrides');
-    await JsonlReader.withOverrides(overrides, async () => {
-      console.log('[ensureTableRowsValid] Inside withOverrides callback');
-      const db = LinesDB.create({ dataDir: options.dataDir });
-      console.log('[ensureTableRowsValid] LinesDB created');
-      try {
-        console.log('[ensureTableRowsValid] Calling db.initialize()');
-        await db.initialize();
-        console.log('[ensureTableRowsValid] db.initialize() completed');
-      } finally {
-        console.log('[ensureTableRowsValid] Calling db.close()');
-        await db.close();
+        throw new Error(
+          `Validation failed for table '${options.tableName}' (${errorCount} error(s)):\n${errorDetails}`,
+        );
       }
-    });
-    console.log('[ensureTableRowsValid] withOverrides completed');
-  } finally {
-    // Restore original console.warn
-    console.warn = originalWarn;
-  }
-
-  console.log('[ensureTableRowsValid] Warnings captured:', warnMessages.length);
-  console.log('[ensureTableRowsValid] capturedError:', capturedError ? 'YES' : 'NO');
-
-  if (capturedError) {
-    console.log('[ensureTableRowsValid] Throwing captured error');
-    throw capturedError;
-  }
-
-  console.log('[ensureTableRowsValid] END (success)');
+    } finally {
+      await db.close();
+    }
+  });
 }
