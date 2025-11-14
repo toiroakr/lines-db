@@ -46,6 +46,16 @@ export class JsonlCodeLensProvider implements vscode.CodeLensProvider {
       }),
     );
 
+    // Sort Rows button
+    codeLenses.push(
+      new vscode.CodeLens(topOfDocument, {
+        title: '$(arrow-up) Sort Rows',
+        command: 'lines-db.sortRows',
+        arguments: [document.uri],
+        tooltip: 'Sort rows by column values',
+      }),
+    );
+
     // Sort Columns button
     codeLenses.push(
       new vscode.CodeLens(topOfDocument, {

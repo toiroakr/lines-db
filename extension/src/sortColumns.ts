@@ -94,7 +94,7 @@ export async function getSchemaColumnOrder(jsonlFilePath: string): Promise<strin
     }
 
     // Validate the first record to get the column order from validation result
-    const validateResult = schema['~standard'].validate(firstRecord);
+    const validateResult = (schema as any)['~standard'].validate(firstRecord);
     if (!validateResult || validateResult.issues) {
       if (outputChannel) {
         outputChannel.appendLine(`[SortColumns] Validation failed, using record keys as-is`);

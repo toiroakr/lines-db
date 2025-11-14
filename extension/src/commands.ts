@@ -521,6 +521,92 @@ export function registerCommands(context: vscode.ExtensionContext) {
     ),
   );
 
+  // Sort Rows Command
+  context.subscriptions.push(
+    vscode.commands.registerCommand('lines-db.sortRows', async (uri?: vscode.Uri) => {
+      const outChan = getOutputChannel();
+
+      let filePath: string;
+
+      if (uri) {
+        filePath = uri.fsPath;
+      } else {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          vscode.window.showErrorMessage('No file is currently open');
+          return;
+        }
+        filePath = editor.document.uri.fsPath;
+      }
+
+      if (!filePath.endsWith('.jsonl')) {
+        vscode.window.showErrorMessage('Current file is not a JSONL file');
+        return;
+      }
+
+      if (outChan) {
+        outChan.appendLine(`\n=== Sort Rows Command Called ===`);
+        outChan.appendLine(`File: ${filePath}`);
+      }
+
+      try {
+        const { showRowSortPicker } = await import('./sortRows.js');
+
+        const result = await showRowSortPicker(filePath);
+        if (!result) {
+          if (outChan) outChan.appendLine('Sort rows cancelled');
+          return;
+        }
+
+        if (outChan) {
+          outChan.appendLine(
+            `Sort keys: ${result.sortKeys.map((k) => `${k.column} (${k.order})`).join(', ')}`
+          );
+          outChan.appendLine(`Sorted ${result.sortedRows.length} rows`);
+        }
+
+        // Confirm before applying changes
+        const sortKeysPreview = result.sortKeys
+          .map((key, idx) => {
+            const label = idx === 0 ? 'Primary' : 'Secondary';
+            const orderLabel = key.order === 'asc' ? 'Ascending' : 'Descending';
+            return `${label}: ${key.column} (${orderLabel})`;
+          })
+          .join('\n');
+
+        const confirm = await vscode.window.showWarningMessage(
+          `Sort ${result.sortedRows.length} rows?\n\nSort keys:\n${sortKeysPreview}`,
+          { modal: true },
+          'Sort',
+        );
+
+        if (confirm !== 'Sort') {
+          if (outChan) outChan.appendLine('Sort rows cancelled by user');
+          return;
+        }
+
+        // Write sorted content back to file
+        const sortedContent = result.sortedRows.join('\n');
+        fs.writeFileSync(filePath, sortedContent, 'utf-8');
+
+        if (outChan) outChan.appendLine('File updated successfully');
+
+        vscode.window.showInformationMessage(
+          `LinesDB: Sorted ${result.sortedRows.length} rows`,
+        );
+
+        // Refresh the document
+        const document = await vscode.workspace.openTextDocument(filePath);
+        await vscode.window.showTextDocument(document);
+      } catch (error) {
+        if (outChan) outChan.appendLine(`ERROR: Sort rows failed: ${error}`);
+        vscode.window.showErrorMessage(
+          `LinesDB: Failed to sort rows: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }),
+  );
+
   // Sort Columns Command
   context.subscriptions.push(
     vscode.commands.registerCommand('lines-db.sortColumns', async (uri?: vscode.Uri) => {
