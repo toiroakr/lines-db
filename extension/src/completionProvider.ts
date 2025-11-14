@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { TypeScriptTypeExtractor, type FieldInfo } from './typeInfoExtractor.js';
 import { hasQuoteBefore, hasQuoteAfter, generateFieldNameInsertText } from './quoteHelper.js';
+import { getForeignKeys } from './foreignKeyUtils.js';
 
 /**
  * JSON context at cursor position
@@ -120,7 +121,7 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
         );
       } else {
         outputChannel.appendLine('[Completion] Generating value completions');
-        return this.createValueCompletions(fieldInfo, document, position);
+        return await this.createValueCompletions(fieldInfo, document, position);
       }
     } catch (error) {
       outputChannel.appendLine('[Completion] Error providing completions: ' + error);
@@ -530,11 +531,11 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
   /**
    * Create completion items for values
    */
-  private createValueCompletions(
+  private async createValueCompletions(
     fields: FieldInfo[],
     document: vscode.TextDocument,
     position: vscode.Position,
-  ): vscode.CompletionItem[] | undefined {
+  ): Promise<vscode.CompletionItem[] | undefined> {
     const line = document.lineAt(position.line).text;
     const beforeCursor = line.substring(0, position.character);
     const afterCursor = line.substring(position.character);
@@ -589,6 +590,20 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
       outputChannel.appendLine(
         `[Completion] valueRange: ${valueStartPos ? `(${valueStartPos.line}, ${valueStartPos.character})` : 'none'} to ${valueEndPos ? `(${valueEndPos.line}, ${valueEndPos.character})` : 'none'}`,
       );
+    }
+
+    // Check if this field is a foreign key
+    const foreignKeyCompletion = await this.createForeignKeyCompletions(
+      document,
+      fieldName,
+      insideQuotes,
+      currentValue,
+      valueStartPos,
+      valueEndPos,
+    );
+    if (foreignKeyCompletion) {
+      outputChannel.appendLine('[Completion] Returning foreign key completions');
+      return foreignKeyCompletion;
     }
 
     // Generate completions based on field type
@@ -692,5 +707,128 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
     }
 
     return field.type;
+  }
+
+  /**
+   * Create foreign key value completions
+   */
+  private async createForeignKeyCompletions(
+    document: vscode.TextDocument,
+    fieldName: string,
+    insideQuotes: boolean,
+    currentValue: string = '',
+    valueStartPos?: vscode.Position,
+    valueEndPos?: vscode.Position,
+  ): Promise<vscode.CompletionItem[] | undefined> {
+    try {
+      if (!global.__linesDbModule) {
+        return undefined;
+      }
+
+      // Get the actual JSONL path (handle temp files)
+      const actualPath = this.getActualJsonlPath(document.uri.fsPath);
+
+      // Get foreign keys for this file
+      const foreignKeys = await getForeignKeys(actualPath);
+      if (foreignKeys.length === 0) {
+        return undefined;
+      }
+
+      // Check if current field is a foreign key
+      const foreignKey = foreignKeys.find((fk) => fk.column === fieldName);
+      if (!foreignKey) {
+        return undefined;
+      }
+
+      outputChannel.appendLine(
+        `[Completion] Field "${fieldName}" is a foreign key referencing ${foreignKey.referencedTable}.${foreignKey.referencedColumn}`,
+      );
+
+      // Determine the referenced JSONL file path
+      const currentDir = path.dirname(actualPath);
+      const referencedFileName = `${foreignKey.referencedTable}.jsonl`;
+      const referencedFilePath = path.join(currentDir, referencedFileName);
+
+      // Check if file exists
+      try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(referencedFilePath));
+      } catch {
+        outputChannel.appendLine(`[Completion] Referenced file not found: ${referencedFilePath}`);
+        return undefined;
+      }
+
+      // Read records from referenced file
+      const records = await global.__linesDbModule.JsonlReader.read(referencedFilePath);
+      if (!records || records.length === 0) {
+        outputChannel.appendLine('[Completion] No records found in referenced file');
+        return undefined;
+      }
+
+      outputChannel.appendLine(`[Completion] Found ${records.length} records in referenced file`);
+
+      // Extract unique values from the referenced column
+      const referencedColumn = foreignKey.referencedColumn;
+      const values = new Set<unknown>();
+
+      for (const record of records) {
+        if (typeof record === 'object' && record !== null && referencedColumn in record) {
+          const value = (record as Record<string, unknown>)[referencedColumn];
+          values.add(value);
+        }
+      }
+
+      if (values.size === 0) {
+        outputChannel.appendLine('[Completion] No values found in referenced column');
+        return undefined;
+      }
+
+      outputChannel.appendLine(`[Completion] Found ${values.size} unique values`);
+
+      // Create completion items
+      const completionItems: vscode.CompletionItem[] = [];
+
+      for (const value of values) {
+        const valueStr = String(value);
+        const item = new vscode.CompletionItem(valueStr, vscode.CompletionItemKind.Reference);
+        item.detail = `FK → ${foreignKey.referencedTable}.${foreignKey.referencedColumn}`;
+
+        // Find the full record for documentation
+        const record = records.find((r: any) => r[referencedColumn] === value);
+        if (record && typeof record === 'object' && record !== null) {
+          const doc = new vscode.MarkdownString();
+          doc.appendCodeblock(JSON.stringify(record, null, 2), 'json');
+          item.documentation = doc;
+        }
+
+        // Set insert text based on quote context
+        if (!insideQuotes) {
+          // Need to add quotes
+          if (typeof value === 'string') {
+            item.insertText = `"${value}"`;
+          } else {
+            item.insertText = String(value);
+          }
+        } else {
+          // Inside quotes, just insert the value
+          if (typeof value === 'string') {
+            item.insertText = value;
+          } else {
+            item.insertText = String(value);
+          }
+
+          // Set the range to replace the current partial value
+          if (valueStartPos && valueEndPos) {
+            item.range = new vscode.Range(valueStartPos, valueEndPos);
+          }
+        }
+
+        completionItems.push(item);
+      }
+
+      return completionItems;
+    } catch (error) {
+      outputChannel.appendLine(`[Completion] Error creating foreign key completions: ${error}`);
+      return undefined;
+    }
   }
 }

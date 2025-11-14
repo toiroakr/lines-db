@@ -12,6 +12,7 @@ import { TempFileManager } from './tempFileManager';
 import { JsonlDocumentLinkProvider } from './documentLinkProvider';
 import { JsonlCodeActionProvider } from './codeActionProvider';
 import { JsonlCompletionProvider } from './completionProvider';
+import { ForeignKeyHoverProvider } from './foreignKeyHover';
 
 function getTabUri(tab: vscode.Tab): vscode.Uri | undefined {
   const input = tab.input;
@@ -215,6 +216,36 @@ export async function activate(context: vscode.ExtensionContext) {
     outputChannel.appendLine('ERROR: Failed to register CompletionProvider: ' + error);
     console.error('Failed to register CompletionProvider:', error);
   }
+
+  // Register Foreign Key Hover provider for JSONL files
+  outputChannel.appendLine('Registering ForeignKeyHoverProvider...');
+  const foreignKeyHoverProvider = new ForeignKeyHoverProvider();
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider({ language: 'jsonl' }, foreignKeyHoverProvider),
+  );
+  outputChannel.appendLine('ForeignKeyHoverProvider registered');
+
+  // Register command for jumping to foreign key record
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'lines-db.jumpToForeignKey',
+      async (args: { filePath: string; lineNumber: number }) => {
+        try {
+          const uri = vscode.Uri.file(args.filePath);
+          const document = await vscode.workspace.openTextDocument(uri);
+          const position = new vscode.Position(args.lineNumber, 0);
+          await vscode.window.showTextDocument(document, {
+            selection: new vscode.Range(position, position),
+          });
+        } catch (error) {
+          vscode.window.showErrorMessage(
+            `Failed to jump to record: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      },
+    ),
+  );
+  outputChannel.appendLine('Foreign key jump command registered');
 
   // Watch for migration file saves
   const watcher = vscode.workspace.onDidSaveTextDocument(async (document) => {
