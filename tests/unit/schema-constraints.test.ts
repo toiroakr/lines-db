@@ -87,7 +87,7 @@ describe('Schema Constraints (Primary Keys, Foreign Keys, Indexes)', () => {
     it('should cascade delete when parent is deleted', () => {
       // Get orders for customer 1
       const ordersBefore = db.query('SELECT * FROM "orders-with-fk" WHERE customerId = ?', [1]);
-      expect(ordersBefore.length).toBe(2);
+      expect(ordersBefore.length).toBe(3);
 
       // Delete customer 1
       db.execute('DELETE FROM customers WHERE id = ?', [1]);

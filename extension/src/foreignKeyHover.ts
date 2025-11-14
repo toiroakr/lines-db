@@ -10,7 +10,7 @@ export class ForeignKeyHoverProvider implements vscode.HoverProvider {
   async provideHover(
     document: vscode.TextDocument,
     position: vscode.Position,
-    _token: vscode.CancellationToken
+    _token: vscode.CancellationToken,
   ): Promise<vscode.Hover | null> {
     try {
       // Check if cursor is on a foreign key value
@@ -28,11 +28,7 @@ export class ForeignKeyHoverProvider implements vscode.HoverProvider {
       // Format the record data
       const tableName = fkContext.foreignKey.referencedTable;
       const primaryKeyColumn = fkContext.foreignKey.referencedColumn;
-      const markdown = formatRecordAsMarkdown(
-        recordLocation.record,
-        tableName,
-        primaryKeyColumn
-      );
+      const markdown = formatRecordAsMarkdown(recordLocation.record, tableName, primaryKeyColumn);
 
       // Create a command URI for jumping to the referenced record
       const commandUri = vscode.Uri.parse(
@@ -40,8 +36,8 @@ export class ForeignKeyHoverProvider implements vscode.HoverProvider {
           JSON.stringify({
             filePath: recordLocation.filePath,
             lineNumber: recordLocation.lineNumber,
-          })
-        )}`
+          }),
+        )}`,
       );
 
       const markdownString = new vscode.MarkdownString(markdown);
@@ -51,11 +47,11 @@ export class ForeignKeyHoverProvider implements vscode.HoverProvider {
       // Add a clickable link to jump to the record
       markdownString.appendMarkdown('\n\n---\n\n');
       markdownString.appendMarkdown(
-        `[→ Jump to record in ${path.basename(recordLocation.filePath)}](${commandUri})`
+        `[→ Jump to record in ${path.basename(recordLocation.filePath)}](${commandUri})`,
       );
 
       return new vscode.Hover(markdownString);
-    } catch (error) {
+    } catch {
       // Silently fail
       return null;
     }

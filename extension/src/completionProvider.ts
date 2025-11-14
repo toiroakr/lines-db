@@ -597,7 +597,6 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
       document,
       fieldName,
       insideQuotes,
-      currentValue,
       valueStartPos,
       valueEndPos,
     );
@@ -716,7 +715,6 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
     document: vscode.TextDocument,
     fieldName: string,
     insideQuotes: boolean,
-    currentValue: string = '',
     valueStartPos?: vscode.Position,
     valueEndPos?: vscode.Position,
   ): Promise<vscode.CompletionItem[] | undefined> {

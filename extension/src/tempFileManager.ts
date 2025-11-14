@@ -60,7 +60,6 @@ export class TempFileManager {
     return tempFilePath;
   }
 
-
   /**
    * Saves the edited content back to the original JSONL file
    */

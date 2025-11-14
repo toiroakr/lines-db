@@ -560,7 +560,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
 
         if (outChan) {
           outChan.appendLine(
-            `Sort keys: ${result.sortKeys.map((k) => `${k.column} (${k.order})`).join(', ')}`
+            `Sort keys: ${result.sortKeys.map((k) => `${k.column} (${k.order})`).join(', ')}`,
           );
           outChan.appendLine(`Sorted ${result.sortedRows.length} rows`);
         }
@@ -591,9 +591,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
 
         if (outChan) outChan.appendLine('File updated successfully');
 
-        vscode.window.showInformationMessage(
-          `LinesDB: Sorted ${result.sortedRows.length} rows`,
-        );
+        vscode.window.showInformationMessage(`LinesDB: Sorted ${result.sortedRows.length} rows`);
 
         // Refresh the document
         const document = await vscode.workspace.openTextDocument(filePath);

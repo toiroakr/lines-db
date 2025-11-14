@@ -15,10 +15,12 @@ const productSchema = v.object({
 });
 
 // Wrap with defineSchema to create BiDirectionalSchema
-export const schema = defineSchema(productSchema, (output: InferOutput<typeof productSchema>) => ({
-  ...output,
-  inStock: output.inStock ? 1 : 0,
-}));
+export const schema = defineSchema(productSchema, {
+  backward: (output: InferOutput<typeof productSchema>) => ({
+    ...output,
+    inStock: output.inStock ? 1 : 0,
+  }),
+});
 
 // Export inferred type from schema using StandardSchema
 export type Product = InferOutput<typeof schema>;

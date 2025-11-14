@@ -73,7 +73,7 @@ console.error = (...args: any[]) => {
 
 export async function activate(context: vscode.ExtensionContext) {
   // Get version from package.json
-  const packageJson = require('../package.json');
+  const packageJson = await import('../package.json');
   const version = packageJson.version || 'unknown';
 
   outputChannel.appendLine('=== LinesDB Extension Activating ===');
@@ -289,7 +289,7 @@ export async function activate(context: vscode.ExtensionContext) {
         outputChannel.appendLine(`[Format] Applying ${edits.length} formatting edits`);
         event.waitUntil(Promise.resolve(edits));
       }
-    })
+    }),
   );
   outputChannel.appendLine('JSONL format on save registered');
 
@@ -374,7 +374,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Validate preview file content using LinesDB.initialize
         outputChannel.appendLine('\n--- Validating Preview Content ---');
-        outputChannel.appendLine(`Extension version: ${require('../package.json').version}`);
+        const packageJson = await import('../package.json');
+        outputChannel.appendLine(`Extension version: ${packageJson.version}`);
         outputChannel.appendLine(`Number of rows to validate: ${result.transformedRows.length}`);
         outputChannel.appendLine(`DataDir: ${session.dataDir}`);
         outputChannel.appendLine(`TableName: ${session.tableName}`);
@@ -406,10 +407,12 @@ export async function activate(context: vscode.ExtensionContext) {
               outputChannel.appendLine('Calling db.initialize with detailedValidate...');
               const validationResult = await db.initialize({
                 tableName: session.tableName,
-                detailedValidate: true
+                detailedValidate: true,
               });
 
-              outputChannel.appendLine(`Validation result: valid=${validationResult.valid}, errors=${validationResult.errors.length}`);
+              outputChannel.appendLine(
+                `Validation result: valid=${validationResult.valid}, errors=${validationResult.errors.length}`,
+              );
 
               if (!validationResult.valid) {
                 outputChannel.appendLine('Validation failed, generating diagnostics...');
@@ -417,9 +420,16 @@ export async function activate(context: vscode.ExtensionContext) {
                 const diagnostics: vscode.Diagnostic[] = [];
 
                 for (const error of validationResult.errors) {
-                  outputChannel.appendLine(`Processing error for rowIndex=${error.rowIndex}, type=${error.type}`);
+                  outputChannel.appendLine(
+                    `Processing error for rowIndex=${error.rowIndex}, type=${error.type}`,
+                  );
 
-                  const range = new vscode.Range(error.rowIndex, 0, error.rowIndex, Number.MAX_VALUE);
+                  const range = new vscode.Range(
+                    error.rowIndex,
+                    0,
+                    error.rowIndex,
+                    Number.MAX_VALUE,
+                  );
                   let message = '';
 
                   if (error.type === 'foreignKey' && error.foreignKeyError) {
@@ -427,39 +437,53 @@ export async function activate(context: vscode.ExtensionContext) {
                     message = `Foreign key constraint failed: ${fk.column} = ${JSON.stringify(fk.value)} does not exist in ${fk.referencedTable}.${fk.referencedColumn}`;
                     outputChannel.appendLine(`  Foreign key error: ${message}`);
                   } else {
-                    const messages = error.issues.map((issue: { message: string; path?: unknown[] }) => {
-                      if (issue.path && issue.path.length > 0) {
-                        const pathStr = issue.path
-                          .map((segment: unknown) => typeof segment === 'object' && segment !== null && 'key' in segment
-                            ? String((segment as { key: unknown }).key)
-                            : String(segment))
-                          .join('.');
-                        return `${pathStr}: ${issue.message}`;
-                      }
-                      return issue.message;
-                    });
+                    const messages = error.issues.map(
+                      (issue: { message: string; path?: unknown[] }) => {
+                        if (issue.path && issue.path.length > 0) {
+                          const pathStr = issue.path
+                            .map((segment: unknown) =>
+                              typeof segment === 'object' && segment !== null && 'key' in segment
+                                ? String((segment as { key: unknown }).key)
+                                : String(segment),
+                            )
+                            .join('.');
+                          return `${pathStr}: ${issue.message}`;
+                        }
+                        return issue.message;
+                      },
+                    );
                     message = messages.join(', ');
                     outputChannel.appendLine(`  Schema validation error: ${message}`);
                   }
 
-                  const diagnostic = new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error);
+                  const diagnostic = new vscode.Diagnostic(
+                    range,
+                    message,
+                    vscode.DiagnosticSeverity.Error,
+                  );
                   diagnostic.source = 'lines-db-migration';
                   diagnostics.push(diagnostic);
                 }
 
-                outputChannel.appendLine(`Setting ${diagnostics.length} diagnostics on preview file`);
+                outputChannel.appendLine(
+                  `Setting ${diagnostics.length} diagnostics on preview file`,
+                );
                 outputChannel.appendLine(`Preview URI: ${previewDoc.uri.toString()}`);
 
                 for (let i = 0; i < diagnostics.length; i++) {
                   const diag = diagnostics[i];
-                  outputChannel.appendLine(`  Diagnostic ${i}: line=${diag.range.start.line}, message=${diag.message}`);
+                  outputChannel.appendLine(
+                    `  Diagnostic ${i}: line=${diag.range.start.line}, message=${diag.message}`,
+                  );
                 }
 
                 MigrationSessionManager.setDiagnostics(previewDoc.uri, diagnostics);
 
                 // Verify diagnostics were set
                 const allDiagnostics = vscode.languages.getDiagnostics(previewDoc.uri);
-                outputChannel.appendLine(`Verification: getDiagnostics returned ${allDiagnostics.length} diagnostics`);
+                outputChannel.appendLine(
+                  `Verification: getDiagnostics returned ${allDiagnostics.length} diagnostics`,
+                );
 
                 throw new Error('Validation failed');
               }

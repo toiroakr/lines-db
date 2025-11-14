@@ -34,7 +34,9 @@ export async function getForeignKeys(jsonlFilePath: string): Promise<ForeignKeyI
     }
 
     // Type assertion for schema with foreignKeys
-    const schemaWithForeignKeys = schema as { foreignKeys?: Array<{ column: string; references: { table: string; column: string } }> };
+    const schemaWithForeignKeys = schema as {
+      foreignKeys?: Array<{ column: string; references: { table: string; column: string } }>;
+    };
     if (!schemaWithForeignKeys.foreignKeys) {
       return [];
     }
@@ -44,7 +46,7 @@ export async function getForeignKeys(jsonlFilePath: string): Promise<ForeignKeyI
       referencedTable: fk.references.table,
       referencedColumn: fk.references.column,
     }));
-  } catch (error) {
+  } catch {
     // Silently fail
     return [];
   }
@@ -55,7 +57,7 @@ export async function getForeignKeys(jsonlFilePath: string): Promise<ForeignKeyI
  */
 export async function getForeignKeyAtPosition(
   document: vscode.TextDocument,
-  position: vscode.Position
+  position: vscode.Position,
 ): Promise<ForeignKeyContext | null> {
   try {
     const line = document.lineAt(position.line);
@@ -93,10 +95,7 @@ export async function getForeignKeyAtPosition(
       const value = record[fk.column];
 
       // Find the position of this property in the JSON string (both key and value)
-      const propertyPattern = new RegExp(
-        `"${fk.column}"\\s*:\\s*([^,}]+)`,
-        'g'
-      );
+      const propertyPattern = new RegExp(`"${fk.column}"\\s*:\\s*([^,}]+)`, 'g');
       const match = propertyPattern.exec(lineText);
 
       if (match) {
@@ -109,8 +108,10 @@ export async function getForeignKeyAtPosition(
         const valueEnd = valueStart + match[1].length;
 
         // Accept cursor on either key or value
-        if ((relativeOffset >= keyStart && relativeOffset <= keyEnd) ||
-            (relativeOffset >= valueStart && relativeOffset <= valueEnd)) {
+        if (
+          (relativeOffset >= keyStart && relativeOffset <= keyEnd) ||
+          (relativeOffset >= valueStart && relativeOffset <= valueEnd)
+        ) {
           return {
             foreignKey: fk,
             value,
@@ -121,7 +122,7 @@ export async function getForeignKeyAtPosition(
     }
 
     return null;
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -130,7 +131,7 @@ export async function getForeignKeyAtPosition(
  * Find the referenced record location
  */
 export async function findReferencedRecord(
-  context: ForeignKeyContext
+  context: ForeignKeyContext,
 ): Promise<RecordLocation | null> {
   try {
     if (!global.__linesDbModule) {
@@ -158,7 +159,7 @@ export async function findReferencedRecord(
     // Find the matching record
     const referencedColumn = context.foreignKey.referencedColumn;
     const recordIndex = records.findIndex(
-      (record: any) => record[referencedColumn] === context.value
+      (record: any) => record[referencedColumn] === context.value,
     );
 
     if (recordIndex === -1) {
@@ -175,7 +176,7 @@ export async function findReferencedRecord(
       lineNumber: recordIndex,
       record: matchedRecord as Record<string, unknown>,
     };
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -186,7 +187,7 @@ export async function findReferencedRecord(
 export function formatRecordAsMarkdown(
   record: Record<string, unknown>,
   tableName: string,
-  primaryKeyColumn: string
+  primaryKeyColumn: string,
 ): string {
   const primaryKeyValue = record[primaryKeyColumn];
   const lines: string[] = [

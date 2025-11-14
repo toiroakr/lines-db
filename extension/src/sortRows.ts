@@ -40,7 +40,7 @@ export async function showRowSortPicker(filePath: string): Promise<RowSortResult
 
     if (outputChannel) {
       outputChannel.appendLine(
-        `[SortRows] Primary key: ${primaryKey.column} (${primaryKey.order})`
+        `[SortRows] Primary key: ${primaryKey.column} (${primaryKey.order})`,
       );
     }
 
@@ -61,7 +61,7 @@ export async function showRowSortPicker(filePath: string): Promise<RowSortResult
       {
         placeHolder: 'Add secondary sort key?',
         title: `Primary: ${primaryKey.column} (${primaryKey.order === 'asc' ? 'Ascending' : 'Descending'})`,
-      }
+      },
     );
 
     if (!addSecondary) {
@@ -81,7 +81,7 @@ export async function showRowSortPicker(filePath: string): Promise<RowSortResult
         sortKeys.push(secondaryKey);
         if (outputChannel) {
           outputChannel.appendLine(
-            `[SortRows] Secondary key: ${secondaryKey.column} (${secondaryKey.order})`
+            `[SortRows] Secondary key: ${secondaryKey.column} (${secondaryKey.order})`,
           );
         }
       }
@@ -103,7 +103,7 @@ export async function showRowSortPicker(filePath: string): Promise<RowSortResult
 async function configureSortKey(
   columns: string[],
   existingSortKeys: SortKey[],
-  isPrimary: boolean
+  isPrimary: boolean,
 ): Promise<SortKey | null> {
   const outputChannel = global.__linesDbOutputChannel;
 
@@ -123,9 +123,10 @@ async function configureSortKey(
   }));
 
   const keyLabel = isPrimary ? 'Primary' : 'Secondary';
-  const title = existingSortKeys.length > 0
-    ? `Current: ${existingSortKeys.map((k) => `${k.column} (${k.order})`).join(', ')}`
-    : undefined;
+  const title =
+    existingSortKeys.length > 0
+      ? `Current: ${existingSortKeys.map((k) => `${k.column} (${k.order})`).join(', ')}`
+      : undefined;
 
   const selectedColumn = await vscode.window.showQuickPick(columnItems, {
     placeHolder: `Select ${keyLabel} sort key`,
@@ -156,7 +157,7 @@ async function configureSortKey(
     ],
     {
       placeHolder: `Select sort order for "${selectedColumn.label}"`,
-    }
+    },
   );
 
   if (!orderResult) {
@@ -176,10 +177,7 @@ async function configureSortKey(
 /**
  * Sort rows by multiple sort keys
  */
-async function sortRowsBySortKeys(
-  filePath: string,
-  sortKeys: SortKey[]
-): Promise<RowSortResult> {
+async function sortRowsBySortKeys(filePath: string, sortKeys: SortKey[]): Promise<RowSortResult> {
   const outputChannel = global.__linesDbOutputChannel;
 
   if (!global.__linesDbModule?.JsonlReader) {
@@ -194,7 +192,7 @@ async function sortRowsBySortKeys(
   if (outputChannel) {
     outputChannel.appendLine(`[SortRows] Sorting ${records.length} records`);
     outputChannel.appendLine(
-      `[SortRows] Sort keys: ${sortKeys.map((k) => `${k.column} (${k.order})`).join(', ')}`
+      `[SortRows] Sort keys: ${sortKeys.map((k) => `${k.column} (${k.order})`).join(', ')}`,
     );
   }
 
@@ -217,7 +215,7 @@ async function sortRowsBySortKeys(
       } else if (typeof aVal === 'number' && typeof bVal === 'number') {
         comparison = aVal - bVal;
       } else if (typeof aVal === 'boolean' && typeof bVal === 'boolean') {
-        comparison = (aVal === bVal) ? 0 : aVal ? 1 : -1;
+        comparison = aVal === bVal ? 0 : aVal ? 1 : -1;
       } else {
         // Fallback: string comparison
         comparison = String(aVal).localeCompare(String(bVal));

@@ -1,6 +1,6 @@
 const data = [
-  {id: 1, name: "Test", inStock: true},
-  {id: 2, name: "Test2", inStock: false}
+  { id: 1, name: 'Test', inStock: true },
+  { id: 2, name: 'Test2', inStock: false },
 ];
 
 console.log('Data:', data);

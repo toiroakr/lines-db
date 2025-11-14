@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { TypeScriptTypeExtractor } from './typeInfoExtractor.js';
 
 export interface ColumnSortResult {
   sortedRows: string[];
@@ -113,7 +112,9 @@ export async function getSchemaColumnOrder(jsonlFilePath: string): Promise<strin
 
     const columnOrder = Object.keys(validatedValue);
     if (outputChannel) {
-      outputChannel.appendLine(`[SortColumns] Extracted column order from validate result: ${JSON.stringify(columnOrder)}`);
+      outputChannel.appendLine(
+        `[SortColumns] Extracted column order from validate result: ${JSON.stringify(columnOrder)}`,
+      );
     }
 
     return columnOrder;
@@ -132,7 +133,7 @@ export async function getSchemaColumnOrder(jsonlFilePath: string): Promise<strin
  */
 export function sortObjectByColumnOrder(
   obj: Record<string, unknown>,
-  columnOrder: string[]
+  columnOrder: string[],
 ): Record<string, unknown> {
   const sorted: Record<string, unknown> = {};
 
@@ -158,7 +159,7 @@ export function sortObjectByColumnOrder(
  */
 export async function sortColumnsByOrder(
   filePath: string,
-  columnOrder: string[]
+  columnOrder: string[],
 ): Promise<ColumnSortResult> {
   try {
     if (!global.__linesDbModule?.JsonlReader) {
@@ -176,7 +177,7 @@ export async function sortColumnsByOrder(
       if (typeof record === 'object' && record !== null) {
         const sortedRecord = sortObjectByColumnOrder(
           record as Record<string, unknown>,
-          columnOrder
+          columnOrder,
         );
         sortedRows.push(JSON.stringify(sortedRecord));
       } else {
@@ -191,7 +192,7 @@ export async function sortColumnsByOrder(
     };
   } catch (error) {
     throw new Error(
-      `Failed to sort columns: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to sort columns: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
@@ -263,9 +264,7 @@ async function pickColumnsSequentially(columns: string[]): Promise<string[] | nu
 /**
  * Show column order picker and sort columns
  */
-export async function showColumnOrderPicker(
-  filePath: string
-): Promise<ColumnSortResult | null> {
+export async function showColumnOrderPicker(filePath: string): Promise<ColumnSortResult | null> {
   try {
     // Get all columns from the file
     const columns = await getAllColumns(filePath);
@@ -301,7 +300,7 @@ export async function showColumnOrderPicker(
       ],
       {
         placeHolder: 'Select column sorting method',
-      }
+      },
     );
 
     if (!result) {
@@ -329,7 +328,7 @@ export async function showColumnOrderPicker(
     return await sortColumnsByOrder(filePath, columnOrder);
   } catch (error) {
     vscode.window.showErrorMessage(
-      `Failed to sort columns: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to sort columns: ${error instanceof Error ? error.message : String(error)}`,
     );
     return null;
   }
