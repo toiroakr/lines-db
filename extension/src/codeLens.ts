@@ -46,6 +46,16 @@ export class JsonlCodeLensProvider implements vscode.CodeLensProvider {
       }),
     );
 
+    // Sort Columns button
+    codeLenses.push(
+      new vscode.CodeLens(topOfDocument, {
+        title: '$(list-ordered) Sort Columns',
+        command: 'lines-db.sortColumns',
+        arguments: [document.uri],
+        tooltip: 'Sort all rows by column order',
+      }),
+    );
+
     // Migrate button
     const migrateLens = new vscode.CodeLens(topOfDocument, {
       title: '$(arrow-right) Migrate',

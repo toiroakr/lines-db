@@ -247,6 +247,52 @@ export async function activate(context: vscode.ExtensionContext) {
   );
   outputChannel.appendLine('Foreign key jump command registered');
 
+  // Format JSONL files on save (remove spaces)
+  context.subscriptions.push(
+    vscode.workspace.onWillSaveTextDocument((event) => {
+      const document = event.document;
+
+      // Only format JSONL files
+      if (document.languageId !== 'jsonl') {
+        return;
+      }
+
+      outputChannel.appendLine(`[Format] Formatting JSONL file: ${document.uri.fsPath}`);
+
+      const edits: vscode.TextEdit[] = [];
+
+      for (let i = 0; i < document.lineCount; i++) {
+        const line = document.lineAt(i);
+        const text = line.text.trim();
+
+        // Skip empty lines or comments
+        if (!text || text.startsWith('//')) {
+          continue;
+        }
+
+        try {
+          // Parse and re-stringify without spaces
+          const obj = JSON.parse(text);
+          const minified = JSON.stringify(obj);
+
+          // Only create edit if text changed
+          if (line.text !== minified) {
+            edits.push(vscode.TextEdit.replace(line.range, minified));
+          }
+        } catch (error) {
+          // Skip lines that can't be parsed
+          outputChannel.appendLine(`[Format] Skipping invalid JSON on line ${i + 1}: ${error}`);
+        }
+      }
+
+      if (edits.length > 0) {
+        outputChannel.appendLine(`[Format] Applying ${edits.length} formatting edits`);
+        event.waitUntil(Promise.resolve(edits));
+      }
+    })
+  );
+  outputChannel.appendLine('JSONL format on save registered');
+
   // Watch for migration file saves
   const watcher = vscode.workspace.onDidSaveTextDocument(async (document) => {
     outputChannel.appendLine(`\n[File Saved] ${document.uri.fsPath}`);

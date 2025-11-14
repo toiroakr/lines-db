@@ -520,4 +520,83 @@ export function registerCommands(context: vscode.ExtensionContext) {
       },
     ),
   );
+
+  // Sort Columns Command
+  context.subscriptions.push(
+    vscode.commands.registerCommand('lines-db.sortColumns', async (uri?: vscode.Uri) => {
+      const outChan = getOutputChannel();
+
+      let filePath: string;
+
+      if (uri) {
+        filePath = uri.fsPath;
+      } else {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          vscode.window.showErrorMessage('No file is currently open');
+          return;
+        }
+        filePath = editor.document.uri.fsPath;
+      }
+
+      if (!filePath.endsWith('.jsonl')) {
+        vscode.window.showErrorMessage('Current file is not a JSONL file');
+        return;
+      }
+
+      if (outChan) {
+        outChan.appendLine(`\n=== Sort Columns Command Called ===`);
+        outChan.appendLine(`File: ${filePath}`);
+      }
+
+      try {
+        const { showColumnOrderPicker } = await import('./sortColumns.js');
+
+        const result = await showColumnOrderPicker(filePath);
+        if (!result) {
+          if (outChan) outChan.appendLine('Sort columns cancelled');
+          return;
+        }
+
+        if (outChan) {
+          outChan.appendLine(`Column order: ${result.columnOrder.join(', ')}`);
+          outChan.appendLine(`Sorted ${result.sortedRows.length} rows`);
+        }
+
+        // Confirm before applying changes
+        const columnOrderPreview = result.columnOrder
+          .map((col, idx) => `${idx + 1}. ${col}`)
+          .join('\n');
+        const confirm = await vscode.window.showWarningMessage(
+          `Sort all ${result.sortedRows.length} rows by column order?\n\nColumn order:\n${columnOrderPreview}`,
+          { modal: true },
+          'Sort',
+        );
+
+        if (confirm !== 'Sort') {
+          if (outChan) outChan.appendLine('Sort columns cancelled by user');
+          return;
+        }
+
+        // Write sorted content back to file
+        const sortedContent = result.sortedRows.join('\n');
+        fs.writeFileSync(filePath, sortedContent, 'utf-8');
+
+        if (outChan) outChan.appendLine('File updated successfully');
+
+        vscode.window.showInformationMessage(
+          `LinesDB: Sorted ${result.sortedRows.length} rows by column order`,
+        );
+
+        // Refresh the document
+        const document = await vscode.workspace.openTextDocument(filePath);
+        await vscode.window.showTextDocument(document);
+      } catch (error) {
+        if (outChan) outChan.appendLine(`ERROR: Sort columns failed: ${error}`);
+        vscode.window.showErrorMessage(
+          `LinesDB: Failed to sort columns: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }),
+  );
 }
