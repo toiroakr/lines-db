@@ -32,3 +32,50 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+  # Cross-platform tests to catch platform-specific issues
+  # (e.g., file system ordering differences affecting foreign key resolution)
+  cross-platform-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            shell: bash
+            name: Linux (bash)
+          - os: windows-latest
+            shell: pwsh
+            name: Windows (PowerShell)
+          - os: windows-latest
+            shell: cmd
+            name: Windows (CMD)
+    runs-on: ${{ matrix.os }}
+    name: Test - ${{ matrix.name }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Run validate command (reproduces Windows CMD foreign key issue)
+        run: node lib/bin/cli.js validate tests/unit/fixtures
