@@ -1,5 +1,11 @@
 # @toiroakr/lines-db
 
+## 0.6.1
+
+### Patch Changes
+
+- 9ae4075: fix: support foreign key constraints with unique indexes
+
 ## 0.6.0
 
 ### Minor Changes
