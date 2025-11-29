@@ -96,6 +96,85 @@ describe('Schema Constraints (Primary Keys, Foreign Keys, Indexes)', () => {
       const ordersAfter = db.query('SELECT * FROM "orders-with-fk" WHERE customerId = ?', [1]);
       expect(ordersAfter.length).toBe(0);
     });
+
+    it('should support foreign key reference to non-primary-key column with unique index', () => {
+      // This test reproduces a bug that occurred on Windows Command Prompt where
+      // "foreign key mismatch" errors were thrown when a table referenced a non-primary-key
+      // column that had a unique index (e.g., _User.name -> User.email).
+      //
+      // Root cause: SQLite requires the referenced column to have a UNIQUE constraint
+      // in the CREATE TABLE definition itself, not just a separately created index.
+      // The file system ordering on Windows CMD caused tables to be processed in a
+      // different order, exposing this schema definition issue.
+      //
+      // Fix: When loading schemas, single-column unique indexes are now automatically
+      // converted to UNIQUE constraints on the column definition.
+      const childSchema = db.getSchema('child-table');
+      expect(childSchema).toBeTruthy();
+      expect(childSchema?.foreignKeys).toBeTruthy();
+      expect(childSchema?.foreignKeys?.length).toBe(1);
+
+      const fk = childSchema?.foreignKeys?.[0];
+      expect(fk?.column).toBe('parentEmail');
+      expect(fk?.references.table).toBe('parent-table');
+      expect(fk?.references.column).toBe('email');
+
+      // Verify parent table's email column has unique constraint in schema
+      const parentSchema = db.getSchema('parent-table');
+      expect(parentSchema).toBeTruthy();
+      const emailColumn = parentSchema?.columns.find((col) => col.name === 'email');
+      expect(emailColumn?.unique).toBe(true);
+
+      // Verify data was loaded successfully
+      const children = db.query('SELECT * FROM "child-table"');
+      expect(children.length).toBe(3);
+
+      // Verify foreign key constraint is enforced
+      expect(() => {
+        db.execute('INSERT INTO "child-table" (id, parentEmail, data) VALUES (?, ?, ?)', [
+          999,
+          'nonexistent@example.com',
+          'test',
+        ]);
+      }).toThrow();
+    });
+
+    it('should support _User -> User.email foreign key pattern (sdk/example pattern)', () => {
+      // This test reproduces the exact pattern from sdk/example where:
+      // - _User.name references User.email
+      // - User.email is NOT primary key but has unique index
+      // - File name starts with underscore (_User) which sorts before User
+      //
+      // This pattern caused "foreign key mismatch" error on Windows CMD due to
+      // file system ordering differences.
+      const underscoreUserSchema = db.getSchema('_User');
+      expect(underscoreUserSchema).toBeTruthy();
+      expect(underscoreUserSchema?.foreignKeys).toBeTruthy();
+      expect(underscoreUserSchema?.foreignKeys?.length).toBe(1);
+
+      const fk = underscoreUserSchema?.foreignKeys?.[0];
+      expect(fk?.column).toBe('name');
+      expect(fk?.references.table).toBe('User');
+      expect(fk?.references.column).toBe('email');
+
+      // Verify User table's email column has unique constraint in schema
+      const userSchema = db.getSchema('User');
+      expect(userSchema).toBeTruthy();
+      const emailColumn = userSchema?.columns.find((col) => col.name === 'email');
+      expect(emailColumn?.unique).toBe(true);
+
+      // Verify data was loaded successfully (this is where the error would occur)
+      const underscoreUsers = db.query('SELECT * FROM "_User"');
+      expect(underscoreUsers.length).toBe(2);
+
+      // Verify foreign key constraint is enforced
+      expect(() => {
+        db.execute('INSERT INTO "_User" (name, password) VALUES (?, ?)', [
+          'nonexistent@example.com',
+          'test',
+        ]);
+      }).toThrow();
+    });
   });
 
   describe('Index Constraints', () => {

@@ -59,13 +59,17 @@ describe('LinesDB dataDir auto-discovery', () => {
     it('should auto-discover all JSONL files in dataDir', () => {
       const tableNames = db.getTableNames();
 
-      // Should find users.jsonl, products.jsonl, orders.jsonl, customers.jsonl, orders-with-fk.jsonl, test-migrate.jsonl, and error-output.jsonl
+      // Should find users.jsonl, products.jsonl, orders.jsonl, customers.jsonl, orders-with-fk.jsonl, test-migrate.jsonl, error-output.jsonl, parent-table.jsonl, child-table.jsonl, User.jsonl, and _User.jsonl
       expect(tableNames.includes('users')).toBeTruthy();
       expect(tableNames.includes('products')).toBeTruthy();
       expect(tableNames.includes('orders')).toBeTruthy();
       expect(tableNames.includes('customers')).toBeTruthy();
       expect(tableNames.includes('orders-with-fk')).toBeTruthy();
-      expect(tableNames.length).toBe(7);
+      expect(tableNames.includes('parent-table')).toBeTruthy();
+      expect(tableNames.includes('child-table')).toBeTruthy();
+      expect(tableNames.includes('User')).toBeTruthy();
+      expect(tableNames.includes('_User')).toBeTruthy();
+      expect(tableNames.length).toBe(11);
     });
 
     it('should load data from all discovered tables', () => {

@@ -280,8 +280,23 @@ export class LinesDB<Tables extends TableDefs> {
         } else if (schemaModule.indexes) {
           schemaMetadata.indexes = schemaModule.indexes;
         }
+
+        // Debug: log loaded metadata
+        if (process.env.DEBUG_LINES_DB) {
+          console.log(`[lines-db] Schema metadata for ${tableName}:`);
+          console.log(`  primaryKey: ${schemaMetadata.primaryKey}`);
+          console.log(`  foreignKeys: ${JSON.stringify(schemaMetadata.foreignKeys)}`);
+          console.log(`  indexes: ${JSON.stringify(schemaMetadata.indexes)}`);
+        }
       } catch (_error) {
         // Schema file not found - this is OK
+        // Debug: log error for investigation
+        if (process.env.DEBUG_LINES_DB) {
+          console.warn(
+            `[lines-db] Failed to load schema metadata for ${tableName}:`,
+            _error instanceof Error ? _error.message : String(_error),
+          );
+        }
       }
     }
 
@@ -384,6 +399,18 @@ export class LinesDB<Tables extends TableDefs> {
     }
     if (indexes) {
       schema.indexes = indexes;
+
+      // Apply unique constraint from single-column unique indexes to column definitions
+      // This is required for foreign key references, as SQLite requires the referenced column
+      // to have a UNIQUE constraint in the table definition (not just an index)
+      for (const index of indexes) {
+        if (index.unique && index.columns.length === 1) {
+          const col = schema.columns.find((c) => c.name === index.columns[0]);
+          if (col && !col.unique && !col.primaryKey) {
+            col.unique = true;
+          }
+        }
+      }
     }
 
     this.schemas.set(tableName, schema);
@@ -419,13 +446,31 @@ export class LinesDB<Tables extends TableDefs> {
     // Quote table name to handle special characters
     const quotedTableName = this.quoteTableName(schema.name);
 
+    // Build a set of columns that should have UNIQUE constraint
+    // This includes columns marked as unique in schema AND single-column unique indexes
+    // The latter is required for foreign key references, as SQLite requires the referenced column
+    // to have a UNIQUE constraint in the table definition (not just a separately created index)
+    const uniqueColumns = new Set<string>();
+    for (const col of schema.columns) {
+      if (col.unique) {
+        uniqueColumns.add(col.name);
+      }
+    }
+    if (schema.indexes) {
+      for (const index of schema.indexes) {
+        if (index.unique && index.columns.length === 1) {
+          uniqueColumns.add(index.columns[0]);
+        }
+      }
+    }
+
     const columnDefs = schema.columns.map((col) => {
       // JSON type is stored as TEXT in SQLite
       const sqlType = col.type === 'JSON' ? 'TEXT' : col.type;
       const parts = [this.quoteIdentifier(col.name), sqlType];
       if (col.primaryKey) parts.push('PRIMARY KEY');
       if (col.notNull) parts.push('NOT NULL');
-      if (col.unique) parts.push('UNIQUE');
+      if (uniqueColumns.has(col.name) && !col.primaryKey) parts.push('UNIQUE');
       return parts.join(' ');
     });
 
