@@ -1,0 +1,16 @@
+{
+  "name": "npm-install-test",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate": "lines-db validate ./seed/data"
+  },
+  "dependencies": {
+    "@toiroakr/lines-db": "0.6.1",
+    "valibot": "^1.1.0"
+  },
+  "devDependencies": {
+    "tsx": "4.20.6"
+  }
+}

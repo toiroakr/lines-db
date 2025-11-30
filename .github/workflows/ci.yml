@@ -64,7 +64,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '24'
+          node-version: '22'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -79,3 +79,35 @@ jobs:
 
       - name: Run validate command (reproduces Windows CMD foreign key issue)
         run: node lib/bin/cli.js validate tests/unit/fixtures
+
+      - name: Run validate command with relative imports (reproduces Windows CMD path issue)
+        run: node lib/bin/cli.js validate tests/unit/fixtures-with-relative-imports/data
+
+      - name: Run validate with nested ../../testdir/ path (tests Windows backslash \t handling)
+        run: node lib/bin/cli.js validate tests/unit/fixtures-with-relative-imports/nested/data
+
+      - name: Run validate with relative path like SDK (cd into dir)
+        run: cd tests/unit/fixtures-with-relative-imports/nested && node ../../../../lib/bin/cli.js validate ./data
+
+      - name: Run validate via installed lines-db with relative imports (reproduces SDK issue)
+        shell: bash
+        run: cd examples && node node_modules/@toiroakr/lines-db/bin/cli.js validate ./fixtures
+
+      - name: Install lines-db from npm (test with published package)
+        shell: bash
+        run: cd tests/npm-install-test && npm install
+
+      - name: Run validate with npm-installed lines-db (reproduces SDK Windows path issue)
+        run: cd tests/npm-install-test && npx lines-db validate ./data
+        env:
+          DEBUG_LINES_DB: 1
+
+      - name: Run validate with ../../testdir/ path (exact SDK structure)
+        run: cd tests/npm-install-test && npx lines-db validate ./seed/data
+        env:
+          DEBUG_LINES_DB: 1
+
+      - name: Run validate via npm run (exact SDK invocation pattern)
+        run: cd tests/npm-install-test && npm run validate
+        env:
+          DEBUG_LINES_DB: 1
