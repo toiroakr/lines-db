@@ -2,7 +2,7 @@
   "name": "lines-db-vscode",
   "displayName": "LinesDB",
   "description": "VS Code extension for lines-db - JSONL utilities",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "publisher": "toiroakr",
   "author": "toiroakr",
   "engines": {
@@ -100,9 +100,12 @@
     "build": "node esbuild.js --production",
     "watch": "node esbuild.js --watch",
     "package": "vsce package",
+    "use": "vsce package && code --install-extension lines-db-vscode-$(jq -r '.version' < package.json).vsix",
     "lint": "eslint src --ext ts",
     "compile:test": "tsc -p tsconfig.test.json",
-    "test:integration": "pnpm run build && pnpm run compile:test && node ./dist-test/runTest.js"
+    "test:integration": "pnpm run build && pnpm run compile:test && node ./dist-test/test/runTest.js",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest"
   },
   "devDependencies": {
     "@types/glob": "^8.1.0",
@@ -114,7 +117,8 @@
     "esbuild": "^0.19.0",
     "glob": "^10.3.10",
     "mocha": "^10.2.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^4.0.6"
   },
   "repository": {
     "type": "git",

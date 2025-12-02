@@ -72,8 +72,8 @@ export class TypeScriptTypeExtractor {
     uri: vscode.Uri,
     position: vscode.Position,
     outputChannel: vscode.OutputChannel,
-    maxRetries: number = 3,
-    delayMs: number = 100,
+    maxRetries: number = 10,
+    delayMs: number = 200,
   ): Promise<string | undefined> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       // Get hover information at the schema position

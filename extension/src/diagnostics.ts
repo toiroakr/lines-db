@@ -113,16 +113,15 @@ export class DiagnosticsProvider {
       }
 
       // Validate entire directory to check foreign key constraints
-      const LinesDB = getLinesDB();
-      if (!LinesDB) {
+      const Validator = global.__linesDbModule?.Validator;
+      if (!Validator) {
         if (outputChannel) {
-          outputChannel.appendLine(`[Diagnostics] LinesDB not available from workspace`);
+          outputChannel.appendLine(`[Diagnostics] Validator not available from workspace`);
         }
         return;
       }
-      const db = LinesDB.create({ dataDir: dirPath });
-      const result = await db.initialize({ detailedValidate: true });
-      await db.close();
+      const validator = new Validator({ path: dirPath });
+      const result = await validator.validate();
 
       const diagnostics: vscode.Diagnostic[] = [];
 
@@ -219,7 +218,13 @@ export class DiagnosticsProvider {
       if (!SchemaLoader) {
         throw new Error('SchemaLoader not available from workspace');
       }
-      const schema = await SchemaLoader.loadSchema(originalJsonlPath);
+      const schema = (await SchemaLoader.loadSchema(originalJsonlPath)) as {
+        '~standard': {
+          validate: (data: unknown) => {
+            issues?: Array<{ message: string; path?: unknown[] }>;
+          };
+        };
+      };
 
       // Validate the data against the schema
       const result = schema['~standard'].validate(parsedData);
@@ -241,9 +246,9 @@ export class DiagnosticsProvider {
 
           if (issue.path && issue.path.length > 0) {
             const pathStr = issue.path
-              .map((segment) => {
+              .map((segment: unknown) => {
                 if (typeof segment === 'object' && segment !== null && 'key' in segment) {
-                  return String(segment.key);
+                  return String((segment as { key: unknown }).key);
                 }
                 return String(segment);
               })

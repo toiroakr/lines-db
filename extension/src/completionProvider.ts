@@ -1,8 +1,14 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { TypeScriptTypeExtractor, type FieldInfo } from './typeInfoExtractor.js';
-import { hasQuoteBefore, hasQuoteAfter, generateFieldNameInsertText } from './quoteHelper.js';
 import { getForeignKeys } from './foreignKeyUtils.js';
+import {
+  getCompletions,
+  isInFieldNamePosition,
+  extractExistingFields,
+  type CompletionResult,
+  type FieldInfo as CompletionFieldInfo,
+} from './completionLogic.js';
 
 /**
  * JSON context at cursor position
@@ -94,39 +100,150 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
       }
       outputChannel.appendLine('[Completion] Type info extracted: ' + fields.length + ' fields');
 
-      // Analyze cursor context
-      const context = this.analyzeContext(document, position);
-      if (!context) {
-        outputChannel.appendLine('[Completion] Failed to analyze context');
-        return undefined;
-      }
-      outputChannel.appendLine('[Completion] Context: ' + JSON.stringify(context));
+      // Get current line text
+      const line = document.lineAt(position.line).text;
+      const cursor = position.character;
 
-      // Find the relevant field info for the current path
-      const fieldInfo = this.findFieldsForPath(fields, context.path);
-      if (!fieldInfo) {
-        outputChannel.appendLine('[Completion] No field info found for path');
-        return undefined;
-      }
-      outputChannel.appendLine('[Completion] Found field info: ' + fieldInfo.length + ' fields');
+      // Convert FieldInfo to CompletionFieldInfo
+      const completionFields: CompletionFieldInfo[] = this.flattenFieldsForPath(fields, line, cursor);
 
-      // Generate completion items
-      if (context.isFieldName) {
-        outputChannel.appendLine('[Completion] Generating field name completions');
-        return this.createFieldNameCompletions(
-          fieldInfo,
-          context.existingFields,
-          document,
-          position,
-        );
-      } else {
-        outputChannel.appendLine('[Completion] Generating value completions');
-        return await this.createValueCompletions(fieldInfo, document, position);
-      }
+      // Get FK values
+      const fkValues = await this.getFkValuesMap(document);
+
+      // Use completionLogic to get completions
+      const completions = getCompletions(line, cursor, completionFields, fkValues);
+
+      outputChannel.appendLine(`[Completion] Got ${completions.length} completions from logic`);
+
+      // Convert CompletionResult to vscode.CompletionItem
+      return this.convertToVscodeCompletionItems(completions, fields, position);
     } catch (error) {
       outputChannel.appendLine('[Completion] Error providing completions: ' + error);
       return undefined;
     }
+  }
+
+  /**
+   * Flatten fields for the current path
+   */
+  private flattenFieldsForPath(
+    fields: FieldInfo[],
+    line: string,
+    cursor: number,
+  ): CompletionFieldInfo[] {
+    const textBeforeCursor = line.substring(0, cursor);
+    const path = this.extractPath(textBeforeCursor);
+    const currentFields = this.findFieldsForPath(fields, path);
+
+    if (!currentFields) {
+      return [];
+    }
+
+    return currentFields.map((f) => ({ name: f.name, type: f.type }));
+  }
+
+  /**
+   * Get FK values map for the current document
+   */
+  private async getFkValuesMap(document: vscode.TextDocument): Promise<Map<string, string[]>> {
+    const fkValues = new Map<string, string[]>();
+
+    try {
+      if (!global.__linesDbModule) {
+        return fkValues;
+      }
+
+      const actualPath = this.getActualJsonlPath(document.uri.fsPath);
+      const foreignKeys = await getForeignKeys(actualPath);
+
+      for (const fk of foreignKeys) {
+        const currentDir = path.dirname(actualPath);
+        const referencedFilePath = path.join(currentDir, `${fk.referencedTable}.jsonl`);
+
+        try {
+          await vscode.workspace.fs.stat(vscode.Uri.file(referencedFilePath));
+          const records = await global.__linesDbModule.JsonlReader.read(referencedFilePath);
+
+          if (records && records.length > 0) {
+            const values: string[] = [];
+            for (const record of records) {
+              if (
+                typeof record === 'object' &&
+                record !== null &&
+                fk.referencedColumn in record
+              ) {
+                const value = (record as Record<string, unknown>)[fk.referencedColumn];
+                if (typeof value === 'string' || typeof value === 'number') {
+                  values.push(String(value));
+                }
+              }
+            }
+            if (values.length > 0) {
+              fkValues.set(fk.column, values);
+            }
+          }
+        } catch {
+          // File not found, skip
+        }
+      }
+    } catch (error) {
+      outputChannel.appendLine(`[Completion] Error getting FK values: ${error}`);
+    }
+
+    return fkValues;
+  }
+
+  /**
+   * Convert CompletionResult to vscode.CompletionItem
+   */
+  private convertToVscodeCompletionItems(
+    completions: CompletionResult[],
+    fields: FieldInfo[],
+    position: vscode.Position,
+  ): vscode.CompletionItem[] {
+    return completions.map((completion) => {
+      // Determine if this is a field name or value completion
+      const field = fields.find((f) => f.name === completion.label);
+      const isFieldCompletion = field !== undefined;
+
+      const item = new vscode.CompletionItem(
+        completion.label,
+        isFieldCompletion ? vscode.CompletionItemKind.Field : vscode.CompletionItemKind.Reference,
+      );
+
+      item.insertText = new vscode.SnippetString(completion.insertText);
+
+      if (completion.range) {
+        const start = new vscode.Position(position.line, completion.range.start);
+        const end = new vscode.Position(position.line, completion.range.end);
+        item.range = new vscode.Range(start, end);
+      }
+
+      if (completion.filterText) {
+        item.filterText = completion.filterText;
+      }
+
+      // Add field details
+      if (field) {
+        item.detail = this.formatFieldType(field);
+
+        const doc = new vscode.MarkdownString();
+        doc.appendCodeblock(field.name, 'typescript');
+        if (field.description) {
+          doc.appendText(field.description);
+        }
+        doc.appendText(`\n\nType: ${this.formatFieldType(field)}`);
+        if (field.optional) {
+          doc.appendText(' (optional)');
+        }
+        if (field.nullable) {
+          doc.appendText(' (nullable)');
+        }
+        item.documentation = doc;
+      }
+
+      return item;
+    });
   }
 
   /**
@@ -209,85 +326,6 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
   }
 
   /**
-   * Analyze the context at the cursor position
-   */
-  private analyzeContext(
-    document: vscode.TextDocument,
-    position: vscode.Position,
-  ): JsonContext | undefined {
-    const line = document.lineAt(position.line).text;
-    const beforeCursor = line.substring(0, position.character);
-
-    outputChannel.appendLine(
-      '[Completion] analyzeContext: beforeCursor = ' + beforeCursor.substring(0, 200),
-    );
-
-    // Simple heuristic to determine if we're in a field name or value
-    // Look for the last unquoted colon
-    const isFieldName = this.isInFieldNamePosition(beforeCursor);
-
-    // Extract path and existing fields
-    const path = this.extractPath(beforeCursor);
-    const existingFields = this.extractExistingFields(beforeCursor);
-
-    return {
-      isFieldName,
-      path,
-      existingFields,
-    };
-  }
-
-  /**
-   * Check if cursor is in a position to complete a field name
-   */
-  private isInFieldNamePosition(textBeforeCursor: string): boolean {
-    // Remove quoted strings to avoid false positives
-    const withoutStrings = this.removeQuotedStrings(textBeforeCursor);
-
-    // Count colons and commas after the last opening brace
-    const lastBrace = withoutStrings.lastIndexOf('{');
-    if (lastBrace === -1) return false;
-
-    const afterBrace = withoutStrings.substring(lastBrace);
-
-    // Check if we're inside quotes
-    const quoteCount = (textBeforeCursor.match(/"/g) || []).length;
-    const insideQuotes = quoteCount % 2 === 1;
-
-    // If inside quotes after a colon, we're in a value
-    const colonIndex = afterBrace.lastIndexOf(':');
-    const commaIndex = afterBrace.lastIndexOf(',');
-
-    if (colonIndex !== -1 && insideQuotes) {
-      // If there's a comma after the colon, we're starting a new field
-      if (commaIndex > colonIndex) {
-        return true;
-      }
-
-      // Otherwise, we're in a value position
-      const afterColon = afterBrace.substring(colonIndex + 1).trim();
-      if (afterColon.length === 0 || afterColon === '"') {
-        return false;
-      }
-    }
-
-    // Otherwise, if inside quotes or after comma/brace, we're in a field name
-    return (
-      insideQuotes ||
-      afterBrace.endsWith(',') ||
-      afterBrace.endsWith('{') ||
-      /[,{]\s*$/.test(afterBrace)
-    );
-  }
-
-  /**
-   * Remove quoted strings from text
-   */
-  private removeQuotedStrings(text: string): string {
-    return text.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  }
-
-  /**
    * Extract the current path in nested objects
    */
   private extractPath(textBeforeCursor: string): string[] {
@@ -338,36 +376,6 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
   }
 
   /**
-   * Extract existing fields in the current object
-   */
-  private extractExistingFields(textBeforeCursor: string): Set<string> {
-    const fields = new Set<string>();
-
-    // Find the last opening brace
-    const lastBrace = textBeforeCursor.lastIndexOf('{');
-    if (lastBrace === -1) {
-      outputChannel.appendLine('[Completion] extractExistingFields: no opening brace found');
-      return fields;
-    }
-
-    const objectText = textBeforeCursor.substring(lastBrace);
-    outputChannel.appendLine(
-      '[Completion] extractExistingFields: objectText = ' + objectText.substring(0, 200),
-    );
-
-    // Extract field names using regex
-    const fieldPattern = /"([^"]+)"\s*:/g;
-    let match;
-    while ((match = fieldPattern.exec(objectText)) !== null) {
-      fields.add(match[1]);
-      outputChannel.appendLine('[Completion] extractExistingFields: found field = ' + match[1]);
-    }
-
-    outputChannel.appendLine('[Completion] extractExistingFields: total fields = ' + fields.size);
-    return fields;
-  }
-
-  /**
    * Find field info for the given path
    */
   private findFieldsForPath(fields: FieldInfo[], path: string[]): FieldInfo[] | undefined {
@@ -382,311 +390,6 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
     }
 
     return currentFields;
-  }
-
-  /**
-   * Create completion items for field names
-   */
-  private createFieldNameCompletions(
-    fields: FieldInfo[],
-    existingFields: Set<string>,
-    document: vscode.TextDocument,
-    position: vscode.Position,
-  ): vscode.CompletionItem[] {
-    const line = document.lineAt(position.line).text;
-    const beforeCursor = line.substring(0, position.character);
-    const afterCursor = line.substring(position.character);
-
-    outputChannel.appendLine(
-      `[Completion] Field name completion - beforeCursor: "${beforeCursor}", afterCursor: "${afterCursor}"`,
-    );
-
-    // Check if there's already a quote before/after the cursor
-    const quoteBefore = hasQuoteBefore(beforeCursor);
-    const quoteAfter = hasQuoteAfter(afterCursor);
-
-    outputChannel.appendLine(`[Completion] quoteBefore: ${quoteBefore}, quoteAfter: ${quoteAfter}`);
-
-    const filteredFields = fields.filter((field) => !existingFields.has(field.name));
-    outputChannel.appendLine(
-      `[Completion] After filtering existing fields: ${filteredFields.length} fields remaining`,
-    );
-    outputChannel.appendLine(
-      `[Completion] Remaining fields: ${filteredFields.map((f) => f.name).join(', ')}`,
-    );
-
-    return filteredFields.map((field) => {
-      const item = new vscode.CompletionItem(field.name, vscode.CompletionItemKind.Field);
-
-      // Add type information in detail
-      item.detail = this.formatFieldType(field);
-
-      // Add documentation
-      const doc = new vscode.MarkdownString();
-      doc.appendCodeblock(field.name, 'typescript');
-      if (field.description) {
-        doc.appendText(field.description);
-      }
-      doc.appendText(`\n\nType: ${this.formatFieldType(field)}`);
-
-      if (field.optional) {
-        doc.appendText(' (optional)');
-      }
-      if (field.nullable) {
-        doc.appendText(' (nullable)');
-      }
-
-      item.documentation = doc;
-
-      // Generate insert text using helper function
-      const insertText = generateFieldNameInsertText(field.name, field.type, quoteBefore);
-
-      item.insertText = new vscode.SnippetString(insertText);
-
-      // Set the range to replace
-      if (quoteBefore && !quoteAfter) {
-        // Case: "gende| or "gende |
-        // We need to replace from the opening quote to cursor
-        // Find the last quote position in beforeCursor
-        const lastQuoteIndex = beforeCursor.lastIndexOf('"');
-        outputChannel.appendLine(
-          `[Completion] quoteBefore=true, quoteAfter=false, lastQuoteIndex=${lastQuoteIndex}, position.character=${position.character}`,
-        );
-        if (lastQuoteIndex !== -1) {
-          const start = position.translate(0, -(position.character - lastQuoteIndex));
-          const end = position;
-          item.range = new vscode.Range(start, end);
-
-          // Set filterText to the partial field name (without quotes)
-          // This allows VSCode to match user input with completion items
-          const partialFieldName = beforeCursor.substring(lastQuoteIndex + 1);
-          item.filterText = partialFieldName;
-
-          outputChannel.appendLine(
-            `[Completion] Setting item.range from (${start.line}, ${start.character}) to (${end.line}, ${end.character})`,
-          );
-          outputChannel.appendLine(
-            `[Completion] This will replace: ${beforeCursor.substring(lastQuoteIndex)}`,
-          );
-          outputChannel.appendLine(`[Completion] filterText set to: "${partialFieldName}"`);
-        }
-      } else if (quoteBefore && quoteAfter) {
-        // Case: "gende|" or "|"
-        // Replace from content between quotes up to and including the closing quote
-        const lastQuoteIndex = beforeCursor.lastIndexOf('"');
-        const partialFieldName = beforeCursor.substring(lastQuoteIndex + 1);
-
-        // Find the closing quote in afterCursor
-        const closingQuoteIndex = afterCursor.indexOf('"');
-        if (lastQuoteIndex !== -1 && closingQuoteIndex !== -1) {
-          // Range: from after opening " to after closing " (inclusive of closing quote)
-          // This replaces the content and the closing quote
-          const start = new vscode.Position(
-            position.line,
-            lastQuoteIndex + 1, // After the opening quote
-          );
-          const end = new vscode.Position(
-            position.line,
-            position.character + closingQuoteIndex + 1, // After the closing quote (inclusive)
-          );
-          item.range = new vscode.Range(start, end);
-
-          // Adjust insertText to not include opening quote (but keep closing quote)
-          // Since we're replacing the closing quote, we need to keep it in insertText
-          // The insertText already doesn't have opening quote when quoteBefore=true
-          // So we can use it as-is
-          // Original generated: name": "${1}" (no opening quote since quoteBefore=true)
-          // This is what we want to insert
-
-          // Set filterText to partial field name for proper matching
-          // When empty, use field name to ensure completions are shown
-          item.filterText = partialFieldName || field.name;
-
-          outputChannel.appendLine(
-            `[Completion] quoteBefore && quoteAfter: range from (${start.line}, ${start.character}) to (${end.line}, ${end.character})`,
-          );
-          outputChannel.appendLine(
-            `[Completion] insertText (no adjustment needed): "${insertText}"`,
-          );
-          outputChannel.appendLine(
-            `[Completion] filterText: "${item.filterText}" (length: ${item.filterText.length})`,
-          );
-        }
-      } else if (!quoteBefore && quoteAfter) {
-        // Case: |"
-        // Just replace the closing quote
-        const start = position;
-        const end = position.translate(0, 1);
-        item.range = new vscode.Range(start, end);
-        outputChannel.appendLine(
-          `[Completion] Setting item.range (!quoteBefore && quoteAfter) from (${start.line}, ${start.character}) to (${end.line}, ${end.character})`,
-        );
-      }
-      // If no quotes, use default behavior (replace current word)
-
-      return item;
-    });
-  }
-
-  /**
-   * Create completion items for values
-   */
-  private async createValueCompletions(
-    fields: FieldInfo[],
-    document: vscode.TextDocument,
-    position: vscode.Position,
-  ): Promise<vscode.CompletionItem[] | undefined> {
-    const line = document.lineAt(position.line).text;
-    const beforeCursor = line.substring(0, position.character);
-    const afterCursor = line.substring(position.character);
-    outputChannel.appendLine('[Completion] beforeCursor: ' + beforeCursor);
-    outputChannel.appendLine('[Completion] afterCursor: ' + afterCursor);
-
-    // Find the current field name
-    const fieldName = this.findCurrentFieldName(beforeCursor);
-    outputChannel.appendLine('[Completion] fieldName: ' + (fieldName || 'NOT FOUND'));
-    if (!fieldName) {
-      return undefined;
-    }
-
-    // Find the corresponding field info
-    const field = fields.find((f) => f.name === fieldName);
-    outputChannel.appendLine(
-      '[Completion] field: ' +
-        (field
-          ? JSON.stringify({ name: field.name, type: field.type, enumValues: field.enumValues })
-          : 'NOT FOUND'),
-    );
-    if (!field) {
-      return undefined;
-    }
-
-    // Check if cursor is inside quotes
-    const quoteCount = (beforeCursor.match(/"/g) || []).length;
-    const insideQuotes = quoteCount % 2 === 1;
-    outputChannel.appendLine('[Completion] insideQuotes: ' + insideQuotes);
-
-    // Extract current value if any (for filtering)
-    let currentValue = '';
-    let valueStartPos: vscode.Position | undefined;
-    let valueEndPos: vscode.Position | undefined;
-
-    if (insideQuotes) {
-      // Find the opening quote
-      const lastQuoteIndex = beforeCursor.lastIndexOf('"');
-      if (lastQuoteIndex !== -1) {
-        currentValue = beforeCursor.substring(lastQuoteIndex + 1);
-        valueStartPos = position.translate(0, -(position.character - lastQuoteIndex - 1));
-
-        // Find the closing quote
-        const nextQuoteIndex = afterCursor.indexOf('"');
-        if (nextQuoteIndex !== -1) {
-          valueEndPos = position.translate(0, nextQuoteIndex);
-        } else {
-          valueEndPos = position;
-        }
-      }
-      outputChannel.appendLine('[Completion] currentValue: "' + currentValue + '"');
-      outputChannel.appendLine(
-        `[Completion] valueRange: ${valueStartPos ? `(${valueStartPos.line}, ${valueStartPos.character})` : 'none'} to ${valueEndPos ? `(${valueEndPos.line}, ${valueEndPos.character})` : 'none'}`,
-      );
-    }
-
-    // Check if this field is a foreign key
-    const foreignKeyCompletion = await this.createForeignKeyCompletions(
-      document,
-      fieldName,
-      insideQuotes,
-      valueStartPos,
-      valueEndPos,
-    );
-    if (foreignKeyCompletion) {
-      outputChannel.appendLine('[Completion] Returning foreign key completions');
-      return foreignKeyCompletion;
-    }
-
-    // Generate completions based on field type
-    if (field.enumValues && field.enumValues.length > 0) {
-      outputChannel.appendLine(
-        '[Completion] Returning enum completions: ' + field.enumValues.join(', '),
-      );
-      return this.createEnumCompletions(
-        field.enumValues,
-        insideQuotes,
-        currentValue,
-        valueStartPos,
-        valueEndPos,
-      );
-    }
-
-    if (field.type === 'boolean') {
-      outputChannel.appendLine('[Completion] Returning boolean completions');
-      return this.createBooleanCompletions();
-    }
-
-    // For other types, return undefined to use default behavior
-    outputChannel.appendLine('[Completion] No specific completions for type: ' + field.type);
-    return undefined;
-  }
-
-  /**
-   * Find the current field name being assigned
-   */
-  private findCurrentFieldName(textBeforeCursor: string): string | undefined {
-    // Look for the last field name before a colon
-    const match = textBeforeCursor.match(/"([^"]+)"\s*:\s*(?:"[^"]*)?$/);
-    return match ? match[1] : undefined;
-  }
-
-  /**
-   * Create enum value completions
-   */
-  private createEnumCompletions(
-    values: string[],
-    insideQuotes: boolean,
-    currentValue: string = '',
-    valueStartPos?: vscode.Position,
-    valueEndPos?: vscode.Position,
-  ): vscode.CompletionItem[] {
-    return values.map((value) => {
-      const item = new vscode.CompletionItem(value, vscode.CompletionItemKind.EnumMember);
-      item.detail = 'enum value';
-
-      // If cursor is not inside quotes, wrap the value in quotes
-      if (!insideQuotes) {
-        item.insertText = `"${value}"`;
-      } else {
-        // If cursor is inside quotes, just insert the value
-        item.insertText = value;
-
-        // Set the range to replace the current partial value
-        // VSCode will automatically filter completions based on the text in this range
-        if (valueStartPos && valueEndPos) {
-          item.range = new vscode.Range(valueStartPos, valueEndPos);
-          outputChannel.appendLine(
-            `[Completion] Setting enum completion range from (${valueStartPos.line}, ${valueStartPos.character}) to (${valueEndPos.line}, ${valueEndPos.character}) for value "${value}"`,
-          );
-          outputChannel.appendLine(
-            `[Completion] VSCode will filter "${value}" against current input "${currentValue}"`,
-          );
-        }
-      }
-
-      return item;
-    });
-  }
-
-  /**
-   * Create boolean value completions
-   */
-  private createBooleanCompletions(): vscode.CompletionItem[] {
-    const trueItem = new vscode.CompletionItem('true', vscode.CompletionItemKind.Value);
-    const falseItem = new vscode.CompletionItem('false', vscode.CompletionItemKind.Value);
-
-    // Boolean values don't need quotes in JSON
-    // So we don't modify insertText based on insideQuotes
-
-    return [trueItem, falseItem];
   }
 
   /**
@@ -715,6 +418,7 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
     document: vscode.TextDocument,
     fieldName: string,
     insideQuotes: boolean,
+    hasClosingQuote: boolean,
     valueStartPos?: vscode.Position,
     valueEndPos?: vscode.Position,
   ): Promise<vscode.CompletionItem[] | undefined> {
@@ -807,11 +511,14 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
             item.insertText = String(value);
           }
         } else {
-          // Inside quotes, just insert the value
-          if (typeof value === 'string') {
-            item.insertText = value;
+          // Inside quotes
+          const valueStr = typeof value === 'string' ? value : String(value);
+
+          // If there's no closing quote, add one
+          if (!hasClosingQuote) {
+            item.insertText = valueStr + '"';
           } else {
-            item.insertText = String(value);
+            item.insertText = valueStr;
           }
 
           // Set the range to replace the current partial value
