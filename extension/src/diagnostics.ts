@@ -1,7 +1,15 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { LinesDB, SchemaLoader } from '../../lib/dist/index.cjs';
 import { TempFileManager } from './tempFileManager.js';
+
+// Get LinesDB and SchemaLoader from the workspace module
+function getLinesDB() {
+  return global.__linesDbModule?.LinesDB;
+}
+
+function getSchemaLoader() {
+  return global.__linesDbModule?.SchemaLoader;
+}
 
 export class DiagnosticsProvider {
   private diagnosticCollection: vscode.DiagnosticCollection;
@@ -99,8 +107,19 @@ export class DiagnosticsProvider {
 
     try {
       const dirPath = path.dirname(filePath);
+      const outputChannel = global.__linesDbOutputChannel;
+      if (outputChannel) {
+        outputChannel.appendLine(`[Diagnostics] Validating ${filePath}`);
+      }
 
       // Validate entire directory to check foreign key constraints
+      const LinesDB = getLinesDB();
+      if (!LinesDB) {
+        if (outputChannel) {
+          outputChannel.appendLine(`[Diagnostics] LinesDB not available from workspace`);
+        }
+        return;
+      }
       const db = LinesDB.create({ dataDir: dirPath });
       const result = await db.initialize({ detailedValidate: true });
       await db.close();
@@ -150,8 +169,12 @@ export class DiagnosticsProvider {
       }
 
       this.diagnosticCollection.set(document.uri, diagnostics);
-    } catch (_error) {
+    } catch (error) {
       // If validation fails (e.g., no schema), clear diagnostics for this document only
+      const outputChannel = global.__linesDbOutputChannel;
+      if (outputChannel) {
+        outputChannel.appendLine(`[Diagnostics] Validation error for ${filePath}: ${error}`);
+      }
       this.diagnosticCollection.set(document.uri, []);
     }
   }
@@ -192,6 +215,10 @@ export class DiagnosticsProvider {
       }
 
       // Load the schema for the original JSONL file
+      const SchemaLoader = getSchemaLoader();
+      if (!SchemaLoader) {
+        throw new Error('SchemaLoader not available from workspace');
+      }
       const schema = await SchemaLoader.loadSchema(originalJsonlPath);
 
       // Validate the data against the schema
