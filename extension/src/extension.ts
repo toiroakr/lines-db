@@ -104,26 +104,28 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // Register tsx for TypeScript schema file support
+    // tsx is bundled with @toiroakr/lines-db, so we resolve it from there
     try {
-      // Dynamic imports are necessary for runtime module loading
-
-      const nodeRequire = require;
       const { register } = await import('node:module');
       const { pathToFileURL } = await import('node:url');
+      const path = await import('node:path');
+      const nodeRequire = require;
 
-      try {
-        // Try to resolve tsx entry point from workspace's node_modules
-        const tsxPath = nodeRequire.resolve('tsx', { paths: [workspaceRoot] });
-        outputChannel.appendLine(`Found tsx at: ${tsxPath}`);
+      // Resolve tsx from @toiroakr/lines-db's location (it's a dependency)
+      const linesDbPath = nodeRequire.resolve('@toiroakr/lines-db', { paths: [workspaceRoot] });
+      const linesDbDir = path.dirname(linesDbPath);
+      const tsxPath = nodeRequire.resolve('tsx', { paths: [linesDbDir] });
+      outputChannel.appendLine(`Found tsx at: ${tsxPath}`);
 
-        // Register tsx using the workspace path as parent URL
-        register('tsx', pathToFileURL(workspaceRoot + '/'), { data: {} });
-        outputChannel.appendLine('tsx registered successfully');
-      } catch (tsxError) {
-        outputChannel.appendLine(
-          `tsx not found in workspace, TypeScript schemas may not work: ${tsxError}`,
-        );
-      }
+      // Change cwd to workspace root so tsx can find tsconfig.json for path aliases
+      process.chdir(workspaceRoot);
+
+      // Register tsx using tsx's own directory as parent URL
+      // This allows tsx to be found when the loader is initialized
+      const tsxDir = path.dirname(path.dirname(tsxPath)); // Go up from dist/loader.mjs to tsx root
+      const tsxParentUrl = pathToFileURL(tsxDir + '/');
+      register('tsx', tsxParentUrl, { data: {} });
+      outputChannel.appendLine('tsx registered successfully for TypeScript schema support');
     } catch (error) {
       outputChannel.appendLine(`Failed to register tsx: ${error}`);
     }
