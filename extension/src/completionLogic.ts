@@ -6,6 +6,8 @@ import { hasQuoteBefore, hasQuoteAfter, generateFieldNameInsertText } from './qu
 export interface FieldInfo {
   name: string;
   type: string;
+  enumValues?: string[];
+  isStringEnum?: boolean;
 }
 
 /**
@@ -38,6 +40,8 @@ export interface ValueCompletionContext {
   cursor: number;
   fieldName: string;
   fkValues?: string[];
+  enumValues?: string[];
+  fieldType?: string;
 }
 
 /**
@@ -131,7 +135,7 @@ export function extractPartialValue(textBeforeCursor: string): string {
 /**
  * Check if cursor is inside a value (not field name)
  */
-export function isInsideValue(textBeforeCursor: string, textAfterCursor: string): boolean {
+export function isInsideValue(textBeforeCursor: string): boolean {
   const quoteCount = (textBeforeCursor.match(/"/g) || []).length;
   const insideQuotes = quoteCount % 2 === 1;
 
@@ -180,6 +184,28 @@ export function getFieldNameCompletions(ctx: FieldNameCompletionContext): Comple
     return [];
   }
 
+  // Helper function to generate value placeholder based on field type
+  const getValuePlaceholder = (
+    type: string,
+    isStringEnum?: boolean,
+    placeholder: string = '${1}',
+  ): string => {
+    if (type === 'string' || type === 'literal') {
+      return `"${placeholder}"`;
+    } else if (type === 'enum') {
+      // For enums, check if it's a string enum
+      return isStringEnum ? `"${placeholder}"` : placeholder;
+    } else if (type === 'number' || type === 'boolean') {
+      return placeholder;
+    } else if (type === 'object') {
+      return `{${placeholder}}`;
+    } else if (type === 'array') {
+      return `[${placeholder}]`;
+    }
+    // Default to string
+    return `"${placeholder}"`;
+  };
+
   return filteredFields.map((field) => {
     let insertText: string;
     let range: { start: number; end: number } | undefined;
@@ -194,11 +220,11 @@ export function getFieldNameCompletions(ctx: FieldNameCompletionContext): Comple
         const fullMatch = colonMatch[0];
         const existingValue = colonMatch[1];
         range = { start: lastQuoteIndex, end: cursor + fullMatch.length };
-        insertText = `"${field.name}": "\${1:${existingValue}}"`;
+        insertText = `"${field.name}": ${getValuePlaceholder(field.type, field.isStringEnum, `\${1:${existingValue}}`)}`;
       } else {
         const closingQuoteIndex = textAfterCursor.indexOf('"');
         range = { start: lastQuoteIndex, end: cursor + closingQuoteIndex + 1 };
-        insertText = `"${field.name}": "\${1}"`;
+        insertText = `"${field.name}": ${getValuePlaceholder(field.type, field.isStringEnum)}`;
       }
       // Include the opening quote in filterText to match VSCode's word boundary
       filterText = `"${partialInputBefore}`;
@@ -216,7 +242,7 @@ export function getFieldNameCompletions(ctx: FieldNameCompletionContext): Comple
       }
 
       range = { start: lastQuoteIndex, end: cursor + endOffset };
-      insertText = `"${field.name}": "\${1}"`;
+      insertText = `"${field.name}": ${getValuePlaceholder(field.type, field.isStringEnum)}`;
       filterText = partialInputBefore || field.name;
     } else if (quoteBefore && !quoteAfter) {
       // Case: {"na| or {"|}
@@ -231,7 +257,7 @@ export function getFieldNameCompletions(ctx: FieldNameCompletionContext): Comple
       }
 
       range = { start: lastQuoteIndex, end: cursor + endOffset };
-      insertText = `"${field.name}": "\${1}"`;
+      insertText = `"${field.name}": ${getValuePlaceholder(field.type, field.isStringEnum)}`;
       filterText = partialInputBefore || field.name;
     } else {
       // No quotes - use default insertText
@@ -243,12 +269,24 @@ export function getFieldNameCompletions(ctx: FieldNameCompletionContext): Comple
 }
 
 /**
- * Get value completions (for FK values)
+ * Get value completions (for FK values, enum values, and boolean)
  */
 export function getValueCompletions(ctx: ValueCompletionContext): CompletionResult[] {
-  const { textBeforeCursor, textAfterCursor, cursor, fieldName, fkValues } = ctx;
+  const { textBeforeCursor, textAfterCursor, cursor, fkValues, enumValues, fieldType } = ctx;
 
-  if (!fkValues || fkValues.length === 0) {
+  // Determine available values
+  let values: string[] = [];
+
+  if (fkValues && fkValues.length > 0) {
+    values = fkValues;
+  } else if (enumValues && enumValues.length > 0) {
+    values = enumValues;
+    // Check if enum values are numbers
+  } else if (fieldType === 'boolean') {
+    values = ['true', 'false'];
+  }
+
+  if (values.length === 0) {
     return [];
   }
 
@@ -257,14 +295,28 @@ export function getValueCompletions(ctx: ValueCompletionContext): CompletionResu
   const insideQuotes = quoteCount % 2 === 1;
 
   if (!insideQuotes) {
-    // Not inside quotes - return values with quotes
-    return fkValues.map((value) => ({
-      label: value,
-      insertText: `"${value}"`,
-    }));
+    // Not inside quotes - return values with appropriate formatting
+    return values.map((value) => {
+      // Check if this is a non-string value (boolean, number)
+      if (value === 'true' || value === 'false' || /^-?\d+(\.\d+)?$/.test(value)) {
+        return {
+          label: value,
+          insertText: value,
+        };
+      }
+      // String value - wrap in quotes
+      return {
+        label: value,
+        insertText: `"${value}"`,
+      };
+    });
   }
 
   // Inside quotes
+  const stringValues = values.filter(
+    (v) => v !== 'true' && v !== 'false' && !/^-?\d+(\.\d+)?$/.test(v),
+  );
+
   const partialValue = extractPartialValue(textBeforeCursor);
   const lastQuoteIndex = textBeforeCursor.lastIndexOf('"');
   const nextQuoteIndex = textAfterCursor.indexOf('"');
@@ -273,16 +325,41 @@ export function getValueCompletions(ctx: ValueCompletionContext): CompletionResu
   const valueStartPos = lastQuoteIndex + 1;
   const valueEndPos = hasClosingQuote ? cursor + nextQuoteIndex : cursor;
 
-  // Filter values based on partial input
-  const filteredValues = fkValues.filter((v) =>
+  // Filter string values based on partial input
+  const filteredStringValues = stringValues.filter((v) =>
     v.toLowerCase().startsWith(partialValue.toLowerCase()),
   );
 
-  return filteredValues.map((value) => ({
-    label: value,
-    insertText: hasClosingQuote ? value : value + '"',
-    range: { start: valueStartPos, end: valueEndPos },
-  }));
+  // If we have matching string values, return them
+  if (filteredStringValues.length > 0) {
+    return filteredStringValues.map((value) => ({
+      label: value,
+      insertText: hasClosingQuote ? value : value + '"',
+      range: { start: valueStartPos, end: valueEndPos },
+    }));
+  }
+
+  // No string matches - for enum/boolean fields, offer all values (including non-strings)
+  // This replaces the current quoted value entirely
+  if (enumValues || fieldType === 'boolean') {
+    // Calculate the range to replace including the opening quote
+    const replaceStartPos = lastQuoteIndex;
+    const replaceEndPos = hasClosingQuote ? cursor + nextQuoteIndex + 1 : cursor;
+
+    return values.map((value) => {
+      // Check if this is a non-string value (boolean, number)
+      const isNonString = value === 'true' || value === 'false' || /^-?\d+(\.\d+)?$/.test(value);
+      return {
+        label: value,
+        insertText: isNonString ? value : `"${value}"`,
+        range: { start: replaceStartPos, end: replaceEndPos },
+        // Include the opening quote in filterText to match VS Code's range-based filtering
+        filterText: `"${partialValue}`,
+      };
+    });
+  }
+
+  return [];
 }
 
 /**
@@ -302,15 +379,23 @@ export function getCompletions(
     return [];
   }
 
+  // Helper function to get field info by name
+  const getFieldInfo = (name: string): FieldInfo | undefined => {
+    return fields.find((f) => f.name === name);
+  };
+
   // First check if we're inside a value
-  if (isInsideValue(textBeforeCursor, textAfterCursor)) {
+  if (isInsideValue(textBeforeCursor)) {
     const fieldName = findCurrentFieldName(textBeforeCursor);
     if (!fieldName) {
       return [];
     }
 
     const fieldFkValues = fkValues?.get(fieldName);
-    if (!fieldFkValues) {
+    const fieldInfo = getFieldInfo(fieldName);
+
+    // Return empty if no completion data available
+    if (!fieldFkValues && !fieldInfo?.enumValues && fieldInfo?.type !== 'boolean') {
       return [];
     }
 
@@ -320,6 +405,8 @@ export function getCompletions(
       cursor,
       fieldName,
       fkValues: fieldFkValues,
+      enumValues: fieldInfo?.enumValues,
+      fieldType: fieldInfo?.type,
     });
   }
 
@@ -333,7 +420,10 @@ export function getCompletions(
     }
 
     const fieldFkValues = fkValues?.get(fieldName);
-    if (!fieldFkValues) {
+    const fieldInfo = getFieldInfo(fieldName);
+
+    // Return empty if no completion data available
+    if (!fieldFkValues && !fieldInfo?.enumValues && fieldInfo?.type !== 'boolean') {
       return [];
     }
 
@@ -343,6 +433,8 @@ export function getCompletions(
       cursor,
       fieldName,
       fkValues: fieldFkValues,
+      enumValues: fieldInfo?.enumValues,
+      fieldType: fieldInfo?.type,
     });
   }
 

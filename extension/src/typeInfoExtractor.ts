@@ -10,6 +10,8 @@ export interface FieldInfo {
   nullable?: boolean;
   description?: string;
   enumValues?: string[];
+  /** True if enumValues contains string literals (should be displayed with quotes) */
+  isStringEnum?: boolean;
   nested?: FieldInfo[];
   arrayElementType?: FieldInfo;
 }
@@ -314,7 +316,8 @@ export class TypeScriptTypeExtractor {
       if (!trimmed) continue;
 
       // Parse field: "name: string" or "age?: number"
-      const match = trimmed.match(/^(\w+)(\?)?:\s*(.+)$/);
+      // Use [\s\S]+ instead of .+ to match multiline nested object types
+      const match = trimmed.match(/^(\w+)(\?)?:\s*([\s\S]+)$/);
       if (!match) {
         outputChannel.appendLine('[TypeScriptExtractor] Could not parse field: ' + trimmed);
         continue;
@@ -402,20 +405,63 @@ export class TypeScriptTypeExtractor {
       const nullable = types.includes('null');
       const nonNullTypes = types.filter((t) => t !== 'null' && t !== 'undefined');
 
-      // Check if all non-null types are string literals (enum)
+      // Extract different types from the union
       const stringLiterals = nonNullTypes.filter(
         (t) => (t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")),
       );
+      const numberLiterals = nonNullTypes.filter((t) => /^-?\d+(\.\d+)?$/.test(t));
+      const booleanLiterals = nonNullTypes.filter((t) => t === 'true' || t === 'false');
+      const hasBoolean = nonNullTypes.includes('boolean');
 
-      if (stringLiterals.length > 0 && stringLiterals.length === nonNullTypes.length) {
-        // This is a string literal union (enum)
-        const enumValues = stringLiterals.map((s) => s.substring(1, s.length - 1));
+      // Collect all enum values
+      const enumValues: string[] = [];
+
+      // Add string literals (without quotes)
+      enumValues.push(...stringLiterals.map((s) => s.substring(1, s.length - 1)));
+
+      // Add number literals
+      enumValues.push(...numberLiterals);
+
+      // Add boolean literals (true/false as literal types, not boolean type)
+      enumValues.push(...booleanLiterals);
+
+      // If it's a pure boolean type (no string/number/boolean literals), return as boolean
+      if (
+        hasBoolean &&
+        stringLiterals.length === 0 &&
+        numberLiterals.length === 0 &&
+        booleanLiterals.length === 0
+      ) {
+        return {
+          name,
+          type: 'boolean',
+          optional,
+          nullable,
+          enumValues: ['true', 'false'],
+        };
+      }
+
+      // Add boolean values if boolean type is present (mixed with other literals)
+      if (hasBoolean) {
+        enumValues.push('true', 'false');
+      }
+
+      // If we have any enum values, return as enum type
+      if (enumValues.length > 0) {
+        // Determine if this is a string enum (all values from string literals)
+        const isStringEnum =
+          stringLiterals.length > 0 &&
+          numberLiterals.length === 0 &&
+          booleanLiterals.length === 0 &&
+          !hasBoolean;
+
         return {
           name,
           type: 'enum',
           optional,
           nullable,
           enumValues,
+          isStringEnum,
         };
       }
 

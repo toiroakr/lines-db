@@ -8,27 +8,9 @@ declare global {
 
   var __linesDbModule:
     | {
-        Validator: new (options: { path: string }) => {
-          validate: () => Promise<{
-            valid: boolean;
-            errors: Array<{
-              file: string;
-              tableName: string;
-              rowIndex: number;
-              type?: string;
-              issues: Array<{ message: string; path?: unknown[] }>;
-              foreignKeyError?: {
-                column: string;
-                value: unknown;
-                referencedTable: string;
-                referencedColumn: string;
-              };
-            }>;
-          }>;
-        };
         LinesDB: {
           create: (config: { dataDir: string }) => {
-            initialize: (options: { tableName: string; detailedValidate?: boolean }) => Promise<{
+            initialize: (options?: { tableName?: string; detailedValidate?: boolean }) => Promise<{
               valid: boolean;
               errors: Array<{
                 file: string;

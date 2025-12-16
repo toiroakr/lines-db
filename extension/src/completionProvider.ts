@@ -4,23 +4,9 @@ import { TypeScriptTypeExtractor, type FieldInfo } from './typeInfoExtractor.js'
 import { getForeignKeys } from './foreignKeyUtils.js';
 import {
   getCompletions,
-  isInFieldNamePosition,
-  extractExistingFields,
   type CompletionResult,
   type FieldInfo as CompletionFieldInfo,
 } from './completionLogic.js';
-
-/**
- * JSON context at cursor position
- */
-interface JsonContext {
-  /** Whether we're completing a field name */
-  isFieldName: boolean;
-  /** Path to the current nested object (e.g., ['user', 'address']) */
-  path: string[];
-  /** Existing fields in the current object */
-  existingFields: Set<string>;
-}
 
 let outputChannel = global.__linesDbOutputChannel;
 
@@ -105,7 +91,11 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
       const cursor = position.character;
 
       // Convert FieldInfo to CompletionFieldInfo
-      const completionFields: CompletionFieldInfo[] = this.flattenFieldsForPath(fields, line, cursor);
+      const completionFields: CompletionFieldInfo[] = this.flattenFieldsForPath(
+        fields,
+        line,
+        cursor,
+      );
 
       // Get FK values
       const fkValues = await this.getFkValuesMap(document);
@@ -139,7 +129,12 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
       return [];
     }
 
-    return currentFields.map((f) => ({ name: f.name, type: f.type }));
+    return currentFields.map((f) => ({
+      name: f.name,
+      type: f.type,
+      enumValues: f.enumValues,
+      isStringEnum: f.isStringEnum,
+    }));
   }
 
   /**
@@ -167,11 +162,7 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
           if (records && records.length > 0) {
             const values: string[] = [];
             for (const record of records) {
-              if (
-                typeof record === 'object' &&
-                record !== null &&
-                fk.referencedColumn in record
-              ) {
+              if (typeof record === 'object' && record !== null && fk.referencedColumn in record) {
                 const value = (record as Record<string, unknown>)[fk.referencedColumn];
                 if (typeof value === 'string' || typeof value === 'number') {
                   values.push(String(value));
@@ -405,7 +396,19 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
     }
 
     if (field.enumValues && field.enumValues.length > 0) {
-      return field.enumValues.map((v) => `"${v}"`).join(' | ');
+      return field.enumValues
+        .map((v) => {
+          // For string enums, always wrap in quotes
+          if (field.isStringEnum) {
+            return `"${v}"`;
+          }
+          // Don't wrap boolean or number values in quotes
+          if (v === 'true' || v === 'false' || /^-?\d+(\.\d+)?$/.test(v)) {
+            return v;
+          }
+          return `"${v}"`;
+        })
+        .join(' | ');
     }
 
     return field.type;

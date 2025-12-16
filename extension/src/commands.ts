@@ -55,15 +55,20 @@ export function registerCommands(context: vscode.ExtensionContext) {
       }
 
       try {
-        if (!global.__linesDbModule?.Validator) {
+        if (!global.__linesDbModule?.LinesDB) {
           vscode.window.showErrorMessage(
             'LinesDB: @toiroakr/lines-db not found in workspace. Please install it.',
           );
           return;
         }
 
-        const validator = new global.__linesDbModule.Validator({ path: validationPath });
-        const result = await validator.validate();
+        const db = global.__linesDbModule.LinesDB.create({ dataDir: validationPath });
+        let result;
+        try {
+          result = await db.initialize({ detailedValidate: true });
+        } finally {
+          await db.close();
+        }
 
         if (result.valid) {
           vscode.window.showInformationMessage('LinesDB: All records are valid');

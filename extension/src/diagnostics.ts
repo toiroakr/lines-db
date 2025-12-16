@@ -2,11 +2,6 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { TempFileManager } from './tempFileManager.js';
 
-// Get LinesDB and SchemaLoader from the workspace module
-function getLinesDB() {
-  return global.__linesDbModule?.LinesDB;
-}
-
 function getSchemaLoader() {
   return global.__linesDbModule?.SchemaLoader;
 }
@@ -112,16 +107,23 @@ export class DiagnosticsProvider {
         outputChannel.appendLine(`[Diagnostics] Validating ${filePath}`);
       }
 
-      // Validate entire directory to check foreign key constraints
-      const Validator = global.__linesDbModule?.Validator;
-      if (!Validator) {
+      // Validate using LinesDB (validates the specific table and its dependencies)
+      const LinesDB = global.__linesDbModule?.LinesDB;
+      if (!LinesDB) {
         if (outputChannel) {
-          outputChannel.appendLine(`[Diagnostics] Validator not available from workspace`);
+          outputChannel.appendLine(`[Diagnostics] LinesDB not available from workspace`);
         }
         return;
       }
-      const validator = new Validator({ path: dirPath });
-      const result = await validator.validate();
+
+      const tableName = path.basename(filePath, '.jsonl');
+      const db = LinesDB.create({ dataDir: dirPath });
+      let result;
+      try {
+        result = await db.initialize({ tableName, detailedValidate: true });
+      } finally {
+        await db.close();
+      }
 
       const diagnostics: vscode.Diagnostic[] = [];
 
