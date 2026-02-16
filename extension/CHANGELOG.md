@@ -5,6 +5,17 @@ All notable changes to the LinesDB VS Code Extension will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0]
+
+### Added
+
+- **Support for .mts and .cts schema files**: Schema files with `.schema.mts` and `.schema.cts` extensions are now supported in addition to `.schema.ts`
+  - Hover information works on all schema file types
+  - Diagnostics revalidation triggers for all schema extensions
+  - Code completion discovers schema files with any supported extension
+  - Column sorting resolves schema from all supported extensions
+  - Auto-detection with priority order: `.schema.ts` > `.schema.mts` > `.schema.cts`
+
 ## [0.2.0]
 
 ### Added
