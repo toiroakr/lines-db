@@ -168,7 +168,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Register Hover provider for schema files
   const hoverProvider = new JsonlHoverProvider();
   context.subscriptions.push(
-    vscode.languages.registerHoverProvider({ pattern: '**/*.schema.ts' }, hoverProvider),
+    vscode.languages.registerHoverProvider({ pattern: '**/*.schema.{ts,mts,cts}' }, hoverProvider),
   );
 
   // Register DocumentLink provider for JSONL files

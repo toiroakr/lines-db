@@ -4,6 +4,8 @@ import { JsonlWriter } from './jsonl-writer.js';
 import { SchemaLoader } from './schema-loader.js';
 import { DirectoryScanner } from './directory-scanner.js';
 import { hasBackward } from './schema.js';
+import { findSchemaFile } from './schema-extensions.js';
+import { dirname, basename } from 'node:path';
 import type {
   DatabaseConfig,
   TableSchema,
@@ -148,13 +150,18 @@ export class LinesDB<Tables extends TableDefs> {
 
       try {
         const { pathToFileURL } = await import('node:url');
-        const schemaPath = tableConfig.jsonlPath.replace('.jsonl', '.schema.ts');
-        const schemaUrl = pathToFileURL(schemaPath).href;
-        const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
+        const schemaPath = await findSchemaFile(
+          dirname(tableConfig.jsonlPath),
+          basename(tableConfig.jsonlPath, '.jsonl'),
+        );
+        if (schemaPath) {
+          const schemaUrl = pathToFileURL(schemaPath).href;
+          const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
 
-        // Try to get foreign keys from exported 'schema' or directly from module
-        const schemaExport = schemaModule.schema || schemaModule.default;
-        foreignKeys = schemaExport?.foreignKeys || schemaModule.foreignKeys;
+          // Try to get foreign keys from exported 'schema' or directly from module
+          const schemaExport = schemaModule.schema || schemaModule.default;
+          foreignKeys = schemaExport?.foreignKeys || schemaModule.foreignKeys;
+        }
       } catch {
         // Schema file not found - will continue without validation
       }
@@ -256,7 +263,11 @@ export class LinesDB<Tables extends TableDefs> {
       // Only load if not already provided via config
       try {
         const { pathToFileURL } = await import('node:url');
-        const schemaPath = config.jsonlPath.replace('.jsonl', '.schema.ts');
+        const schemaPath = await findSchemaFile(
+          dirname(config.jsonlPath),
+          basename(config.jsonlPath, '.jsonl'),
+        );
+        if (!schemaPath) throw new Error('Schema file not found');
         const schemaUrl = pathToFileURL(schemaPath).href;
         const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
 

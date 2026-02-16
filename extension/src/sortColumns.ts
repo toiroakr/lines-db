@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { SCHEMA_EXTENSIONS } from './schemaFileUtils.js';
 
 export interface ColumnSortResult {
   sortedRows: string[];
@@ -42,21 +43,33 @@ export async function getSchemaColumnOrder(jsonlFilePath: string): Promise<strin
     const outputChannel = global.__linesDbOutputChannel;
     const dir = path.dirname(jsonlFilePath);
     const fileName = path.basename(jsonlFilePath, '.jsonl');
-    const schemaPath = path.join(dir, `${fileName}.schema.ts`);
 
     if (outputChannel) {
       outputChannel.appendLine(`[SortColumns] Getting schema column order for: ${jsonlFilePath}`);
-      outputChannel.appendLine(`[SortColumns] Schema path: ${schemaPath}`);
     }
 
-    // Check if schema file exists
-    try {
-      await vscode.workspace.fs.stat(vscode.Uri.file(schemaPath));
-    } catch {
+    // Check if schema file exists (try all supported extensions)
+    let schemaPath: string | undefined;
+    for (const ext of SCHEMA_EXTENSIONS) {
+      const candidate = path.join(dir, `${fileName}${ext}`);
+      try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(candidate));
+        schemaPath = candidate;
+        break;
+      } catch {
+        // Continue to next extension
+      }
+    }
+
+    if (!schemaPath) {
       if (outputChannel) {
         outputChannel.appendLine(`[SortColumns] Schema file not found`);
       }
       return null;
+    }
+
+    if (outputChannel) {
+      outputChannel.appendLine(`[SortColumns] Schema path: ${schemaPath}`);
     }
 
     // Load schema and get first record from JSONL

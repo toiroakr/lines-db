@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { isSchemaFile, extractTableNameFromSchema } from './schemaFileUtils.js';
 
 export class JsonlHoverProvider implements vscode.HoverProvider {
   provideHover(
@@ -9,7 +10,7 @@ export class JsonlHoverProvider implements vscode.HoverProvider {
     _token: vscode.CancellationToken,
   ): vscode.ProviderResult<vscode.Hover> {
     // Only provide hover for schema files
-    if (!document.fileName.endsWith('.schema.ts')) {
+    if (!isSchemaFile(document.fileName)) {
       return null;
     }
 
@@ -25,7 +26,8 @@ export class JsonlHoverProvider implements vscode.HoverProvider {
     // Check if we're hovering over "schema" export
     if (word === 'schema' && line.text.includes('export')) {
       const fileName = path.basename(document.fileName);
-      const tableName = fileName.replace(/\.schema\.ts$/, '');
+      const tableName = extractTableNameFromSchema(fileName);
+      if (!tableName) return null;
       const dataDir = path.dirname(document.fileName);
       const jsonlPath = path.join(dataDir, `${tableName}.jsonl`);
 

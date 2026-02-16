@@ -7,6 +7,7 @@ import {
   type CompletionResult,
   type FieldInfo as CompletionFieldInfo,
 } from './completionLogic.js';
+import { SCHEMA_EXTENSIONS } from './schemaFileUtils.js';
 
 let outputChannel = global.__linesDbOutputChannel;
 
@@ -255,16 +256,23 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
       return cached.schema as FieldInfo[];
     }
 
-    // Calculate schema file path
+    // Calculate schema file path (try all supported extensions)
     const dir = path.dirname(actualPath);
     const tableName = path.basename(actualPath, '.jsonl');
-    const schemaPath = path.join(dir, `${tableName}.schema.ts`);
+    let schemaPath: string | undefined;
+    for (const ext of SCHEMA_EXTENSIONS) {
+      const candidate = path.join(dir, `${tableName}${ext}`);
+      try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(candidate));
+        schemaPath = candidate;
+        break;
+      } catch {
+        // Continue to next extension
+      }
+    }
 
-    // Check if schema file exists
-    try {
-      await vscode.workspace.fs.stat(vscode.Uri.file(schemaPath));
-    } catch {
-      outputChannel.appendLine('[Completion] Schema file not found: ' + schemaPath);
+    if (!schemaPath) {
+      outputChannel.appendLine('[Completion] Schema file not found for any supported extension');
       return undefined;
     }
 

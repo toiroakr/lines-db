@@ -62,9 +62,10 @@ program
   .command('generate')
   .description('Generate TypeScript type definitions from schema files')
   .argument('<dataDir>', 'Directory containing JSONL and schema files')
-  .action(async (dataDir: string) => {
+  .option('-o, --output <path>', 'Output file path (default: db.ts in dataDir)')
+  .action(async (dataDir: string, options: { output?: string }) => {
     try {
-      const generator = new TypeGenerator({ dataDir });
+      const generator = new TypeGenerator({ dataDir, output: options.output });
       await generator.generate();
       console.log('Type generation completed successfully!');
     } catch (error) {

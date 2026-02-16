@@ -1,10 +1,12 @@
 import { readdir } from 'node:fs/promises';
 import { join, relative, basename, dirname, isAbsolute } from 'node:path';
 import { writeFile, mkdir } from 'node:fs/promises';
+import { findSchemaFileInEntries, rewriteExtensionForImport } from './schema-extensions.js';
 
 export interface TypeGeneratorOptions {
   dataDir: string;
   projectRoot?: string; // Default: current working directory
+  output?: string; // Output file path (default: db.ts in dataDir)
 }
 
 interface TableInfo {
@@ -27,7 +29,9 @@ export class TypeGenerator {
     this.dataDirPath = isAbsolute(this.dataDir)
       ? this.dataDir
       : join(this.projectRoot, this.dataDir);
-    this.outputFile = join(this.dataDirPath, 'db.ts');
+    this.outputFile = options.output
+      ? (isAbsolute(options.output) ? options.output : join(this.projectRoot, options.output))
+      : join(this.dataDirPath, 'db.ts');
   }
 
   /**
@@ -67,15 +71,11 @@ export class TypeGenerator {
       for (const entry of entries) {
         if (entry.isFile() && entry.name.endsWith('.jsonl')) {
           const tableName = basename(entry.name, '.jsonl');
-          const schemaFileName = `${tableName}.schema.ts`;
-          const schemaFilePath = join(this.dataDirPath, schemaFileName);
-
-          // Check if schema file exists
-          const hasSchema = entries.some((e) => e.isFile() && e.name === schemaFileName);
+          const schemaFilePath = findSchemaFileInEntries(this.dataDirPath, tableName, entries);
 
           tables.push({
             tableName,
-            schemaFile: hasSchema ? schemaFilePath : undefined,
+            schemaFile: schemaFilePath,
           });
         }
       }
@@ -108,9 +108,10 @@ export class TypeGenerator {
         usedAliases.add(schemaIdentifier);
 
         // Calculate relative path from output file to schema file
-        let relativePath = relative(join(this.outputFile, '..'), table.schemaFile)
-          .replace(/\\/g, '/') // Convert Windows paths to Unix-style
-          .replace('.ts', '.js'); // Import from .js (TypeScript module resolution)
+        let relativePath = rewriteExtensionForImport(
+          relative(join(this.outputFile, '..'), table.schemaFile)
+            .replace(/\\/g, '/'), // Convert Windows paths to Unix-style
+        );
 
         // Ensure relative path starts with './' or '../'
         if (!relativePath.startsWith('.')) {

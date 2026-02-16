@@ -47,6 +47,34 @@ export const schema = defineSchema(rawSchema);
       await db.close();
     });
 
+    it('should load table with .schema.mts schema file', async () => {
+      await writeFile(join(testDir, 'users.jsonl'), '{"id":1,"name":"Alice"}\n');
+      await writeFile(join(testDir, 'users.schema.mts'), GENERIC_SCHEMA_SOURCE);
+
+      const config: DatabaseConfig = { dataDir: testDir };
+      const db = LinesDB.create(config);
+      await db.initialize();
+
+      const tables = db.getTableNames();
+      expect(tables).toContain('users');
+
+      await db.close();
+    });
+
+    it('should load table with .schema.cts schema file', async () => {
+      await writeFile(join(testDir, 'users.jsonl'), '{"id":1,"name":"Alice"}\n');
+      await writeFile(join(testDir, 'users.schema.cts'), GENERIC_SCHEMA_SOURCE);
+
+      const config: DatabaseConfig = { dataDir: testDir };
+      const db = LinesDB.create(config);
+      await db.initialize();
+
+      const tables = db.getTableNames();
+      expect(tables).toContain('users');
+
+      await db.close();
+    });
+
     it('should load multiple tables', async () => {
       await writeTable('users', '{"id":1}\n');
       await writeTable('products', '{"id":1}\n');

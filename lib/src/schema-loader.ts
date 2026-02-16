@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
-import { access } from 'node:fs/promises';
-import { dirname, join, basename } from 'node:path';
+import { dirname, basename } from 'node:path';
 import type { StandardSchema } from './types.js';
+import { findSchemaFile, SCHEMA_EXTENSIONS } from './schema-extensions.js';
 
 export class SchemaLoader {
   /**
@@ -10,31 +10,23 @@ export class SchemaLoader {
   static async hasSchema(jsonlPath: string): Promise<boolean> {
     const dir = dirname(jsonlPath);
     const tableName = basename(jsonlPath, '.jsonl');
-    const schemaPath = join(dir, `${tableName}.schema.ts`);
-
-    try {
-      await access(schemaPath);
-      return true;
-    } catch {
-      return false;
-    }
+    const schemaPath = await findSchemaFile(dir, tableName);
+    return schemaPath !== undefined;
   }
 
   /**
    * Load a validation schema file for a table
-   * Requires ${tableName}.schema.ts to exist alongside the JSONL file
+   * Requires ${tableName}.schema.{ts,mts,cts} to exist alongside the JSONL file
    */
   static async loadSchema(jsonlPath: string): Promise<StandardSchema> {
     const dir = dirname(jsonlPath);
     const tableName = basename(jsonlPath, '.jsonl');
-    const schemaPath = join(dir, `${tableName}.schema.ts`);
+    const schemaPath = await findSchemaFile(dir, tableName);
 
-    try {
-      await access(schemaPath);
-    } catch (error) {
-      throw new Error(`Schema file not found for table '${tableName}'. Expected: ${schemaPath}`, {
-        cause: error instanceof Error ? error : undefined,
-      });
+    if (!schemaPath) {
+      throw new Error(
+        `Schema file not found for table '${tableName}'. Expected one of: ${SCHEMA_EXTENSIONS.map((ext) => `${tableName}${ext}`).join(', ')}`,
+      );
     }
 
     try {

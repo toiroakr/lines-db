@@ -7,6 +7,14 @@ export { defineSchema, hasBackward } from './schema.js';
 export { TypeGenerator } from './type-generator.js';
 export { ensureTableRowsValid } from './jsonl-migration.js';
 export type { TableValidationOptions } from './jsonl-migration.js';
+export {
+  SCHEMA_EXTENSIONS,
+  findSchemaFile,
+  isSchemaFile,
+  extractTableNameFromSchemaFile,
+  rewriteExtensionForImport,
+} from './schema-extensions.js';
+export type { SchemaExtension } from './schema-extensions.js';
 export { detectRuntime, RUNTIME } from './runtime.js';
 export type { RuntimeEnvironment } from './runtime.js';
 export type { SQLiteDatabase, SQLiteStatement } from './sqlite-adapter.js';

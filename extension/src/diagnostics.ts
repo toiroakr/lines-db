@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { TempFileManager } from './tempFileManager.js';
+import { isSchemaFile, extractTableNameFromSchema } from './schemaFileUtils.js';
 
 function getSchemaLoader() {
   return global.__linesDbModule?.SchemaLoader;
@@ -28,7 +29,7 @@ export class DiagnosticsProvider {
     this.disposables.push(
       vscode.workspace.onDidSaveTextDocument(async (doc) => {
         // Check if this is a schema file
-        if (doc.fileName.endsWith('.schema.ts')) {
+        if (isSchemaFile(doc.fileName)) {
           await this.revalidateRelatedJsonlFiles(doc);
         }
       }),
@@ -45,7 +46,8 @@ export class DiagnosticsProvider {
   private async revalidateRelatedJsonlFiles(schemaDocument: vscode.TextDocument) {
     // Extract table name from schema file name (e.g., "users.schema.ts" -> "users")
     const schemaFileName = path.basename(schemaDocument.fileName);
-    const tableName = schemaFileName.replace('.schema.ts', '');
+    const tableName = extractTableNameFromSchema(schemaFileName);
+    if (!tableName) return;
 
     // Find corresponding JSONL file in the same directory
     const dirPath = path.dirname(schemaDocument.fileName);
