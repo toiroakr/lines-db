@@ -89,7 +89,11 @@ export class LinesDB<Tables extends TableDefs> {
       if (!attemptedTables.has(tableNameToLoad)) {
         // Only apply transform to the specified table
         const tableTransform = tableNameToLoad === tableName ? transform : undefined;
-        const { errors, warnings, rowCounts: tableRowCounts } = await this.loadTableWithDependencies(
+        const {
+          errors,
+          warnings,
+          rowCounts: tableRowCounts,
+        } = await this.loadTableWithDependencies(
           tableNameToLoad,
           loadedTables,
           loadingTables,
@@ -136,7 +140,11 @@ export class LinesDB<Tables extends TableDefs> {
     attemptedTables: Set<string>,
     detailedValidate: boolean,
     transform?: (row: JsonObject) => JsonObject,
-  ): Promise<{ errors: ValidationErrorDetail[]; warnings: string[]; rowCounts: Map<string, number> }> {
+  ): Promise<{
+    errors: ValidationErrorDetail[];
+    warnings: string[];
+    rowCounts: Map<string, number>;
+  }> {
     const errors: ValidationErrorDetail[] = [];
     const warnings: string[] = [];
     const rowCounts = new Map<string, number>();
@@ -223,12 +231,11 @@ export class LinesDB<Tables extends TableDefs> {
       }
 
       // Now load this table
-      const { loaded, rowCount, errors: loadErrors } = await this.loadTable(
-        tableName,
-        tableConfig,
-        detailedValidate,
-        transform,
-      );
+      const {
+        loaded,
+        rowCount,
+        errors: loadErrors,
+      } = await this.loadTable(tableName, tableConfig, detailedValidate, transform);
       errors.push(...loadErrors);
       rowCounts.set(tableName, rowCount);
 

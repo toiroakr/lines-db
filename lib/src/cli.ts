@@ -113,7 +113,9 @@ program
         for (const tableResult of result.tableResults) {
           if (tableResult.valid && tableResult.warnings.length === 0) {
             // Success
-            console.log(styleText('green', `✓ ${tableResult.tableName} (${tableResult.rowCount} records)`));
+            console.log(
+              styleText('green', `✓ ${tableResult.tableName} (${tableResult.rowCount} records)`),
+            );
           } else if (tableResult.valid && tableResult.warnings.length > 0) {
             // Warnings
             for (const warning of tableResult.warnings) {
@@ -185,15 +187,12 @@ program
         } else {
           const formatter = new ErrorFormatter({ verbose: options.verbose });
 
-          for (const [, fileErrors] of result.errors.reduce(
-            (map, error) => {
-              const errors = map.get(error.file) || [];
-              errors.push(error);
-              map.set(error.file, errors);
-              return map;
-            },
-            new Map<string, typeof result.errors>(),
-          )) {
+          for (const [, fileErrors] of result.errors.reduce((map, error) => {
+            const errors = map.get(error.file) || [];
+            errors.push(error);
+            map.set(error.file, errors);
+            return map;
+          }, new Map<string, typeof result.errors>())) {
             console.error(formatter.formatErrorHeader(fileErrors.length, fileErrors[0]?.file));
             console.error('');
 
