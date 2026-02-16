@@ -18,10 +18,19 @@ export type InferInput<T> = T extends StandardSchemaV1<infer I, unknown> ? I : n
 export type InferOutput<T> = T extends StandardSchemaV1<unknown, infer O> ? O : never;
 
 // Validation result types
+export interface TableValidationResult {
+  tableName: string;
+  valid: boolean;
+  rowCount: number;
+  errors: ValidationErrorDetail[];
+  warnings: string[];
+}
+
 export interface ValidationResult {
   valid: boolean;
   errors: ValidationErrorDetail[];
   warnings: string[];
+  tableResults: TableValidationResult[];
 }
 
 export interface ValidationErrorDetail {

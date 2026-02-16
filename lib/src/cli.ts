@@ -106,72 +106,136 @@ program
         await db.close();
       }
 
-      // Display warnings if any
-      if (result.warnings.length > 0) {
-        for (const warning of result.warnings) {
-          console.warn(styleText('yellow', `⚠ ${warning}`));
-        }
-        console.log('');
-      }
-
-      if (result.valid) {
-        console.log('✓ All records are valid');
-        process.exit(0);
-      } else {
+      // Directory validation: display per-table results
+      if (!tableName) {
         const formatter = new ErrorFormatter({ verbose: options.verbose });
 
-        // Group errors by file for header
-        const errorsByFile = new Map<string, typeof result.errors>();
-        for (const error of result.errors) {
-          const fileErrors = errorsByFile.get(error.file) || [];
-          fileErrors.push(error);
-          errorsByFile.set(error.file, fileErrors);
-        }
-
-        // Format and display errors
-        for (const [file, fileErrors] of errorsByFile) {
-          console.error(formatter.formatErrorHeader(fileErrors.length, file));
-          console.error('');
-
-          // Separate validation errors and foreign key errors
-          const validationErrors = fileErrors.filter(
-            (e) => e.type !== 'foreignKey' || !e.foreignKeyError,
-          );
-          const foreignKeyErrors = fileErrors.filter(
-            (e) => e.type === 'foreignKey' && e.foreignKeyError,
-          );
-
-          // Format validation errors
-          if (validationErrors.length > 0) {
-            const formattedValidation = formatter.formatValidationErrors(
-              validationErrors.map((e) => ({
-                file: e.file,
-                rowIndex: e.rowIndex,
-                issues: e.issues,
-              })),
-            );
-            console.error(formattedValidation);
-          }
-
-          // Format foreign key errors
-          for (const error of foreignKeyErrors) {
-            if (error.foreignKeyError) {
-              const formattedFk = formatter.formatForeignKeyError({
-                file: error.file,
-                rowIndex: error.rowIndex,
-                column: error.foreignKeyError.column,
-                value: error.foreignKeyError.value,
-                referencedTable: error.foreignKeyError.referencedTable,
-                referencedColumn: error.foreignKeyError.referencedColumn,
-              });
-              console.error(formattedFk);
+        for (const tableResult of result.tableResults) {
+          if (tableResult.valid && tableResult.warnings.length === 0) {
+            // Success
+            console.log(styleText('green', `✓ ${tableResult.tableName} (${tableResult.rowCount} records)`));
+          } else if (tableResult.valid && tableResult.warnings.length > 0) {
+            // Warnings
+            for (const warning of tableResult.warnings) {
+              console.warn(styleText('yellow', `⚠ ${warning}`));
             }
-          }
+          } else {
+            // Errors
+            const fileErrors = tableResult.errors;
+            console.error(formatter.formatErrorHeader(fileErrors.length, fileErrors[0]?.file));
+            console.error('');
 
-          console.error('');
+            const validationErrors = fileErrors.filter(
+              (e) => e.type !== 'foreignKey' || !e.foreignKeyError,
+            );
+            const foreignKeyErrors = fileErrors.filter(
+              (e) => e.type === 'foreignKey' && e.foreignKeyError,
+            );
+
+            if (validationErrors.length > 0) {
+              console.error(
+                formatter.formatValidationErrors(
+                  validationErrors.map((e) => ({
+                    file: e.file,
+                    rowIndex: e.rowIndex,
+                    issues: e.issues,
+                  })),
+                ),
+              );
+            }
+
+            for (const error of foreignKeyErrors) {
+              if (error.foreignKeyError) {
+                console.error(
+                  formatter.formatForeignKeyError({
+                    file: error.file,
+                    rowIndex: error.rowIndex,
+                    column: error.foreignKeyError.column,
+                    value: error.foreignKeyError.value,
+                    referencedTable: error.foreignKeyError.referencedTable,
+                    referencedColumn: error.foreignKeyError.referencedColumn,
+                  }),
+                );
+              }
+            }
+
+            console.error('');
+          }
         }
 
-        process.exit(1);
+        if (result.valid) {
+          console.log('');
+          console.log(styleText('green', '✓ All records are valid'));
+          process.exit(0);
+        } else {
+          process.exit(1);
+        }
+      } else {
+        // Single file validation: existing behavior
+        if (result.warnings.length > 0) {
+          for (const warning of result.warnings) {
+            console.warn(styleText('yellow', `⚠ ${warning}`));
+          }
+          console.log('');
+        }
+
+        if (result.valid) {
+          console.log(styleText('green', '✓ All records are valid'));
+          process.exit(0);
+        } else {
+          const formatter = new ErrorFormatter({ verbose: options.verbose });
+
+          for (const [, fileErrors] of result.errors.reduce(
+            (map, error) => {
+              const errors = map.get(error.file) || [];
+              errors.push(error);
+              map.set(error.file, errors);
+              return map;
+            },
+            new Map<string, typeof result.errors>(),
+          )) {
+            console.error(formatter.formatErrorHeader(fileErrors.length, fileErrors[0]?.file));
+            console.error('');
+
+            const validationErrors = fileErrors.filter(
+              (e) => e.type !== 'foreignKey' || !e.foreignKeyError,
+            );
+            const foreignKeyErrors = fileErrors.filter(
+              (e) => e.type === 'foreignKey' && e.foreignKeyError,
+            );
+
+            if (validationErrors.length > 0) {
+              console.error(
+                formatter.formatValidationErrors(
+                  validationErrors.map((e) => ({
+                    file: e.file,
+                    rowIndex: e.rowIndex,
+                    issues: e.issues,
+                  })),
+                ),
+              );
+            }
+
+            for (const error of foreignKeyErrors) {
+              if (error.foreignKeyError) {
+                console.error(
+                  formatter.formatForeignKeyError({
+                    file: error.file,
+                    rowIndex: error.rowIndex,
+                    column: error.foreignKeyError.column,
+                    value: error.foreignKeyError.value,
+                    referencedTable: error.foreignKeyError.referencedTable,
+                    referencedColumn: error.foreignKeyError.referencedColumn,
+                  }),
+                );
+              }
+            }
+
+            console.error('');
+          }
+
+          process.exit(1);
+        }
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : String(error));

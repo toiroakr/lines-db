@@ -32,6 +32,7 @@ export type {
   StandardSchemaIssue,
   ValidationError,
   ValidationResult,
+  TableValidationResult,
   ValidationErrorDetail,
   InferInput,
   InferOutput,
