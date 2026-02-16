@@ -30,7 +30,9 @@ export class TypeGenerator {
       ? this.dataDir
       : join(this.projectRoot, this.dataDir);
     this.outputFile = options.output
-      ? (isAbsolute(options.output) ? options.output : join(this.projectRoot, options.output))
+      ? isAbsolute(options.output)
+        ? options.output
+        : join(this.projectRoot, options.output)
       : join(this.dataDirPath, 'db.ts');
   }
 
@@ -109,8 +111,7 @@ export class TypeGenerator {
 
         // Calculate relative path from output file to schema file
         let relativePath = rewriteExtensionForImport(
-          relative(join(this.outputFile, '..'), table.schemaFile)
-            .replace(/\\/g, '/'), // Convert Windows paths to Unix-style
+          relative(join(this.outputFile, '..'), table.schemaFile).replace(/\\/g, '/'), // Convert Windows paths to Unix-style
         );
 
         // Ensure relative path starts with './' or '../'

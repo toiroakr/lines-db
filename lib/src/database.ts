@@ -18,6 +18,7 @@ import type {
   WhereCondition,
   ValidationResult,
   ValidationErrorDetail,
+  TableValidationResult,
   ForeignKeyDefinition,
 } from './types.js';
 import type { BiDirectionalSchema } from './schema.js';
@@ -58,6 +59,7 @@ export class LinesDB<Tables extends TableDefs> {
   }): Promise<ValidationResult> {
     const allErrors: ValidationErrorDetail[] = [];
     const allWarnings: string[] = [];
+    const allRowCounts = new Map<string, number>();
     const tableName = options?.tableName;
     const detailedValidate = options?.detailedValidate ?? false;
     const transform = options?.transform;
@@ -87,7 +89,11 @@ export class LinesDB<Tables extends TableDefs> {
       if (!attemptedTables.has(tableNameToLoad)) {
         // Only apply transform to the specified table
         const tableTransform = tableNameToLoad === tableName ? transform : undefined;
-        const { errors, warnings } = await this.loadTableWithDependencies(
+        const {
+          errors,
+          warnings,
+          rowCounts: tableRowCounts,
+        } = await this.loadTableWithDependencies(
           tableNameToLoad,
           loadedTables,
           loadingTables,
@@ -97,13 +103,30 @@ export class LinesDB<Tables extends TableDefs> {
         );
         allErrors.push(...errors);
         allWarnings.push(...warnings);
+        for (const [k, v] of tableRowCounts) {
+          allRowCounts.set(k, v);
+        }
       }
     }
+
+    // Build per-table results
+    const tableResults: TableValidationResult[] = tablesToLoad.map((name) => {
+      const tableErrors = allErrors.filter((e) => e.tableName === name);
+      const tableWarnings = allWarnings.filter((w) => w.includes(`'${name}'`));
+      return {
+        tableName: name,
+        valid: tableErrors.length === 0,
+        rowCount: allRowCounts.get(name) ?? 0,
+        errors: tableErrors,
+        warnings: tableWarnings,
+      };
+    });
 
     return {
       valid: allErrors.length === 0,
       errors: allErrors,
       warnings: allWarnings,
+      tableResults,
     };
   }
 
@@ -117,13 +140,18 @@ export class LinesDB<Tables extends TableDefs> {
     attemptedTables: Set<string>,
     detailedValidate: boolean,
     transform?: (row: JsonObject) => JsonObject,
-  ): Promise<{ errors: ValidationErrorDetail[]; warnings: string[] }> {
+  ): Promise<{
+    errors: ValidationErrorDetail[];
+    warnings: string[];
+    rowCounts: Map<string, number>;
+  }> {
     const errors: ValidationErrorDetail[] = [];
     const warnings: string[] = [];
+    const rowCounts = new Map<string, number>();
 
     // Skip if already attempted (loaded or not)
     if (attemptedTables.has(tableName)) {
-      return { errors, warnings };
+      return { errors, warnings, rowCounts };
     }
 
     // Mark as attempted
@@ -190,6 +218,9 @@ export class LinesDB<Tables extends TableDefs> {
               );
               errors.push(...depResult.errors);
               warnings.push(...depResult.warnings);
+              for (const [k, v] of depResult.rowCounts) {
+                rowCounts.set(k, v);
+              }
             } else {
               throw new Error(
                 `Foreign key reference to non-existent table '${referencedTable}' in table '${tableName}'`,
@@ -200,13 +231,13 @@ export class LinesDB<Tables extends TableDefs> {
       }
 
       // Now load this table
-      const { loaded, errors: loadErrors } = await this.loadTable(
-        tableName,
-        tableConfig,
-        detailedValidate,
-        transform,
-      );
+      const {
+        loaded,
+        rowCount,
+        errors: loadErrors,
+      } = await this.loadTable(tableName, tableConfig, detailedValidate, transform);
       errors.push(...loadErrors);
+      rowCounts.set(tableName, rowCount);
 
       if (loaded) {
         loadedTables.add(tableName);
@@ -220,7 +251,7 @@ export class LinesDB<Tables extends TableDefs> {
       loadingTables.delete(tableName);
     }
 
-    return { errors, warnings };
+    return { errors, warnings, rowCounts };
   }
 
   /**
@@ -232,7 +263,7 @@ export class LinesDB<Tables extends TableDefs> {
     config: TableConfig,
     detailedValidate: boolean,
     transform?: (row: JsonObject) => JsonObject,
-  ): Promise<{ loaded: boolean; errors: ValidationErrorDetail[] }> {
+  ): Promise<{ loaded: boolean; rowCount: number; errors: ValidationErrorDetail[] }> {
     // Read JSONL file
     let data = await JsonlReader.read(config.jsonlPath);
 
@@ -350,7 +381,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     if (validationErrors.length > 0) {
       // Return errors instead of throwing
-      return { loaded: false, errors: validationErrorDetails };
+      return { loaded: false, rowCount: data.length, errors: validationErrorDetails };
     }
 
     // Determine schema - infer from validated data if auto-inference is enabled
@@ -375,7 +406,7 @@ export class LinesDB<Tables extends TableDefs> {
       }
     } else if (config.autoInferSchema !== false) {
       if (validatedData.length === 0) {
-        return { loaded: false, errors: [] };
+        return { loaded: false, rowCount: 0, errors: [] };
       }
       // Use inferred schema
       schema = inferredSchema!;
@@ -438,13 +469,13 @@ export class LinesDB<Tables extends TableDefs> {
         config.jsonlPath,
       );
       if (insertErrors.length > 0) {
-        return { loaded: false, errors: insertErrors };
+        return { loaded: false, rowCount: data.length, errors: insertErrors };
       }
     } else {
       this.insertData(tableName, schema, validatedData);
     }
 
-    return { loaded: true, errors: [] };
+    return { loaded: true, rowCount: data.length, errors: [] };
   }
 
   /**
