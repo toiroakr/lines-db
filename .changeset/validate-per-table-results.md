@@ -1,5 +1,5 @@
 ---
-"@toiroakr/lines-db": minor
+'@toiroakr/lines-db': minor
 ---
 
 feat: display per-table validation results for directory validation

@@ -21,10 +21,7 @@ const SCHEMA_TO_JS_IMPORT_MAP: Record<string, string> = {
  * Try each supported schema extension and return the full path of the first
  * one that exists on disk. Returns undefined if none is found.
  */
-export async function findSchemaFile(
-  dir: string,
-  tableName: string,
-): Promise<string | undefined> {
+export async function findSchemaFile(dir: string, tableName: string): Promise<string | undefined> {
   for (const ext of SCHEMA_EXTENSIONS) {
     const candidate = join(dir, `${tableName}${ext}`);
     try {
