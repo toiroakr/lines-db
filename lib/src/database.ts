@@ -230,12 +230,37 @@ export class LinesDB<Tables extends TableDefs> {
         }
       }
 
+      // Determine which FK dependencies failed validation (attempted but not loaded)
+      const failedDependencies = new Set<string>();
+      if (foreignKeys && foreignKeys.length > 0) {
+        for (const fk of foreignKeys) {
+          const referencedTable = fk.references.table;
+          if (referencedTable === tableName) continue;
+          if (attemptedTables.has(referencedTable) && !loadedTables.has(referencedTable)) {
+            failedDependencies.add(referencedTable);
+          }
+        }
+        if (failedDependencies.size > 0) {
+          for (const dep of failedDependencies) {
+            warnings.push(
+              `Skipping foreign key validation for table '${tableName}': referenced table '${dep}' has validation errors`,
+            );
+          }
+        }
+      }
+
       // Now load this table
       const {
         loaded,
         rowCount,
         errors: loadErrors,
-      } = await this.loadTable(tableName, tableConfig, detailedValidate, transform);
+      } = await this.loadTable(
+        tableName,
+        tableConfig,
+        detailedValidate,
+        transform,
+        failedDependencies,
+      );
       errors.push(...loadErrors);
       rowCounts.set(tableName, rowCount);
 
@@ -263,6 +288,7 @@ export class LinesDB<Tables extends TableDefs> {
     config: TableConfig,
     detailedValidate: boolean,
     transform?: (row: JsonObject) => JsonObject,
+    failedDependencies?: Set<string>,
   ): Promise<{ loaded: boolean; rowCount: number; errors: ValidationErrorDetail[] }> {
     // Read JSONL file
     let data = await JsonlReader.read(config.jsonlPath);
@@ -437,7 +463,10 @@ export class LinesDB<Tables extends TableDefs> {
       }
     }
     if (foreignKeys) {
-      schema.foreignKeys = foreignKeys;
+      schema.foreignKeys =
+        failedDependencies && failedDependencies.size > 0
+          ? foreignKeys.filter((fk) => !failedDependencies.has(fk.references.table))
+          : foreignKeys;
     }
     if (indexes) {
       schema.indexes = indexes;

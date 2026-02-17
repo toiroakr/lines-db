@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, afterEach, expect } from 'vitest';
 import { LinesDB, type DatabaseConfig, type TableDefs } from '@toiroakr/lines-db';
 import { join } from 'node:path';
-import { mkdir, rm, cp } from 'node:fs/promises';
+import { mkdir, rm, cp, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 
@@ -174,6 +174,89 @@ describe('Schema Constraints (Primary Keys, Foreign Keys, Indexes)', () => {
           'test',
         ]);
       }).toThrow();
+    });
+
+    it('should gracefully handle FK when referenced table has validation errors', async () => {
+      // Close the existing db from beforeEach (uses all fixtures)
+      await db.close();
+
+      // Create a separate temp directory with only parent + child tables
+      const fkTestDir = join(
+        dirname(testDir),
+        `fk-test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      );
+      await mkdir(fkTestDir);
+
+      try {
+        // Parent table with invalid data (second row has invalid email)
+        await writeFile(
+          join(fkTestDir, 'parent.jsonl'),
+          '{"id":1,"email":"valid@example.com"}\n{"id":2,"email":"not-an-email"}\n',
+        );
+        await writeFile(
+          join(fkTestDir, 'parent.schema.ts'),
+          `import * as v from 'valibot';
+import { defineSchema } from '@toiroakr/lines-db';
+const schema = v.object({
+  id: v.pipe(v.number(), v.integer(), v.minValue(1)),
+  email: v.pipe(v.string(), v.email()),
+});
+export default defineSchema(schema, { primaryKey: 'id' });
+`,
+        );
+
+        // Child table with FK to parent
+        await writeFile(join(fkTestDir, 'child.jsonl'), '{"id":1,"parentId":1,"name":"child1"}\n');
+        await writeFile(
+          join(fkTestDir, 'child.schema.ts'),
+          `import * as v from 'valibot';
+import { defineSchema } from '@toiroakr/lines-db';
+const schema = v.object({
+  id: v.pipe(v.number(), v.integer(), v.minValue(1)),
+  parentId: v.pipe(v.number(), v.integer(), v.minValue(1)),
+  name: v.string(),
+});
+export default defineSchema(schema, {
+  primaryKey: 'id',
+  foreignKeys: [{ column: 'parentId', references: { table: 'parent', column: 'id' } }],
+});
+`,
+        );
+
+        const fkDb = LinesDB.create({ dataDir: fkTestDir });
+        try {
+          // Should NOT throw "no such table" error
+          const result = await fkDb.initialize({ detailedValidate: true });
+
+          // Parent should have validation errors
+          expect(result.valid).toBe(false);
+          const parentErrors = result.errors.filter((e) => e.tableName === 'parent');
+          expect(parentErrors.length).toBeGreaterThan(0);
+
+          // Should have a warning about skipped FK validation
+          const fkWarnings = result.warnings.filter((w) =>
+            w.includes('Skipping foreign key validation'),
+          );
+          expect(fkWarnings.length).toBeGreaterThan(0);
+          expect(fkWarnings[0]).toContain("table 'child'");
+          expect(fkWarnings[0]).toContain("table 'parent'");
+
+          // Per-table results: child should be valid (its own data is valid)
+          const childResult = result.tableResults.find((t) => t.tableName === 'child');
+          expect(childResult).toBeTruthy();
+          expect(childResult!.valid).toBe(true);
+          expect(childResult!.warnings.length).toBeGreaterThan(0);
+
+          // Per-table results: parent should be invalid
+          const parentResult = result.tableResults.find((t) => t.tableName === 'parent');
+          expect(parentResult).toBeTruthy();
+          expect(parentResult!.valid).toBe(false);
+        } finally {
+          await fkDb.close();
+        }
+      } finally {
+        await rm(fkTestDir, { recursive: true, force: true });
+      }
     });
   });
 
