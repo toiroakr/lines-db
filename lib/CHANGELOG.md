@@ -1,5 +1,21 @@
 # @toiroakr/lines-db
 
+## 0.8.0
+
+### Minor Changes
+
+- c408b92: feat: display per-table validation results for directory validation
+
+  The `validate` command now shows individual results per table when validating a directory, including record counts for successful tables (e.g., `✓ users (3 records)`).
+  - Added `TableValidationResult` type and `tableResults` field to `ValidationResult`
+  - Each table result includes `tableName`, `valid`, `rowCount`, `errors`, and `warnings`
+
+### Patch Changes
+
+- e61a4ee: fix: gracefully handle foreign key validation when referenced table has errors
+
+  When validating a directory, if a table had validation errors, any table referencing it via foreign key would crash with a misleading `no such table` SQLite error. Now, foreign key constraints to failed tables are skipped with a clear warning (e.g., `⚠ Skipping foreign key validation for table 'child': referenced table 'parent' has validation errors`), and the child table's own schema validation still runs normally.
+
 ## 0.7.0
 
 ### Minor Changes
