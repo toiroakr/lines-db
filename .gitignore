@@ -12,3 +12,4 @@ extension/.vscode-test/
 *.sqlite
 .pnpm-store
 tests/**/.test-tmp/
+lefthook-local.yml

@@ -1,0 +1,17 @@
+pre-commit:
+  parallel: false
+  commands:
+    lint:
+      glob: '*.{js,ts}'
+      run: pnpm lint
+    format:
+      glob: '*.{js,ts,json,md,yml,yaml}'
+      run: pnpm format:check
+    typecheck:
+      glob: '*.{ts}'
+      run: pnpm typecheck
+
+post-commit:
+  commands:
+    verify-signature:
+      run: 'git cat-file -p HEAD | grep -q "gpgsig" || { echo "ERROR: Commit is not signed!" >&2; exit 1; }'
