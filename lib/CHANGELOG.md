@@ -1,5 +1,11 @@
 # @toiroakr/lines-db
 
+## 0.9.0
+
+### Minor Changes
+
+- 07b35ed: Export ErrorFormatter and related types (ErrorFormatterOptions, ValidationErrorInfo, ForeignKeyErrorInfo) from package entry point
+
 ## 0.8.0
 
 ### Minor Changes
