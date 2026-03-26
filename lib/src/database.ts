@@ -83,6 +83,11 @@ export class LinesDB<Tables extends TableDefs> {
     const loadedTables = new Set<string>();
     const loadingTables = new Set<string>();
     const attemptedTables = new Set<string>(); // Track all attempted tables (loaded or not)
+    const allDeferredForeignKeys: Array<{
+      tableName: string;
+      foreignKey: ForeignKeyDefinition;
+      filePath: string;
+    }> = [];
 
     // Load tables with dependency resolution
     for (const tableNameToLoad of tablesToLoad) {
@@ -93,6 +98,7 @@ export class LinesDB<Tables extends TableDefs> {
           errors,
           warnings,
           rowCounts: tableRowCounts,
+          deferredForeignKeys,
         } = await this.loadTableWithDependencies(
           tableNameToLoad,
           loadedTables,
@@ -103,9 +109,22 @@ export class LinesDB<Tables extends TableDefs> {
         );
         allErrors.push(...errors);
         allWarnings.push(...warnings);
+        allDeferredForeignKeys.push(...deferredForeignKeys);
         for (const [k, v] of tableRowCounts) {
           allRowCounts.set(k, v);
         }
+      }
+    }
+
+    // Validate deferred foreign keys (from circular dependencies) now that all tables are loaded
+    if (detailedValidate && allDeferredForeignKeys.length > 0) {
+      for (const { tableName: tName, foreignKey: fk, filePath } of allDeferredForeignKeys) {
+        // Only validate if the referenced table was actually loaded
+        if (!loadedTables.has(fk.references.table)) {
+          continue;
+        }
+        const deferredErrors = this.validateDeferredForeignKey(tName, fk, filePath);
+        allErrors.push(...deferredErrors);
       }
     }
 
@@ -144,14 +163,24 @@ export class LinesDB<Tables extends TableDefs> {
     errors: ValidationErrorDetail[];
     warnings: string[];
     rowCounts: Map<string, number>;
+    deferredForeignKeys: Array<{
+      tableName: string;
+      foreignKey: ForeignKeyDefinition;
+      filePath: string;
+    }>;
   }> {
     const errors: ValidationErrorDetail[] = [];
     const warnings: string[] = [];
     const rowCounts = new Map<string, number>();
+    const deferredForeignKeys: Array<{
+      tableName: string;
+      foreignKey: ForeignKeyDefinition;
+      filePath: string;
+    }> = [];
 
     // Skip if already attempted (loaded or not)
     if (attemptedTables.has(tableName)) {
-      return { errors, warnings, rowCounts };
+      return { errors, warnings, rowCounts, deferredForeignKeys };
     }
 
     // Mark as attempted
@@ -218,6 +247,7 @@ export class LinesDB<Tables extends TableDefs> {
               );
               errors.push(...depResult.errors);
               warnings.push(...depResult.warnings);
+              deferredForeignKeys.push(...depResult.deferredForeignKeys);
               for (const [k, v] of depResult.rowCounts) {
                 rowCounts.set(k, v);
               }
@@ -230,14 +260,21 @@ export class LinesDB<Tables extends TableDefs> {
         }
       }
 
-      // Determine which FK dependencies failed validation (attempted but not loaded)
+      // Determine which FK dependencies failed or are circular (attempted but not loaded)
       const failedDependencies = new Set<string>();
+      const circularDependencies = new Set<string>();
       if (foreignKeys && foreignKeys.length > 0) {
         for (const fk of foreignKeys) {
           const referencedTable = fk.references.table;
           if (referencedTable === tableName) continue;
           if (attemptedTables.has(referencedTable) && !loadedTables.has(referencedTable)) {
-            failedDependencies.add(referencedTable);
+            if (loadingTables.has(referencedTable)) {
+              // Circular dependency: table is currently being loaded
+              circularDependencies.add(referencedTable);
+            } else {
+              // Actual failure: table attempted but not loaded
+              failedDependencies.add(referencedTable);
+            }
           }
         }
         if (failedDependencies.size > 0) {
@@ -249,6 +286,9 @@ export class LinesDB<Tables extends TableDefs> {
         }
       }
 
+      // Combine failed and circular dependencies for table loading (both need FK skipping)
+      const allSkippedDependencies = new Set([...failedDependencies, ...circularDependencies]);
+
       // Now load this table
       const {
         loaded,
@@ -259,13 +299,26 @@ export class LinesDB<Tables extends TableDefs> {
         tableConfig,
         detailedValidate,
         transform,
-        failedDependencies,
+        allSkippedDependencies,
       );
       errors.push(...loadErrors);
       rowCounts.set(tableName, rowCount);
 
       if (loaded) {
         loadedTables.add(tableName);
+
+        // Track circular dependency FKs for deferred validation
+        if (foreignKeys && circularDependencies.size > 0) {
+          for (const fk of foreignKeys) {
+            if (circularDependencies.has(fk.references.table)) {
+              deferredForeignKeys.push({
+                tableName,
+                foreignKey: fk,
+                filePath: tableConfig.jsonlPath,
+              });
+            }
+          }
+        }
       } else {
         // Table was not loaded (e.g., empty data)
         warnings.push(`Table '${tableName}' was not loaded (no data or skipped)`);
@@ -276,7 +329,7 @@ export class LinesDB<Tables extends TableDefs> {
       loadingTables.delete(tableName);
     }
 
-    return { errors, warnings, rowCounts };
+    return { errors, warnings, rowCounts, deferredForeignKeys };
   }
 
   /**
@@ -736,6 +789,48 @@ export class LinesDB<Tables extends TableDefs> {
       ],
       type: 'schema',
     };
+  }
+
+  /**
+   * Validate a deferred foreign key constraint after all tables have been loaded.
+   * Used for circular dependency FK validation.
+   */
+  private validateDeferredForeignKey(
+    tableName: string,
+    fk: ForeignKeyDefinition,
+    filePath: string,
+  ): ValidationErrorDetail[] {
+    const errors: ValidationErrorDetail[] = [];
+    const quotedTable = this.quoteTableName(tableName);
+    const quotedColumn = this.quoteIdentifier(fk.column);
+    const quotedRefTable = this.quoteTableName(fk.references.table);
+    const quotedRefColumn = this.quoteIdentifier(fk.references.column);
+
+    // Find rows where the FK value does not exist in the referenced table
+    const sql = `SELECT rowid - 1 as idx, ${quotedColumn} as val FROM ${quotedTable} WHERE ${quotedColumn} IS NOT NULL AND ${quotedColumn} NOT IN (SELECT ${quotedRefColumn} FROM ${quotedRefTable})`;
+
+    try {
+      const rows = this.query<{ idx: number; val: string | number }>(sql);
+      for (const row of rows) {
+        errors.push({
+          file: filePath,
+          tableName,
+          rowIndex: row.idx,
+          issues: [],
+          type: 'foreignKey',
+          foreignKeyError: {
+            column: fk.column,
+            value: row.val,
+            referencedTable: fk.references.table,
+            referencedColumn: fk.references.column,
+          },
+        });
+      }
+    } catch (_) {
+      // Table might not exist - skip validation
+    }
+
+    return errors;
   }
 
   /**
