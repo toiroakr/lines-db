@@ -518,4 +518,164 @@ export const schema = defineSchema(rawSchema);
       await db.close();
     });
   });
+
+  describe('circular foreign key validation', () => {
+    const writeSchemaWithFK = async (
+      tableName: string,
+      primaryKey: string,
+      foreignKeys: Array<{ column: string; references: { table: string; column: string } }>,
+      uniqueColumns: string[] = [],
+    ) => {
+      const fkJson = JSON.stringify(foreignKeys);
+      const indexDefs = uniqueColumns
+        .map((col) => `{ name: "${tableName}_${col}_idx", columns: ["${col}"], unique: true }`)
+        .join(', ');
+      const indexesLine = uniqueColumns.length > 0 ? `indexes: [${indexDefs}],` : '';
+      // Use inline StandardSchema without external imports (dynamic import from /tmp can't resolve npm packages)
+      const source = `
+const baseSchema = {
+  '~standard': {
+    version: 1,
+    vendor: 'test',
+    validate: (value) => ({ value })
+  }
+};
+
+export const schema = Object.assign(Object.create(baseSchema), {
+  '~standard': baseSchema['~standard'],
+  primaryKey: "${primaryKey}",
+  foreignKeys: ${fkJson},
+  ${indexesLine}
+});
+`;
+      await writeFile(join(testDir, `${tableName}.schema.ts`), source);
+    };
+
+    it('should validate circular foreign keys after all tables are loaded', async () => {
+      // authors and profiles reference each other bidirectionally
+      await writeFile(
+        join(testDir, 'authors.jsonl'),
+        '{"id":"1","name":"Alice","profile_code":"a-001"}\n{"id":"2","name":"Bob","profile_code":"b-001"}\n',
+      );
+      await writeSchemaWithFK(
+        'authors',
+        'id',
+        [{ column: 'profile_code', references: { table: 'profiles', column: 'code' } }],
+        ['profile_code'],
+      );
+
+      await writeFile(
+        join(testDir, 'profiles.jsonl'),
+        '{"code":"a-001","author_id":"1","bio":"Author A"}\n{"code":"b-001","author_id":"2","bio":"Author B"}\n',
+      );
+      await writeSchemaWithFK(
+        'profiles',
+        'code',
+        [{ column: 'author_id', references: { table: 'authors', column: 'id' } }],
+        ['code'],
+      );
+
+      type Tables = {
+        authors: { id: string; name: string; profile_code: string };
+        profiles: { code: string; author_id: string; bio: string };
+      };
+
+      const config: DatabaseConfig<Tables> = { dataDir: testDir };
+      const db = LinesDB.create(config);
+      const result = await db.initialize({ detailedValidate: true });
+
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+
+      await db.close();
+    });
+
+    it('should detect orphan in authors (no matching profile)', async () => {
+      await writeFile(
+        join(testDir, 'authors.jsonl'),
+        '{"id":"1","name":"Alice","profile_code":"a-001"}\n{"id":"2","name":"Orphan","profile_code":"missing"}\n',
+      );
+      await writeSchemaWithFK(
+        'authors',
+        'id',
+        [{ column: 'profile_code', references: { table: 'profiles', column: 'code' } }],
+        ['profile_code'],
+      );
+
+      await writeFile(
+        join(testDir, 'profiles.jsonl'),
+        '{"code":"a-001","author_id":"1","bio":"Author A"}\n',
+      );
+      await writeSchemaWithFK(
+        'profiles',
+        'code',
+        [{ column: 'author_id', references: { table: 'authors', column: 'id' } }],
+        ['code'],
+      );
+
+      type Tables = {
+        authors: { id: string; name: string; profile_code: string };
+        profiles: { code: string; author_id: string; bio: string };
+      };
+
+      const config: DatabaseConfig<Tables> = { dataDir: testDir };
+      const db = LinesDB.create(config);
+      const result = await db.initialize({ detailedValidate: true });
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].foreignKeyError).toMatchObject({
+        column: 'profile_code',
+        value: 'missing',
+        referencedTable: 'profiles',
+        referencedColumn: 'code',
+      });
+
+      await db.close();
+    });
+
+    it('should detect orphan in profiles (no matching author)', async () => {
+      await writeFile(
+        join(testDir, 'authors.jsonl'),
+        '{"id":"1","name":"Alice","profile_code":"a-001"}\n',
+      );
+      await writeSchemaWithFK(
+        'authors',
+        'id',
+        [{ column: 'profile_code', references: { table: 'profiles', column: 'code' } }],
+        ['profile_code'],
+      );
+
+      await writeFile(
+        join(testDir, 'profiles.jsonl'),
+        '{"code":"a-001","author_id":"1","bio":"Author A"}\n{"code":"x-999","author_id":"999","bio":"Orphan"}\n',
+      );
+      await writeSchemaWithFK(
+        'profiles',
+        'code',
+        [{ column: 'author_id', references: { table: 'authors', column: 'id' } }],
+        ['code'],
+      );
+
+      type Tables = {
+        authors: { id: string; name: string; profile_code: string };
+        profiles: { code: string; author_id: string; bio: string };
+      };
+
+      const config: DatabaseConfig<Tables> = { dataDir: testDir };
+      const db = LinesDB.create(config);
+      const result = await db.initialize({ detailedValidate: true });
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].foreignKeyError).toMatchObject({
+        column: 'author_id',
+        value: '999',
+        referencedTable: 'authors',
+        referencedColumn: 'id',
+      });
+
+      await db.close();
+    });
+  });
 });
