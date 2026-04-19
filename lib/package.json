@@ -43,12 +43,12 @@
   },
   "homepage": "https://github.com/toiroakr/lines-db#readme",
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "tsdown": "^0.15.12",
-    "type-fest": "^5.2.0",
-    "typescript": "^5.6.0",
-    "valibot": "^1.1.0",
-    "vitest": "^4.0.6"
+    "@types/node": "22.18.13",
+    "tsdown": "0.15.12",
+    "type-fest": "5.2.0",
+    "typescript": "5.9.3",
+    "valibot": "1.1.0",
+    "vitest": "4.0.6"
   },
   "peerDependencies": {
     "valibot": ">=1.0.0"
