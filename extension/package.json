@@ -115,7 +115,7 @@
     "@vscode/test-electron": "2.5.2",
     "@vscode/vsce": "3.7.0",
     "esbuild": "0.19.12",
-    "glob": "10.4.5",
+    "glob": "13.0.6",
     "mocha": "11.7.5",
     "typescript": "5.9.3",
     "vitest": "4.0.6"
