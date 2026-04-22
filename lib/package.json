@@ -4,16 +4,16 @@
   "description": "A database implementation that treats JSONL files as tables using SQLite",
   "type": "module",
   "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
   "bin": {
-    "lines-db": "./bin/cli.js"
+    "lines-db": "./bin/cli.mjs"
   },
   "exports": {
     ".": {
       "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
       },
       "require": {
         "types": "./dist/index.d.cts",
@@ -22,7 +22,7 @@
     }
   },
   "scripts": {
-    "build": "tsdown && cp dist/index.d.ts dist/index.d.cts",
+    "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -44,11 +44,11 @@
   "homepage": "https://github.com/toiroakr/lines-db#readme",
   "devDependencies": {
     "@types/node": "24.12.2",
-    "tsdown": "0.15.12",
-    "type-fest": "5.2.0",
+    "tsdown": "0.21.9",
+    "type-fest": "5.6.0",
     "typescript": "6.0.3",
-    "valibot": "1.1.0",
-    "vitest": "4.0.6"
+    "valibot": "1.3.1",
+    "vitest": "4.1.5"
   },
   "peerDependencies": {
     "valibot": ">=1.0.0"

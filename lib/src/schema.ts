@@ -37,8 +37,10 @@ export type SchemaOptions<Input extends Table, Output extends Table> = {
  * BiDirectional Schema interface
  * Extends StandardSchema with optional backward transformation and schema metadata
  */
-export interface BiDirectionalSchema<Input extends Table = Table, Output extends Table = Input>
-  extends StandardSchema<Input, Output> {
+export interface BiDirectionalSchema<
+  Input extends Table = Table,
+  Output extends Table = Input,
+> extends StandardSchema<Input, Output> {
   /**
    * Backward transformation from Output to Input
    * Required when Input and Output types differ (e.g., with transformations)
