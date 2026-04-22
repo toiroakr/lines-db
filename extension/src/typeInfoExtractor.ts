@@ -26,9 +26,7 @@ export class TypeScriptTypeExtractor {
   static async extractSchemaType(schemaFilePath: string): Promise<FieldInfo[] | undefined> {
     const outputChannel = global.__linesDbOutputChannel!;
     try {
-      outputChannel.appendLine(
-        '[TypeScriptExtractor] Extracting type info from: ' + schemaFilePath,
-      );
+      outputChannel.appendLine('[TypeScriptExtractor] Extracting type info from: ' + schemaFilePath);
 
       // Open the schema file as a TextDocument
       const uri = vscode.Uri.file(schemaFilePath);
@@ -40,9 +38,7 @@ export class TypeScriptTypeExtractor {
         outputChannel.appendLine('[TypeScriptExtractor] Could not find schema export');
         return undefined;
       }
-      outputChannel.appendLine(
-        '[TypeScriptExtractor] Found schema export at line ' + schemaPosition.line,
-      );
+      outputChannel.appendLine('[TypeScriptExtractor] Found schema export at line ' + schemaPosition.line);
 
       // Get hover information with retry logic for type loading
       const hoverContent = await this.getHoverContentWithRetry(uri, schemaPosition, outputChannel);
@@ -79,11 +75,7 @@ export class TypeScriptTypeExtractor {
   ): Promise<string | undefined> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       // Get hover information at the schema position
-      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
-        'vscode.executeHoverProvider',
-        uri,
-        position,
-      );
+      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', uri, position);
 
       if (!hovers || hovers.length === 0) {
         outputChannel.appendLine(
@@ -125,9 +117,7 @@ export class TypeScriptTypeExtractor {
   /**
    * Find the position of 'export const schema' or 'export default' in the document
    */
-  private static async findSchemaExportPosition(
-    document: vscode.TextDocument,
-  ): Promise<vscode.Position | undefined> {
+  private static async findSchemaExportPosition(document: vscode.TextDocument): Promise<vscode.Position | undefined> {
     const text = document.getText();
 
     // Look for 'export const schema'
@@ -214,8 +204,7 @@ export class TypeScriptTypeExtractor {
     );
     if (validateMatch) {
       outputChannel.appendLine(
-        '[TypeScriptExtractor] Found ~standard.validate return type: ' +
-          validateMatch.substring(0, 100),
+        '[TypeScriptExtractor] Found ~standard.validate return type: ' + validateMatch.substring(0, 100),
       );
       const fields = this.parseObjectType(validateMatch, outputChannel);
       if (fields && fields.length > 0) {
@@ -226,14 +215,10 @@ export class TypeScriptTypeExtractor {
     // Strategy 4: Look for BiDirectionalSchema<Input, Output> type arguments
     // Format: BiDirectionalSchema<Table, { name: string; role: "MANAGER" | "STAFF"; ... }>
     // This is a fallback when ~standard property details are not expanded in hover
-    const biDirectionalMatch = this.extractNestedObject(
-      hoverContent,
-      /BiDirectionalSchema<[^,]+,\s*/,
-    );
+    const biDirectionalMatch = this.extractNestedObject(hoverContent, /BiDirectionalSchema<[^,]+,\s*/);
     if (biDirectionalMatch) {
       outputChannel.appendLine(
-        '[TypeScriptExtractor] Found BiDirectionalSchema output type: ' +
-          biDirectionalMatch.substring(0, 100),
+        '[TypeScriptExtractor] Found BiDirectionalSchema output type: ' + biDirectionalMatch.substring(0, 100),
       );
       const fields = this.parseObjectType(biDirectionalMatch, outputChannel);
       if (fields && fields.length > 0) {
@@ -242,9 +227,7 @@ export class TypeScriptTypeExtractor {
     }
 
     // If we couldn't find any valid type information, don't provide completion
-    outputChannel.appendLine(
-      '[TypeScriptExtractor] Could not find valid type information for completion',
-    );
+    outputChannel.appendLine('[TypeScriptExtractor] Could not find valid type information for completion');
     return undefined;
   }
 
@@ -299,10 +282,7 @@ export class TypeScriptTypeExtractor {
   /**
    * Parse an object type string like "{ id: number; name: string; }"
    */
-  private static parseObjectType(
-    objectTypeStr: string,
-    outputChannel: vscode.OutputChannel,
-  ): FieldInfo[] | undefined {
+  private static parseObjectType(objectTypeStr: string, outputChannel: vscode.OutputChannel): FieldInfo[] | undefined {
     const fields: FieldInfo[] = [];
 
     // Remove outer braces
@@ -426,12 +406,7 @@ export class TypeScriptTypeExtractor {
       enumValues.push(...booleanLiterals);
 
       // If it's a pure boolean type (no string/number/boolean literals), return as boolean
-      if (
-        hasBoolean &&
-        stringLiterals.length === 0 &&
-        numberLiterals.length === 0 &&
-        booleanLiterals.length === 0
-      ) {
+      if (hasBoolean && stringLiterals.length === 0 && numberLiterals.length === 0 && booleanLiterals.length === 0) {
         return {
           name,
           type: 'boolean',
@@ -450,10 +425,7 @@ export class TypeScriptTypeExtractor {
       if (enumValues.length > 0) {
         // Determine if this is a string enum (all values from string literals)
         const isStringEnum =
-          stringLiterals.length > 0 &&
-          numberLiterals.length === 0 &&
-          booleanLiterals.length === 0 &&
-          !hasBoolean;
+          stringLiterals.length > 0 && numberLiterals.length === 0 && booleanLiterals.length === 0 && !hasBoolean;
 
         return {
           name,

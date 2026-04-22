@@ -157,9 +157,7 @@ describe('SchemaLoader', () => {
       const jsonlPath = join(testDir, 'users.jsonl');
       await writeFile(jsonlPath, '{"id":1}\n');
 
-      await expect(SchemaLoader.loadSchema(jsonlPath)).rejects.toThrow(
-        /\.schema\.ts.*\.schema\.mts.*\.schema\.cts/,
-      );
+      await expect(SchemaLoader.loadSchema(jsonlPath)).rejects.toThrow(/\.schema\.ts.*\.schema\.mts.*\.schema\.cts/);
     });
 
     it('should throw for invalid schema export', async () => {
@@ -176,9 +174,7 @@ describe('SchemaLoader', () => {
       `,
       );
 
-      await expect(SchemaLoader.loadSchema(jsonlPath)).rejects.toThrow(
-        /does not export a valid StandardSchema/,
-      );
+      await expect(SchemaLoader.loadSchema(jsonlPath)).rejects.toThrow(/does not export a valid StandardSchema/);
     });
 
     it('should validate StandardSchema structure', async () => {
@@ -200,9 +196,7 @@ describe('SchemaLoader', () => {
       `,
       );
 
-      await expect(SchemaLoader.loadSchema(jsonlPath)).rejects.toThrow(
-        /does not export a valid StandardSchema/,
-      );
+      await expect(SchemaLoader.loadSchema(jsonlPath)).rejects.toThrow(/does not export a valid StandardSchema/);
 
       // Wrong version
       await writeFile(
@@ -218,9 +212,7 @@ describe('SchemaLoader', () => {
       `,
       );
 
-      await expect(SchemaLoader.loadSchema(jsonlPath)).rejects.toThrow(
-        /does not export a valid StandardSchema/,
-      );
+      await expect(SchemaLoader.loadSchema(jsonlPath)).rejects.toThrow(/does not export a valid StandardSchema/);
     });
   });
 });

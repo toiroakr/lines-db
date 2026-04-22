@@ -30,9 +30,7 @@ export class DirectoryScanner {
 
       return tables;
     } catch (error) {
-      throw new Error(
-        `Failed to scan directory ${dataDir}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      throw new Error(`Failed to scan directory ${dataDir}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

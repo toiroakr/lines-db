@@ -37,10 +37,10 @@ export type SchemaOptions<Input extends Table, Output extends Table> = {
  * BiDirectional Schema interface
  * Extends StandardSchema with optional backward transformation and schema metadata
  */
-export interface BiDirectionalSchema<
-  Input extends Table = Table,
-  Output extends Table = Input,
-> extends StandardSchema<Input, Output> {
+export interface BiDirectionalSchema<Input extends Table = Table, Output extends Table = Input> extends StandardSchema<
+  Input,
+  Output
+> {
   /**
    * Backward transformation from Output to Input
    * Required when Input and Output types differ (e.g., with transformations)
@@ -98,9 +98,7 @@ export interface BiDirectionalSchema<
  */
 export function defineSchema<Input extends Table, Output extends Table>(
   schema: StandardSchema<Input, Output>,
-  ...args: Output extends Input
-    ? [options?: SchemaOptions<Input, Output>]
-    : [options: SchemaOptions<Input, Output>]
+  ...args: Output extends Input ? [options?: SchemaOptions<Input, Output>] : [options: SchemaOptions<Input, Output>]
 ): BiDirectionalSchema<Input, Output> {
   const options = args[0];
   // Create a new object that extends the schema

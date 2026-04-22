@@ -42,12 +42,7 @@ async function main() {
 
   // Insert new user
   console.log('➕ Inserting new user...');
-  db.execute('INSERT INTO users (id, name, age, email) VALUES (?, ?, ?, ?)', [
-    4,
-    'David',
-    40,
-    'david@example.com',
-  ]);
+  db.execute('INSERT INTO users (id, name, age, email) VALUES (?, ?, ?, ?)', [4, 'David', 40, 'david@example.com']);
 
   // Count users
   const count = db.queryOne<{ count: number }>('SELECT COUNT(*) as count FROM users');

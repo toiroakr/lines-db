@@ -8,9 +8,7 @@ export class JsonlEditCodeLensProvider implements vscode.CodeLensProvider {
   private _onDidChangeCodeLenses: vscode.EventEmitter<void> = new vscode.EventEmitter<void>();
   public readonly onDidChangeCodeLenses: vscode.Event<void> = this._onDidChangeCodeLenses.event;
 
-  provideCodeLenses(
-    document: vscode.TextDocument,
-  ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
+  provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
     // Only for JSONL files
     if (!document.fileName.endsWith('.jsonl')) {
       return [];

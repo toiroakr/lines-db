@@ -59,9 +59,7 @@ describe('DirectoryScanner', () => {
     it('should throw error for non-existent directory', async () => {
       const nonExistentDir = join(testDir, 'nonexistent');
 
-      await expect(DirectoryScanner.scanDirectory(nonExistentDir)).rejects.toThrow(
-        'Failed to scan directory',
-      );
+      await expect(DirectoryScanner.scanDirectory(nonExistentDir)).rejects.toThrow('Failed to scan directory');
     });
 
     it('should handle multiple JSONL files', async () => {

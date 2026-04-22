@@ -66,9 +66,7 @@ async function main() {
     console.log(`   Total items: ${newOrder.items.length}`);
     console.log(`   First item: ${newOrder.items[0].name}`);
     console.log(`   Campaign: ${newOrder.metadata?.campaign}`);
-    console.log(
-      `   Discount: ${newOrder.metadata?.discount.type} - ${newOrder.metadata?.discount.value}%`,
-    );
+    console.log(`   Discount: ${newOrder.metadata?.discount.type} - ${newOrder.metadata?.discount.value}%`);
     console.log(`   Tags:`, newOrder.metadata?.tags);
     console.log(
       `   Shipping to: ${newOrder.metadata?.shippingAddress.state}, ${newOrder.metadata?.shippingAddress.country}`,
@@ -79,10 +77,7 @@ async function main() {
   console.log('\n\n💰 Order value calculation:');
   if (newOrder) {
     type Item = { name: string; quantity: number; price: number };
-    const totalValue = newOrder.items.reduce(
-      (sum: number, item: Item) => sum + item.price * item.quantity,
-      0,
-    );
+    const totalValue = newOrder.items.reduce((sum: number, item: Item) => sum + item.price * item.quantity, 0);
     const discount = newOrder.metadata?.discount?.value || 0;
     const finalPrice = totalValue * (1 - discount / 100);
 

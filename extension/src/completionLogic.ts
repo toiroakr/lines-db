@@ -76,12 +76,7 @@ export function isInFieldNamePosition(textBeforeCursor: string): boolean {
     }
   }
 
-  return (
-    insideQuotes ||
-    afterBrace.endsWith(',') ||
-    afterBrace.endsWith('{') ||
-    /[,{]\s*$/.test(afterBrace)
-  );
+  return insideQuotes || afterBrace.endsWith(',') || afterBrace.endsWith('{') || /[,{]\s*$/.test(afterBrace);
 }
 
 /**
@@ -175,9 +170,7 @@ export function getFieldNameCompletions(ctx: FieldNameCompletionContext): Comple
   // Filter fields
   let filteredFields = fields.filter((f) => !existingFields.has(f.name));
   if (partialInput) {
-    filteredFields = filteredFields.filter((f) =>
-      f.name.toLowerCase().startsWith(partialInput.toLowerCase()),
-    );
+    filteredFields = filteredFields.filter((f) => f.name.toLowerCase().startsWith(partialInput.toLowerCase()));
   }
 
   if (filteredFields.length === 0) {
@@ -185,11 +178,7 @@ export function getFieldNameCompletions(ctx: FieldNameCompletionContext): Comple
   }
 
   // Helper function to generate value placeholder based on field type
-  const getValuePlaceholder = (
-    type: string,
-    isStringEnum?: boolean,
-    placeholder: string = '${1}',
-  ): string => {
+  const getValuePlaceholder = (type: string, isStringEnum?: boolean, placeholder: string = '${1}'): string => {
     if (type === 'string' || type === 'literal') {
       return `"${placeholder}"`;
     } else if (type === 'enum') {
@@ -313,9 +302,7 @@ export function getValueCompletions(ctx: ValueCompletionContext): CompletionResu
   }
 
   // Inside quotes
-  const stringValues = values.filter(
-    (v) => v !== 'true' && v !== 'false' && !/^-?\d+(\.\d+)?$/.test(v),
-  );
+  const stringValues = values.filter((v) => v !== 'true' && v !== 'false' && !/^-?\d+(\.\d+)?$/.test(v));
 
   const partialValue = extractPartialValue(textBeforeCursor);
   const lastQuoteIndex = textBeforeCursor.lastIndexOf('"');
@@ -326,9 +313,7 @@ export function getValueCompletions(ctx: ValueCompletionContext): CompletionResu
   const valueEndPos = hasClosingQuote ? cursor + nextQuoteIndex : cursor;
 
   // Filter string values based on partial input
-  const filteredStringValues = stringValues.filter((v) =>
-    v.toLowerCase().startsWith(partialValue.toLowerCase()),
-  );
+  const filteredStringValues = stringValues.filter((v) => v.toLowerCase().startsWith(partialValue.toLowerCase()));
 
   // If we have matching string values, return them
   if (filteredStringValues.length > 0) {

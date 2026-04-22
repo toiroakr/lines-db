@@ -130,9 +130,7 @@ export async function getForeignKeyAtPosition(
 /**
  * Find the referenced record location
  */
-export async function findReferencedRecord(
-  context: ForeignKeyContext,
-): Promise<RecordLocation | null> {
+export async function findReferencedRecord(context: ForeignKeyContext): Promise<RecordLocation | null> {
   try {
     if (!global.__linesDbModule) {
       return null;
@@ -158,9 +156,7 @@ export async function findReferencedRecord(
 
     // Find the matching record
     const referencedColumn = context.foreignKey.referencedColumn;
-    const recordIndex = records.findIndex(
-      (record: any) => record[referencedColumn] === context.value,
-    );
+    const recordIndex = records.findIndex((record: any) => record[referencedColumn] === context.value);
 
     if (recordIndex === -1) {
       return null;

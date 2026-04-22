@@ -37,9 +37,7 @@ async function main() {
         name: 'watch-plugin',
         setup(build) {
           build.onEnd((result) => {
-            console.log(
-              result.errors.length > 0 ? `[watch] build failed` : `[watch] build finished`,
-            );
+            console.log(result.errors.length > 0 ? `[watch] build failed` : `[watch] build finished`);
             // Copy HTML template after each build
             if (result.errors.length === 0) {
               copyHtmlTemplate();

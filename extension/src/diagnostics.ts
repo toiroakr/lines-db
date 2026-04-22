@@ -15,15 +15,9 @@ export class DiagnosticsProvider {
     this.diagnosticCollection = vscode.languages.createDiagnosticCollection('lines-db');
 
     // Watch for document changes
-    this.disposables.push(
-      vscode.workspace.onDidOpenTextDocument((doc) => this.validateDocument(doc)),
-    );
-    this.disposables.push(
-      vscode.workspace.onDidChangeTextDocument((e) => this.validateDocument(e.document)),
-    );
-    this.disposables.push(
-      vscode.workspace.onDidSaveTextDocument((doc) => this.validateDocument(doc)),
-    );
+    this.disposables.push(vscode.workspace.onDidOpenTextDocument((doc) => this.validateDocument(doc)));
+    this.disposables.push(vscode.workspace.onDidChangeTextDocument((e) => this.validateDocument(e.document)));
+    this.disposables.push(vscode.workspace.onDidSaveTextDocument((doc) => this.validateDocument(doc)));
 
     // Watch for schema file saves and revalidate corresponding JSONL files
     this.disposables.push(
@@ -65,8 +59,7 @@ export class DiagnosticsProvider {
       // This handles cases where the file isn't open but we still want to update diagnostics
       const openJsonlDocs = vscode.workspace.textDocuments.filter(
         (doc) =>
-          (doc.languageId === 'jsonl' || doc.fileName.endsWith('.jsonl')) &&
-          path.dirname(doc.uri.fsPath) === dirPath,
+          (doc.languageId === 'jsonl' || doc.fileName.endsWith('.jsonl')) && path.dirname(doc.uri.fsPath) === dirPath,
       );
 
       for (const doc of openJsonlDocs) {

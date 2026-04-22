@@ -20,22 +20,14 @@ suite('User Reported Cases', () => {
       const quoteBefore = hasQuoteBefore(beforeCursor);
       const quoteAfter = hasQuoteAfter(afterCursor);
 
-      assert.strictEqual(
-        quoteBefore,
-        true,
-        'Should detect quote before cursor (opening quote exists)',
-      );
+      assert.strictEqual(quoteBefore, true, 'Should detect quote before cursor (opening quote exists)');
       assert.strictEqual(quoteAfter, false, 'Should not detect quote after cursor');
 
       // Generate insert text
       const insertText = generateFieldNameInsertText('gender', 'string', quoteBefore);
 
       // Expected: gender": "${1}" (no opening quote because it already exists)
-      assert.strictEqual(
-        insertText,
-        'gender": "${1}"',
-        'Insert text should not include opening quote',
-      );
+      assert.strictEqual(insertText, 'gender": "${1}"', 'Insert text should not include opening quote');
 
       // Calculate the range that should be replaced
       const lastQuoteIndex = beforeCursor.lastIndexOf('"');
@@ -48,19 +40,12 @@ suite('User Reported Cases', () => {
       // Result: {gender": "|" }
 
       const textToReplace = beforeCursor.substring(lastQuoteIndex);
-      assert.strictEqual(
-        textToReplace,
-        '"gende',
-        'Should identify correct text to replace including opening quote',
-      );
+      assert.strictEqual(textToReplace, '"gende', 'Should identify correct text to replace including opening quote');
 
       // After replacement
       const afterReplacement = beforeCursor.substring(0, lastQuoteIndex) + insertText;
       assert.strictEqual(afterReplacement, '{gender": "${1}"', 'Should produce correct result');
-      assert.ok(
-        !afterReplacement.includes('""gender'),
-        'Result should NOT have double quotes before gender',
-      );
+      assert.ok(!afterReplacement.includes('""gender'), 'Result should NOT have double quotes before gender');
     });
 
     test('Input: {"id":1, "gende| }', () => {
@@ -83,11 +68,7 @@ suite('User Reported Cases', () => {
       const insertText = generateFieldNameInsertText('gender', 'enum', quoteBefore);
 
       // Expected: gender": "${1}" (no opening quote)
-      assert.strictEqual(
-        insertText,
-        'gender": "${1}"',
-        'Insert text should not include opening quote',
-      );
+      assert.strictEqual(insertText, 'gender": "${1}"', 'Insert text should not include opening quote');
 
       // Verify no opening quote
       assert.ok(
@@ -108,10 +89,7 @@ suite('User Reported Cases', () => {
       // After replacement: gender": "${1}"
       // Result in document: ...alice@example.com", gender": "|"   }
       const afterReplacement = beforeCursor.substring(0, lastQuoteIndex) + insertText;
-      assert.ok(
-        !afterReplacement.includes('""gender'),
-        'Result should NOT have double quotes before gender',
-      );
+      assert.ok(!afterReplacement.includes('""gender'), 'Result should NOT have double quotes before gender');
     });
 
     test('Calculate correct replacement range for partial field name', () => {
@@ -131,11 +109,7 @@ suite('User Reported Cases', () => {
 
       // This range would replace: "gende
       const textInRange = beforeCursor.substring(rangeStart, rangeEnd);
-      assert.strictEqual(
-        textInRange,
-        '"gende',
-        'Should replace the opening quote and partial text',
-      );
+      assert.strictEqual(textInRange, '"gende', 'Should replace the opening quote and partial text');
     });
   });
 
@@ -180,11 +154,7 @@ suite('User Reported Cases', () => {
       const enumValue = 'female';
 
       // In this case, we just insert the raw value
-      assert.strictEqual(
-        enumValue,
-        'female',
-        'Enum value should be just the value when inside quotes',
-      );
+      assert.strictEqual(enumValue, 'female', 'Enum value should be just the value when inside quotes');
     });
 
     test('Verify quote counting logic', () => {

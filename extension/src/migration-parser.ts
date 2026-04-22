@@ -78,14 +78,10 @@ export async function parseMigrationSource(content: string): Promise<ParsedMigra
     }
 
     const transform = (row: MigrationRow) => migration.transform(row) as MigrationRow;
-    const filter = migration.filter
-      ? (row: MigrationRow) => Boolean(migration.filter(row))
-      : undefined;
+    const filter = migration.filter ? (row: MigrationRow) => Boolean(migration.filter(row)) : undefined;
 
     return { transform, filter };
   } catch (error) {
-    throw new Error(
-      `Failed to parse migration file: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new Error(`Failed to parse migration file: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

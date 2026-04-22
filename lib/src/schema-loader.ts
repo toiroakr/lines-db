@@ -64,9 +64,7 @@ export class SchemaLoader {
     const standardObj = standard as Record<string, unknown>;
 
     return (
-      standardObj.version === 1 &&
-      typeof standardObj.vendor === 'string' &&
-      typeof standardObj.validate === 'function'
+      standardObj.version === 1 && typeof standardObj.vendor === 'string' && typeof standardObj.validate === 'function'
     );
   }
 }

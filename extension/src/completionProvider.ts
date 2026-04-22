@@ -2,11 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { TypeScriptTypeExtractor, type FieldInfo } from './typeInfoExtractor.js';
 import { getForeignKeys } from './foreignKeyUtils.js';
-import {
-  getCompletions,
-  type CompletionResult,
-  type FieldInfo as CompletionFieldInfo,
-} from './completionLogic.js';
+import { getCompletions, type CompletionResult, type FieldInfo as CompletionFieldInfo } from './completionLogic.js';
 import { SCHEMA_EXTENSIONS } from './schemaFileUtils.js';
 
 let outputChannel = global.__linesDbOutputChannel;
@@ -92,11 +88,7 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
       const cursor = position.character;
 
       // Convert FieldInfo to CompletionFieldInfo
-      const completionFields: CompletionFieldInfo[] = this.flattenFieldsForPath(
-        fields,
-        line,
-        cursor,
-      );
+      const completionFields: CompletionFieldInfo[] = this.flattenFieldsForPath(fields, line, cursor);
 
       // Get FK values
       const fkValues = await this.getFkValuesMap(document);
@@ -117,11 +109,7 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
   /**
    * Flatten fields for the current path
    */
-  private flattenFieldsForPath(
-    fields: FieldInfo[],
-    line: string,
-    cursor: number,
-  ): CompletionFieldInfo[] {
+  private flattenFieldsForPath(fields: FieldInfo[], line: string, cursor: number): CompletionFieldInfo[] {
     const textBeforeCursor = line.substring(0, cursor);
     const path = this.extractPath(textBeforeCursor);
     const currentFields = this.findFieldsForPath(fields, path);
@@ -241,9 +229,7 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
   /**
    * Load type information from schema file
    */
-  private async loadSchemaTypeInfo(
-    document: vscode.TextDocument,
-  ): Promise<FieldInfo[] | undefined> {
+  private async loadSchemaTypeInfo(document: vscode.TextDocument): Promise<FieldInfo[] | undefined> {
     const jsonlPath = document.uri.fsPath;
 
     // For temporary edit files, extract original file path

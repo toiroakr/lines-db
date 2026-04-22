@@ -16,11 +16,7 @@ export {
 } from './schema-extensions.js';
 export type { SchemaExtension } from './schema-extensions.js';
 export { ErrorFormatter } from './error-formatter.js';
-export type {
-  ErrorFormatterOptions,
-  ValidationErrorInfo,
-  ForeignKeyErrorInfo,
-} from './error-formatter.js';
+export type { ErrorFormatterOptions, ValidationErrorInfo, ForeignKeyErrorInfo } from './error-formatter.js';
 export { detectRuntime, RUNTIME } from './runtime.js';
 export type { RuntimeEnvironment } from './runtime.js';
 export type { SQLiteDatabase, SQLiteStatement } from './sqlite-adapter.js';

@@ -8,11 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 describe('Validation adds column (e.g., auto-generated ID)', () => {
-  const testDir = join(
-    __dirname,
-    '.test-tmp',
-    `test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-  );
+  const testDir = join(__dirname, '.test-tmp', `test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
   const dataPath = join(testDir, 'User.jsonl');
   const schemaPath = join(testDir, 'User.schema.ts');
 

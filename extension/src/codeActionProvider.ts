@@ -4,10 +4,7 @@ import * as vscode from 'vscode';
  * Provides code actions (lightbulb menu) for JSONL lines
  */
 export class JsonlCodeActionProvider implements vscode.CodeActionProvider {
-  provideCodeActions(
-    document: vscode.TextDocument,
-    range: vscode.Range | vscode.Selection,
-  ): vscode.CodeAction[] {
+  provideCodeActions(document: vscode.TextDocument, range: vscode.Range | vscode.Selection): vscode.CodeAction[] {
     const actions: vscode.CodeAction[] = [];
 
     // Get the line at the cursor
@@ -33,10 +30,7 @@ export class JsonlCodeActionProvider implements vscode.CodeActionProvider {
       actions.push(editAction);
 
       // Create "Preview JSON line" action
-      const previewAction = new vscode.CodeAction(
-        'Preview JSON line',
-        vscode.CodeActionKind.QuickFix,
-      );
+      const previewAction = new vscode.CodeAction('Preview JSON line', vscode.CodeActionKind.QuickFix);
       previewAction.command = {
         title: 'Preview JSON line',
         command: 'lines-db.previewJsonlLine',

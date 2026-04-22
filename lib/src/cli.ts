@@ -16,12 +16,7 @@ import { runInNewContext } from 'node:vm';
 
 const originalEmitWarning = process.emitWarning;
 process.emitWarning = (warning, ...args) => {
-  if (
-    typeof warning === 'string' &&
-    warning.startsWith('SQLite') &&
-    args[0] === 'ExperimentalWarning'
-  )
-    return;
+  if (typeof warning === 'string' && warning.startsWith('SQLite') && args[0] === 'ExperimentalWarning') return;
   originalEmitWarning(warning, ...(args as any[]));
 };
 
@@ -52,10 +47,7 @@ function runInSandbox<T>(expression: string, context: Record<string, unknown> = 
 
 const program = new Command();
 
-program
-  .name('@toiroakr/lines-db')
-  .description('Database utilities for JSONL files')
-  .version('1.0.0');
+program.name('@toiroakr/lines-db').description('Database utilities for JSONL files').version('1.0.0');
 
 // Generate command
 program
@@ -113,9 +105,7 @@ program
         for (const tableResult of result.tableResults) {
           if (tableResult.valid && tableResult.warnings.length === 0) {
             // Success
-            console.log(
-              styleText('green', `✓ ${tableResult.tableName} (${tableResult.rowCount} records)`),
-            );
+            console.log(styleText('green', `✓ ${tableResult.tableName} (${tableResult.rowCount} records)`));
           } else if (tableResult.valid && tableResult.warnings.length > 0) {
             // Warnings
             for (const warning of tableResult.warnings) {
@@ -127,12 +117,8 @@ program
             console.error(formatter.formatErrorHeader(fileErrors.length, fileErrors[0]?.file));
             console.error('');
 
-            const validationErrors = fileErrors.filter(
-              (e) => e.type !== 'foreignKey' || !e.foreignKeyError,
-            );
-            const foreignKeyErrors = fileErrors.filter(
-              (e) => e.type === 'foreignKey' && e.foreignKeyError,
-            );
+            const validationErrors = fileErrors.filter((e) => e.type !== 'foreignKey' || !e.foreignKeyError);
+            const foreignKeyErrors = fileErrors.filter((e) => e.type === 'foreignKey' && e.foreignKeyError);
 
             if (validationErrors.length > 0) {
               console.error(
@@ -196,12 +182,8 @@ program
             console.error(formatter.formatErrorHeader(fileErrors.length, fileErrors[0]?.file));
             console.error('');
 
-            const validationErrors = fileErrors.filter(
-              (e) => e.type !== 'foreignKey' || !e.foreignKeyError,
-            );
-            const foreignKeyErrors = fileErrors.filter(
-              (e) => e.type === 'foreignKey' && e.foreignKeyError,
-            );
+            const validationErrors = fileErrors.filter((e) => e.type !== 'foreignKey' || !e.foreignKeyError);
+            const foreignKeyErrors = fileErrors.filter((e) => e.type === 'foreignKey' && e.foreignKeyError);
 
             if (validationErrors.length > 0) {
               console.error(
@@ -271,11 +253,7 @@ program
           process.exit(1);
         }
       } catch (error) {
-        if (
-          error instanceof Error &&
-          'code' in error &&
-          (error as NodeJS.ErrnoException).code === 'ENOENT'
-        ) {
+        if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
           console.error(`Error: Path not found: ${path}`);
         } else {
           console.error(`Error: ${String(error)}`);
@@ -374,9 +352,7 @@ async function migrateDirectory(
         console.log(`Processing table '${tableName}'...`);
 
         // Get rows to migrate
-        const rowsToMigrate = filter
-          ? db.find(tableName, filter as Parameters<typeof db.find>[1])
-          : db.find(tableName);
+        const rowsToMigrate = filter ? db.find(tableName, filter as Parameters<typeof db.find>[1]) : db.find(tableName);
 
         if (rowsToMigrate.length === 0) {
           console.log(`  No rows to migrate`);
@@ -414,23 +390,19 @@ async function migrateDirectory(
           };
 
           if (validationError.validationErrors) {
-            console.error(
-              `  Found ${validationError.validationErrors.length} validation error(s):\n`,
-            );
+            console.error(`  Found ${validationError.validationErrors.length} validation error(s):\n`);
 
             const rowsToMigrate = filter
               ? db.find(tableName, filter as Parameters<typeof db.find>[1])
               : db.find(tableName);
 
-            const errorInfos = validationError.validationErrors.map(
-              ({ rowIndex, rowData, error: rowError }) => ({
-                file: `${dirPath}/${tableName}.jsonl`,
-                rowIndex,
-                issues: rowError.issues,
-                data: rowData,
-                originalData: rowsToMigrate[rowIndex],
-              }),
-            );
+            const errorInfos = validationError.validationErrors.map(({ rowIndex, rowData, error: rowError }) => ({
+              file: `${dirPath}/${tableName}.jsonl`,
+              rowIndex,
+              issues: rowError.issues,
+              data: rowData,
+              originalData: rowsToMigrate[rowIndex],
+            }));
 
             const formatted = formatter.formatValidationErrors(errorInfos);
             console.error(formatted);
@@ -622,15 +594,13 @@ async function migrateFile(
               `\nFound ${validationError.validationErrors.length} validation error(s) in transformed data:\n`,
             );
 
-            const errorInfos = validationError.validationErrors.map(
-              ({ rowIndex, rowData, error: rowError }) => ({
-                file: filePath,
-                rowIndex,
-                issues: rowError.issues,
-                data: rowData,
-                originalData: rowsToMigrate[rowIndex],
-              }),
-            );
+            const errorInfos = validationError.validationErrors.map(({ rowIndex, rowData, error: rowError }) => ({
+              file: filePath,
+              rowIndex,
+              issues: rowError.issues,
+              data: rowData,
+              originalData: rowsToMigrate[rowIndex],
+            }));
 
             const formatted = formatter.formatValidationErrors(errorInfos);
             console.error(formatted);

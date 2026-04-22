@@ -46,27 +46,21 @@ const originalError = console.error;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 console.log = (...args: any[]) => {
-  const message = args
-    .map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a)))
-    .join(' ');
+  const message = args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
   outputChannel.appendLine(`[LOG] ${message}`);
   originalLog(...args);
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 console.warn = (...args: any[]) => {
-  const message = args
-    .map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a)))
-    .join(' ');
+  const message = args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
   outputChannel.appendLine(`[WARN] ${message}`);
   originalWarn(...args);
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 console.error = (...args: any[]) => {
-  const message = args
-    .map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a)))
-    .join(' ');
+  const message = args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
   outputChannel.appendLine(`[ERROR] ${message}`);
   originalError(...args);
 };
@@ -152,17 +146,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Register CodeLens provider for JSONL files
   const codeLensProvider = new JsonlCodeLensProvider();
-  context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider({ language: 'jsonl' }, codeLensProvider),
-  );
+  context.subscriptions.push(vscode.languages.registerCodeLensProvider({ language: 'jsonl' }, codeLensProvider));
 
   // Register CodeLens provider for migration files
   const migrationCodeLensProvider = new MigrationCodeLensProvider();
   context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider(
-      { language: 'typescript' },
-      migrationCodeLensProvider,
-    ),
+    vscode.languages.registerCodeLensProvider({ language: 'typescript' }, migrationCodeLensProvider),
   );
 
   // Register Hover provider for schema files
@@ -179,9 +168,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Register CodeAction provider for JSONL files
   const codeActionProvider = new JsonlCodeActionProvider();
-  context.subscriptions.push(
-    vscode.languages.registerCodeActionsProvider({ language: 'jsonl' }, codeActionProvider),
-  );
+  context.subscriptions.push(vscode.languages.registerCodeActionsProvider({ language: 'jsonl' }, codeActionProvider));
 
   // Register Completion provider for JSONL files
   outputChannel.appendLine('Registering CompletionProvider...');
@@ -222,9 +209,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Register Foreign Key Hover provider for JSONL files
   outputChannel.appendLine('Registering ForeignKeyHoverProvider...');
   const foreignKeyHoverProvider = new ForeignKeyHoverProvider();
-  context.subscriptions.push(
-    vscode.languages.registerHoverProvider({ language: 'jsonl' }, foreignKeyHoverProvider),
-  );
+  context.subscriptions.push(vscode.languages.registerHoverProvider({ language: 'jsonl' }, foreignKeyHoverProvider));
   outputChannel.appendLine('ForeignKeyHoverProvider registered');
 
   // Register command for jumping to foreign key record
@@ -332,9 +317,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         const fs = await import('fs');
         const jsonlContent = result.transformedRows.map((row) => JSON.stringify(row)).join('\n');
-        outputChannel.appendLine(
-          `Writing ${result.transformedRows.length} rows to preview file...`,
-        );
+        outputChannel.appendLine(`Writing ${result.transformedRows.length} rows to preview file...`);
         fs.writeFileSync(previewFilePath, jsonlContent, 'utf-8');
         outputChannel.appendLine('Preview file written successfully');
 
@@ -422,16 +405,9 @@ export async function activate(context: vscode.ExtensionContext) {
                 const diagnostics: vscode.Diagnostic[] = [];
 
                 for (const error of validationResult.errors) {
-                  outputChannel.appendLine(
-                    `Processing error for rowIndex=${error.rowIndex}, type=${error.type}`,
-                  );
+                  outputChannel.appendLine(`Processing error for rowIndex=${error.rowIndex}, type=${error.type}`);
 
-                  const range = new vscode.Range(
-                    error.rowIndex,
-                    0,
-                    error.rowIndex,
-                    Number.MAX_VALUE,
-                  );
+                  const range = new vscode.Range(error.rowIndex, 0, error.rowIndex, Number.MAX_VALUE);
                   let message = '';
 
                   if (error.type === 'foreignKey' && error.foreignKeyError) {
@@ -439,53 +415,41 @@ export async function activate(context: vscode.ExtensionContext) {
                     message = `Foreign key constraint failed: ${fk.column} = ${JSON.stringify(fk.value)} does not exist in ${fk.referencedTable}.${fk.referencedColumn}`;
                     outputChannel.appendLine(`  Foreign key error: ${message}`);
                   } else {
-                    const messages = error.issues.map(
-                      (issue: { message: string; path?: unknown[] }) => {
-                        if (issue.path && issue.path.length > 0) {
-                          const pathStr = issue.path
-                            .map((segment: unknown) =>
-                              typeof segment === 'object' && segment !== null && 'key' in segment
-                                ? String((segment as { key: unknown }).key)
-                                : String(segment),
-                            )
-                            .join('.');
-                          return `${pathStr}: ${issue.message}`;
-                        }
-                        return issue.message;
-                      },
-                    );
+                    const messages = error.issues.map((issue: { message: string; path?: unknown[] }) => {
+                      if (issue.path && issue.path.length > 0) {
+                        const pathStr = issue.path
+                          .map((segment: unknown) =>
+                            typeof segment === 'object' && segment !== null && 'key' in segment
+                              ? String((segment as { key: unknown }).key)
+                              : String(segment),
+                          )
+                          .join('.');
+                        return `${pathStr}: ${issue.message}`;
+                      }
+                      return issue.message;
+                    });
                     message = messages.join(', ');
                     outputChannel.appendLine(`  Schema validation error: ${message}`);
                   }
 
-                  const diagnostic = new vscode.Diagnostic(
-                    range,
-                    message,
-                    vscode.DiagnosticSeverity.Error,
-                  );
+                  const diagnostic = new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error);
                   diagnostic.source = 'lines-db-migration';
                   diagnostics.push(diagnostic);
                 }
 
-                outputChannel.appendLine(
-                  `Setting ${diagnostics.length} diagnostics on preview file`,
-                );
+                outputChannel.appendLine(`Setting ${diagnostics.length} diagnostics on preview file`);
                 outputChannel.appendLine(`Preview URI: ${previewDoc.uri.toString()}`);
 
                 for (let i = 0; i < diagnostics.length; i++) {
                   const diag = diagnostics[i];
-                  outputChannel.appendLine(
-                    `  Diagnostic ${i}: line=${diag.range.start.line}, message=${diag.message}`,
-                  );
+                  outputChannel.appendLine(`  Diagnostic ${i}: line=${diag.range.start.line}, message=${diag.message}`);
                 }
 
                 MigrationSessionManager.setDiagnostics(previewDoc.uri, diagnostics);
 
                 // Verify diagnostics were set
                 const allDiagnostics = vscode.languages.getDiagnostics(previewDoc.uri);
-                outputChannel.appendLine(
-                  `Verification: getDiagnostics returned ${allDiagnostics.length} diagnostics`,
-                );
+                outputChannel.appendLine(`Verification: getDiagnostics returned ${allDiagnostics.length} diagnostics`);
 
                 throw new Error('Validation failed');
               }
@@ -522,15 +486,11 @@ export async function activate(context: vscode.ExtensionContext) {
             `LinesDB: Migration validated successfully. ${result.transformedRows.length} rows will be updated.`,
           );
         } else {
-          vscode.window.showErrorMessage(
-            `LinesDB: Migration has validation errors. See preview file.`,
-          );
+          vscode.window.showErrorMessage(`LinesDB: Migration has validation errors. See preview file.`);
         }
       } else {
         // No transformed rows (e.g., syntax error in migration file)
-        vscode.window.showErrorMessage(
-          `LinesDB: Migration validation failed with ${result.errors.length} error(s)`,
-        );
+        vscode.window.showErrorMessage(`LinesDB: Migration validation failed with ${result.errors.length} error(s)`);
       }
     } catch (error) {
       vscode.window.showErrorMessage(

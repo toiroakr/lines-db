@@ -5,7 +5,7 @@ pre-commit:
       glob: '*.{js,ts}'
       run: pnpm lint
     format:
-      glob: '*.{js,ts,json,md,yml,yaml}'
+      glob: '*.{js,ts,jsx,tsx,mjs,cjs,json,jsonc}'
       run: pnpm format:check
     typecheck:
       glob: '*.{ts}'

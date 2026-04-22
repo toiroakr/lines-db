@@ -13,8 +13,7 @@ export function hasQuoteBefore(textBeforeCursor: string): boolean {
   const lastSeparator = Math.max(lastComma, lastBrace);
 
   // Get text after the last separator
-  const textAfterSeparator =
-    lastSeparator === -1 ? textBeforeCursor : textBeforeCursor.substring(lastSeparator + 1);
+  const textAfterSeparator = lastSeparator === -1 ? textBeforeCursor : textBeforeCursor.substring(lastSeparator + 1);
 
   // Count quotes in this section
   // Remove escaped quotes first
@@ -35,11 +34,7 @@ export function hasQuoteAfter(textAfterCursor: string): boolean {
 /**
  * Generate insert text for field name completion
  */
-export function generateFieldNameInsertText(
-  fieldName: string,
-  fieldType: string,
-  quoteBefore: boolean,
-): string {
+export function generateFieldNameInsertText(fieldName: string, fieldType: string, quoteBefore: boolean): string {
   let insertText = '';
 
   // Add opening quote if needed

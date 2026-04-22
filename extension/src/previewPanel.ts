@@ -67,11 +67,7 @@ export class JsonlPreviewPanel {
     // Listen to selection changes
     vscode.window.onDidChangeTextEditorSelection(
       (event) => {
-        if (
-          this.currentDocument &&
-          event.textEditor.document === this.currentDocument &&
-          !this.isManualNavigation
-        ) {
+        if (this.currentDocument && event.textEditor.document === this.currentDocument && !this.isManualNavigation) {
           const newLine = event.selections[0].active.line;
           if (newLine !== this.currentLine) {
             this.currentLine = newLine;
@@ -111,11 +107,7 @@ export class JsonlPreviewPanel {
   /**
    * Previews a specific line
    */
-  public static previewLine(
-    extensionUri: vscode.Uri,
-    document: vscode.TextDocument,
-    lineNumber: number,
-  ): void {
+  public static previewLine(extensionUri: vscode.Uri, document: vscode.TextDocument, lineNumber: number): void {
     JsonlPreviewPanel.createOrShow(extensionUri);
     if (JsonlPreviewPanel.currentPanel) {
       JsonlPreviewPanel.currentPanel.currentDocument = document;
@@ -167,10 +159,7 @@ export class JsonlPreviewPanel {
             return value;
           },
           2,
-        ).replace(
-          new RegExp(`"\\${multilineMarker}",`, 'g'),
-          `// Displayed as array for multiline string readability`,
-        );
+        ).replace(new RegExp(`"\\${multilineMarker}",`, 'g'), `// Displayed as array for multiline string readability`);
       } catch (error) {
         formattedJson = `Invalid JSON: ${error}`;
       }
@@ -213,10 +202,7 @@ export class JsonlPreviewPanel {
       if (editor && editor.document === this.currentDocument) {
         const position = new vscode.Position(this.currentLine, 0);
         editor.selection = new vscode.Selection(position, position);
-        editor.revealRange(
-          new vscode.Range(position, position),
-          vscode.TextEditorRevealType.InCenter,
-        );
+        editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
       }
     }
   }
@@ -245,15 +231,10 @@ export class JsonlPreviewPanel {
       if (editor && editor.document === this.currentDocument) {
         const position = new vscode.Position(this.currentLine, 0);
         editor.selection = new vscode.Selection(position, position);
-        editor.revealRange(
-          new vscode.Range(position, position),
-          vscode.TextEditorRevealType.InCenter,
-        );
+        editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
       }
     } else {
-      vscode.window.showErrorMessage(
-        `Line ${lineNumber} is out of range (1-${this.currentDocument.lineCount})`,
-      );
+      vscode.window.showErrorMessage(`Line ${lineNumber} is out of range (1-${this.currentDocument.lineCount})`);
     }
   }
 
@@ -265,11 +246,7 @@ export class JsonlPreviewPanel {
       return;
     }
 
-    vscode.commands.executeCommand(
-      'lines-db.editJsonlLine',
-      this.currentDocument.uri,
-      this.currentLine,
-    );
+    vscode.commands.executeCommand('lines-db.editJsonlLine', this.currentDocument.uri, this.currentLine);
   }
 
   /**
@@ -303,12 +280,7 @@ export class JsonlPreviewPanel {
   /**
    * Generates the HTML content for the preview
    */
-  private getHtmlContent(
-    lineNumber: number,
-    totalLines: number,
-    content: string,
-    originalContent: string,
-  ): string {
+  private getHtmlContent(lineNumber: number, totalLines: number, content: string, originalContent: string): string {
     const templatePath = path.join(this.extensionUri.fsPath, 'dist', 'preview-template.html');
 
     let html = fs.readFileSync(templatePath, 'utf8');
