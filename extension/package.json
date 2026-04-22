@@ -108,7 +108,7 @@
     "test:unit:watch": "vitest"
   },
   "devDependencies": {
-    "@types/glob": "8.1.0",
+    "@types/glob": "9.0.0",
     "@types/mocha": "10.0.10",
     "@types/node": "20.19.24",
     "@types/vscode": "1.105.0",
