@@ -1,4 +1,4 @@
-import { LinesDB } from '../lib/dist/index.js';
+import { LinesDB } from '../lib/dist/index.mjs';
 import { config } from './fixtures/db.js';
 
 async function main() {
