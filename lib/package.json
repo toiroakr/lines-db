@@ -46,7 +46,7 @@
     "@types/node": "22.18.13",
     "tsdown": "0.15.12",
     "type-fest": "5.2.0",
-    "typescript": "5.9.3",
+    "typescript": "6.0.3",
     "valibot": "1.1.0",
     "vitest": "4.0.6"
   },
