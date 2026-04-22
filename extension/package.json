@@ -116,7 +116,7 @@
     "@vscode/vsce": "3.7.0",
     "esbuild": "0.19.12",
     "glob": "10.4.5",
-    "mocha": "10.8.2",
+    "mocha": "11.7.5",
     "typescript": "5.9.3",
     "vitest": "4.0.6"
   },
