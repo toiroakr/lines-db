@@ -12,10 +12,10 @@
     "test:cjs": "pnpm --filter @toiroakr/lines-db-tests-runtime-cjs test",
     "test:all": "pnpm test && pnpm test:runtime",
     "typecheck": "pnpm -r run typecheck",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
     "example": "pnpm --filter @toiroakr/lines-db-examples example",
     "example:validation": "pnpm --filter @toiroakr/lines-db-examples example:validation",
     "example:json": "pnpm --filter @toiroakr/lines-db-examples example:json",
@@ -42,15 +42,9 @@
   "homepage": "https://github.com/toiroakr/lines-db#readme",
   "devDependencies": {
     "@changesets/cli": "2.29.7",
-    "@eslint/js": "9.39.0",
     "@toiroakr/lines-db": "workspace:*",
-    "@typescript-eslint/eslint-plugin": "8.46.2",
-    "@typescript-eslint/parser": "8.46.2",
-    "eslint": "9.39.0",
-    "eslint-config-prettier": "10.1.8",
-    "eslint-plugin-prettier": "5.5.4",
     "lefthook": "2.1.1",
-    "prettier": "3.6.2",
-    "typescript-eslint": "8.46.2"
+    "oxfmt": "^0.46.0",
+    "oxlint": "^1.61.0"
   }
 }

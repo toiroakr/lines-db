@@ -490,9 +490,10 @@ export const schema = defineSchema(rawSchema);
       const db = LinesDB.create(config);
       await db.initialize();
 
-      const result = db.query<{ id: number; name: string }>('SELECT * FROM users WHERE id > ?', [
-        1,
-      ]);
+      const result = db.query<{ id: number; name: string }>(
+        'SELECT * FROM users WHERE id > ?',
+        [1],
+      );
 
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('Bob');

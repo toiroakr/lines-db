@@ -101,7 +101,7 @@
     "watch": "node esbuild.js --watch",
     "package": "vsce package",
     "use": "vsce package && code --install-extension lines-db-vscode-$(jq -r '.version' < package.json).vsix",
-    "lint": "eslint src --ext ts",
+    "lint": "oxlint src",
     "compile:test": "tsc -p tsconfig.test.json",
     "test:integration": "pnpm run build && pnpm run compile:test && node ./dist-test/test/runTest.js",
     "test:unit": "vitest run",
