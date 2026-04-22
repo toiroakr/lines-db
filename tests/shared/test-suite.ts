@@ -176,10 +176,12 @@ export function runDatabaseTests(runner: TestRunner, createDb: () => any | Promi
     describe('execute', () => {
       it('should execute INSERT statements', async () => {
         const testDb = await getDb();
-        const result = testDb.execute(
-          'INSERT INTO users (id, name, age, email) VALUES (?, ?, ?, ?)',
-          [4, 'David', 40, 'david@example.com'],
-        );
+        const result = testDb.execute('INSERT INTO users (id, name, age, email) VALUES (?, ?, ?, ?)', [
+          4,
+          'David',
+          40,
+          'david@example.com',
+        ]);
 
         expect(result.changes).toBe(1);
 

@@ -594,12 +594,7 @@ describe('Completion Scenarios - _User.schema.ts', () => {
         // 2. Test completion result (if output defined and completions exist)
         if (scenario.output && completions.length > 0) {
           const firstCompletion = completions[0];
-          const result = applyCompletion(
-            text,
-            cursor,
-            firstCompletion.insertText,
-            firstCompletion.range,
-          );
+          const result = applyCompletion(text, cursor, firstCompletion.insertText, firstCompletion.range);
           expect(result).toBe(scenario.output);
         }
       });
@@ -621,12 +616,7 @@ describe('Completion Scenarios - _User.schema.ts', () => {
         // 2. Test completion result (if output defined and completions exist)
         if (scenario.output && completions.length > 0) {
           const firstCompletion = completions[0];
-          const result = applyCompletion(
-            text,
-            cursor,
-            firstCompletion.insertText,
-            firstCompletion.range,
-          );
+          const result = applyCompletion(text, cursor, firstCompletion.insertText, firstCompletion.range);
           expect(result).toBe(scenario.output);
         }
       });
@@ -648,12 +638,7 @@ describe('Completion Scenarios - _User.schema.ts', () => {
         // 2. Test completion result (if output defined and completions exist)
         if (scenario.output && completions.length > 0) {
           const firstCompletion = completions[0];
-          const result = applyCompletion(
-            text,
-            cursor,
-            firstCompletion.insertText,
-            firstCompletion.range,
-          );
+          const result = applyCompletion(text, cursor, firstCompletion.insertText, firstCompletion.range);
           expect(result).toBe(scenario.output);
         }
       });
@@ -675,12 +660,7 @@ describe('Completion Scenarios - _User.schema.ts', () => {
         // 2. Test completion result (if output defined and completions exist)
         if (scenario.output && completions.length > 0) {
           const firstCompletion = completions[0];
-          const result = applyCompletion(
-            text,
-            cursor,
-            firstCompletion.insertText,
-            firstCompletion.range,
-          );
+          const result = applyCompletion(text, cursor, firstCompletion.insertText, firstCompletion.range);
           expect(result).toBe(scenario.output);
         }
       });

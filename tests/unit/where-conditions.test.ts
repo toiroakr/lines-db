@@ -64,10 +64,7 @@ describe('LinesDB WHERE Conditions', () => {
     });
 
     it('should work with findOne using OR condition', () => {
-      const result = db.findOne('users', [
-        { name: 'Bob' },
-        { name: 'Charlie' },
-      ]) as unknown as User | null;
+      const result = db.findOne('users', [{ name: 'Bob' }, { name: 'Charlie' }]) as unknown as User | null;
       expect(result).toBeTruthy();
       expect(['Bob', 'Charlie']).toContain(result?.name);
     });
@@ -86,10 +83,7 @@ describe('LinesDB WHERE Conditions', () => {
 
     it('should handle nested arrays (OR within OR)', () => {
       // ((name = Alice) OR (name = Bob)) OR (age = 35)
-      const result = db.find('users', [
-        [{ name: 'Alice' }, { name: 'Bob' }],
-        { age: 35 },
-      ]) as unknown as User[];
+      const result = db.find('users', [[{ name: 'Alice' }, { name: 'Bob' }], { age: 35 }]) as unknown as User[];
       expect(result.length).toBe(3);
       expect(result.map((u) => u.name).sort()).toEqual(['Alice', 'Bob', 'Charlie']);
     });

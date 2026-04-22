@@ -8,11 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 describe('Undefined value handling in schema inference', () => {
-  const testDir = join(
-    __dirname,
-    '.test-tmp',
-    `test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-  );
+  const testDir = join(__dirname, '.test-tmp', `test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
   const dataPath = join(testDir, 'TestTable.jsonl');
   const schemaPath = join(testDir, 'TestTable.schema.ts');
 

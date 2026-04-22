@@ -48,11 +48,7 @@ suite('Enum Value Completion', () => {
 
       const isValuePosition = colonIndex !== -1 && insideQuotes;
 
-      assert.strictEqual(
-        isValuePosition,
-        true,
-        'Should detect value position when typing inside value quotes',
-      );
+      assert.strictEqual(isValuePosition, true, 'Should detect value position when typing inside value quotes');
     });
   });
 
@@ -118,11 +114,7 @@ suite('Enum Value Completion', () => {
       // This depends on cursor context, which we detect in the completion provider
       const enumValue = 'female';
       // Inside quotes, just insert the value
-      assert.strictEqual(
-        enumValue,
-        'female',
-        'Enum value should not have quotes when cursor is already inside quotes',
-      );
+      assert.strictEqual(enumValue, 'female', 'Enum value should not have quotes when cursor is already inside quotes');
     });
   });
 });

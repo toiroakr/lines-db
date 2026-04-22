@@ -1,10 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import {
-  getForeignKeyAtPosition,
-  findReferencedRecord,
-  formatRecordAsMarkdown,
-} from './foreignKeyUtils';
+import { getForeignKeyAtPosition, findReferencedRecord, formatRecordAsMarkdown } from './foreignKeyUtils';
 
 export class ForeignKeyHoverProvider implements vscode.HoverProvider {
   async provideHover(
@@ -46,9 +42,7 @@ export class ForeignKeyHoverProvider implements vscode.HoverProvider {
 
       // Add a clickable link to jump to the record
       markdownString.appendMarkdown('\n\n---\n\n');
-      markdownString.appendMarkdown(
-        `[→ Jump to record in ${path.basename(recordLocation.filePath)}](${commandUri})`,
-      );
+      markdownString.appendMarkdown(`[→ Jump to record in ${path.basename(recordLocation.filePath)}](${commandUri})`);
 
       return new vscode.Hover(markdownString);
     } catch {

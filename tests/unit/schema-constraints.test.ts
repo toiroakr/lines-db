@@ -77,10 +77,12 @@ describe('Schema Constraints (Primary Keys, Foreign Keys, Indexes)', () => {
     it('should enforce foreign key constraint on insert', () => {
       // Try to insert order with non-existent customer
       expect(() => {
-        db.execute(
-          'INSERT INTO "orders-with-fk" (id, customerId, amount, status) VALUES (?, ?, ?, ?)',
-          [999, 999, 100, 'pending'],
-        );
+        db.execute('INSERT INTO "orders-with-fk" (id, customerId, amount, status) VALUES (?, ?, ?, ?)', [
+          999,
+          999,
+          100,
+          'pending',
+        ]);
       }).toThrow();
     });
 
@@ -169,10 +171,7 @@ describe('Schema Constraints (Primary Keys, Foreign Keys, Indexes)', () => {
 
       // Verify foreign key constraint is enforced
       expect(() => {
-        db.execute('INSERT INTO "_User" (name, password) VALUES (?, ?)', [
-          'nonexistent@example.com',
-          'test',
-        ]);
+        db.execute('INSERT INTO "_User" (name, password) VALUES (?, ?)', ['nonexistent@example.com', 'test']);
       }).toThrow();
     });
 
@@ -181,10 +180,7 @@ describe('Schema Constraints (Primary Keys, Foreign Keys, Indexes)', () => {
       await db.close();
 
       // Create a separate temp directory with only parent + child tables
-      const fkTestDir = join(
-        dirname(testDir),
-        `fk-test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-      );
+      const fkTestDir = join(dirname(testDir), `fk-test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
       await mkdir(fkTestDir);
 
       try {
@@ -234,9 +230,7 @@ export default defineSchema(schema, {
           expect(parentErrors.length).toBeGreaterThan(0);
 
           // Should have a warning about skipped FK validation
-          const fkWarnings = result.warnings.filter((w) =>
-            w.includes('Skipping foreign key validation'),
-          );
+          const fkWarnings = result.warnings.filter((w) => w.includes('Skipping foreign key validation'));
           expect(fkWarnings.length).toBeGreaterThan(0);
           expect(fkWarnings[0]).toContain("table 'child'");
           expect(fkWarnings[0]).toContain("table 'parent'");
@@ -288,9 +282,7 @@ export default defineSchema(schema, {
       expect(ordersSchema?.indexes).toBeTruthy();
       expect(ordersSchema?.indexes?.length).toBe(2);
 
-      const customerIdIndex = ordersSchema?.indexes?.find((idx) =>
-        idx.columns.includes('customerId'),
-      );
+      const customerIdIndex = ordersSchema?.indexes?.find((idx) => idx.columns.includes('customerId'));
       expect(customerIdIndex).toBeTruthy();
 
       const statusIndex = ordersSchema?.indexes?.find((idx) => idx.columns.includes('status'));
@@ -302,9 +294,7 @@ export default defineSchema(schema, {
       interface IndexRow {
         name: string;
       }
-      const indexes = db.query<IndexRow>(
-        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='customers'",
-      );
+      const indexes = db.query<IndexRow>("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='customers'");
 
       // Should have at least the email index (plus SQLite auto-created pk index)
       expect(indexes.length).toBeGreaterThan(0);

@@ -137,10 +137,7 @@ export const schema = defineSchema(rawSchema);
     });
 
     it('should find rows by condition', async () => {
-      await writeTable(
-        'users',
-        '{"id":1,"name":"Alice"}\n{"id":2,"name":"Bob"}\n{"id":3,"name":"Alice"}\n',
-      );
+      await writeTable('users', '{"id":1,"name":"Alice"}\n{"id":2,"name":"Bob"}\n{"id":3,"name":"Alice"}\n');
 
       type Tables = {
         users: { id: number; name: string };
@@ -278,10 +275,7 @@ export const schema = defineSchema(rawSchema);
 
   describe('update operations', () => {
     it('should update existing rows', async () => {
-      await writeTable(
-        'users',
-        '{"id":1,"name":"Alice","age":30}\n{"id":2,"name":"Bob","age":25}\n',
-      );
+      await writeTable('users', '{"id":1,"name":"Alice","age":30}\n{"id":2,"name":"Bob","age":25}\n');
 
       type Tables = {
         users: { id: number; name: string; age: number };
@@ -301,10 +295,7 @@ export const schema = defineSchema(rawSchema);
     });
 
     it('should update multiple rows', async () => {
-      await writeTable(
-        'users',
-        '{"id":1,"name":"Alice","active":true}\n{"id":2,"name":"Bob","active":true}\n',
-      );
+      await writeTable('users', '{"id":1,"name":"Alice","active":true}\n{"id":2,"name":"Bob","active":true}\n');
 
       type Tables = {
         users: { id: number; name: string; active: boolean };
@@ -321,10 +312,7 @@ export const schema = defineSchema(rawSchema);
     });
 
     it('should batch update rows with distinct values', async () => {
-      await writeTable(
-        'users',
-        '{"id":1,"name":"Alice","age":30}\n{"id":2,"name":"Bob","age":25}\n',
-      );
+      await writeTable('users', '{"id":1,"name":"Alice","age":30}\n{"id":2,"name":"Bob","age":25}\n');
 
       type Tables = {
         users: { id: number; name: string; age: number };
@@ -373,10 +361,7 @@ export const schema = defineSchema(rawSchema);
     });
 
     it('should delete multiple rows', async () => {
-      await writeTable(
-        'users',
-        '{"id":1,"name":"Alice"}\n{"id":2,"name":"Alice"}\n{"id":3,"name":"Bob"}\n',
-      );
+      await writeTable('users', '{"id":1,"name":"Alice"}\n{"id":2,"name":"Alice"}\n{"id":3,"name":"Bob"}\n');
 
       type Tables = {
         users: { id: number; name: string };
@@ -396,10 +381,7 @@ export const schema = defineSchema(rawSchema);
     });
 
     it('should batch delete rows by primary key', async () => {
-      await writeTable(
-        'users',
-        '{"id":1,"name":"Alice"}\n{"id":2,"name":"Bob"}\n{"id":3,"name":"Carol"}\n',
-      );
+      await writeTable('users', '{"id":1,"name":"Alice"}\n{"id":2,"name":"Bob"}\n{"id":3,"name":"Carol"}\n');
 
       type Tables = {
         users: { id: number; name: string };
@@ -477,10 +459,7 @@ export const schema = defineSchema(rawSchema);
 
   describe('raw SQL queries', () => {
     it('should execute raw queries', async () => {
-      await writeFile(
-        join(testDir, 'users.jsonl'),
-        '{"id":1,"name":"Alice"}\n{"id":2,"name":"Bob"}\n',
-      );
+      await writeFile(join(testDir, 'users.jsonl'), '{"id":1,"name":"Alice"}\n{"id":2,"name":"Bob"}\n');
 
       type Tables = {
         users: { id: number; name: string };
@@ -490,10 +469,7 @@ export const schema = defineSchema(rawSchema);
       const db = LinesDB.create(config);
       await db.initialize();
 
-      const result = db.query<{ id: number; name: string }>(
-        'SELECT * FROM users WHERE id > ?',
-        [1],
-      );
+      const result = db.query<{ id: number; name: string }>('SELECT * FROM users WHERE id > ?', [1]);
 
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('Bob');
@@ -603,10 +579,7 @@ export const schema = Object.assign(Object.create(baseSchema), {
         ['profile_code'],
       );
 
-      await writeFile(
-        join(testDir, 'profiles.jsonl'),
-        '{"code":"a-001","author_id":"1","bio":"Author A"}\n',
-      );
+      await writeFile(join(testDir, 'profiles.jsonl'), '{"code":"a-001","author_id":"1","bio":"Author A"}\n');
       await writeSchemaWithFK(
         'profiles',
         'code',
@@ -636,10 +609,7 @@ export const schema = Object.assign(Object.create(baseSchema), {
     });
 
     it('should detect orphan in profiles (no matching author)', async () => {
-      await writeFile(
-        join(testDir, 'authors.jsonl'),
-        '{"id":"1","name":"Alice","profile_code":"a-001"}\n',
-      );
+      await writeFile(join(testDir, 'authors.jsonl'), '{"id":"1","name":"Alice","profile_code":"a-001"}\n');
       await writeSchemaWithFK(
         'authors',
         'id',

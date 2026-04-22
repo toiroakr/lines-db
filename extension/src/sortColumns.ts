@@ -144,10 +144,7 @@ export async function getSchemaColumnOrder(jsonlFilePath: string): Promise<strin
 /**
  * Sort a single JSON object by column order
  */
-export function sortObjectByColumnOrder(
-  obj: Record<string, unknown>,
-  columnOrder: string[],
-): Record<string, unknown> {
+export function sortObjectByColumnOrder(obj: Record<string, unknown>, columnOrder: string[]): Record<string, unknown> {
   const sorted: Record<string, unknown> = {};
 
   // Add columns in specified order
@@ -170,10 +167,7 @@ export function sortObjectByColumnOrder(
 /**
  * Sort all rows in a JSONL file by column order
  */
-export async function sortColumnsByOrder(
-  filePath: string,
-  columnOrder: string[],
-): Promise<ColumnSortResult> {
+export async function sortColumnsByOrder(filePath: string, columnOrder: string[]): Promise<ColumnSortResult> {
   try {
     if (!global.__linesDbModule?.JsonlReader) {
       throw new Error('LinesDB module not available');
@@ -188,10 +182,7 @@ export async function sortColumnsByOrder(
 
     for (const record of records) {
       if (typeof record === 'object' && record !== null) {
-        const sortedRecord = sortObjectByColumnOrder(
-          record as Record<string, unknown>,
-          columnOrder,
-        );
+        const sortedRecord = sortObjectByColumnOrder(record as Record<string, unknown>, columnOrder);
         sortedRows.push(JSON.stringify(sortedRecord));
       } else {
         // Keep non-object rows as-is
@@ -204,9 +195,7 @@ export async function sortColumnsByOrder(
       columnOrder,
     };
   } catch (error) {
-    throw new Error(
-      `Failed to sort columns: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new Error(`Failed to sort columns: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -294,9 +283,7 @@ export async function showColumnOrderPicker(filePath: string): Promise<ColumnSor
       [
         {
           label: '$(symbol-field) Use Schema Validation Order',
-          description: schemaOrder
-            ? `Sort by order from schema validation result`
-            : 'No schema file or records found',
+          description: schemaOrder ? `Sort by order from schema validation result` : 'No schema file or records found',
           value: 'schema',
           disabled: !schemaOrder,
         },
@@ -340,9 +327,7 @@ export async function showColumnOrderPicker(filePath: string): Promise<ColumnSor
     // Sort columns
     return await sortColumnsByOrder(filePath, columnOrder);
   } catch (error) {
-    vscode.window.showErrorMessage(
-      `Failed to sort columns: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    vscode.window.showErrorMessage(`Failed to sort columns: ${error instanceof Error ? error.message : String(error)}`);
     return null;
   }
 }

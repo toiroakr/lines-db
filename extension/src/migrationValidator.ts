@@ -37,9 +37,7 @@ export class MigrationValidator {
         };
       }
 
-      const allRows = (await global.__linesDbModule.JsonlReader.read(
-        session.originalFilePath,
-      )) as MigrationRow[];
+      const allRows = (await global.__linesDbModule.JsonlReader.read(session.originalFilePath)) as MigrationRow[];
       const plan = this.createMigrationPlan(allRows, transform, filter);
 
       if (plan.transformedRows.length === 0) {
@@ -59,11 +57,7 @@ export class MigrationValidator {
           });
         }
       } catch (validationError) {
-        return this.processValidationError(
-          validationError,
-          plan.transformedRows,
-          plan.transformedRowIndices,
-        );
+        return this.processValidationError(validationError, plan.transformedRows, plan.transformedRowIndices);
       }
 
       return {

@@ -78,4 +78,4 @@ jobs:
         run: pnpm test
 
       - name: Run validate command (reproduces Windows CMD foreign key issue)
-        run: node lib/bin/cli.js validate tests/unit/fixtures
+        run: node lib/bin/cli.mjs validate tests/unit/fixtures

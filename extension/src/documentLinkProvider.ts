@@ -23,11 +23,7 @@ export class JsonlDocumentLinkProvider implements vscode.DocumentLinkProvider {
         // Create a link for the entire line
         const link = new vscode.DocumentLink(
           line.range,
-          vscode.Uri.parse(
-            `command:lines-db.editJsonlLine?${encodeURIComponent(
-              JSON.stringify([document.uri, i]),
-            )}`,
-          ),
+          vscode.Uri.parse(`command:lines-db.editJsonlLine?${encodeURIComponent(JSON.stringify([document.uri, i]))}`),
         );
         link.tooltip = 'Click to edit this JSON line';
         links.push(link);

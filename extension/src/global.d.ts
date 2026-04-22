@@ -31,20 +31,13 @@ declare global {
         };
         JsonlReader: {
           read: (path: string) => Promise<unknown[]>;
-          withOverrides: <T>(
-            overrides: Map<string, unknown[]>,
-            callback: () => Promise<T>,
-          ) => Promise<T>;
+          withOverrides: <T>(overrides: Map<string, unknown[]>, callback: () => Promise<T>) => Promise<T>;
         };
         SchemaLoader: {
           hasSchema: (jsonlPath: string) => Promise<boolean>;
           loadSchema: (jsonlPath: string) => Promise<unknown>;
         };
-        ensureTableRowsValid: (options: {
-          dataDir: string;
-          tableName: string;
-          rows: unknown[];
-        }) => Promise<void>;
+        ensureTableRowsValid: (options: { dataDir: string; tableName: string; rows: unknown[] }) => Promise<void>;
       }
     | undefined;
 }

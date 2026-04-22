@@ -56,9 +56,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
 
       try {
         if (!global.__linesDbModule?.LinesDB) {
-          vscode.window.showErrorMessage(
-            'LinesDB: @toiroakr/lines-db not found in workspace. Please install it.',
-          );
+          vscode.window.showErrorMessage('LinesDB: @toiroakr/lines-db not found in workspace. Please install it.');
           return;
         }
 
@@ -113,9 +111,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
             }
           }
 
-          vscode.window.showErrorMessage(
-            `LinesDB: Found ${result.errors.length} validation error(s)`,
-          );
+          vscode.window.showErrorMessage(`LinesDB: Found ${result.errors.length} validation error(s)`);
         }
       } catch (error) {
         if (outChan) {
@@ -184,11 +180,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
 
         if (outChan) outChan.appendLine('Creating migration session...');
         // Create migration session
-        const migrationFilePath = await MigrationSessionManager.createSession(
-          filePath,
-          tableName,
-          dataDirPath,
-        );
+        const migrationFilePath = await MigrationSessionManager.createSession(filePath, tableName, dataDirPath);
         if (outChan) outChan.appendLine(`Migration file created: ${migrationFilePath}`);
 
         // Open migration file
@@ -228,21 +220,15 @@ export function registerCommands(context: vscode.ExtensionContext) {
       const { transform, filter } = await MigrationValidator.parseMigrationFile(migrationContent);
 
       if (!global.__linesDbModule?.JsonlReader) {
-        vscode.window.showErrorMessage(
-          'LinesDB: @toiroakr/lines-db not found in workspace. Please install it.',
-        );
+        vscode.window.showErrorMessage('LinesDB: @toiroakr/lines-db not found in workspace. Please install it.');
         return;
       }
 
-      const allRows = (await global.__linesDbModule.JsonlReader.read(
-        session.originalFilePath,
-      )) as MigrationRow[];
+      const allRows = (await global.__linesDbModule.JsonlReader.read(session.originalFilePath)) as MigrationRow[];
       const plan = MigrationValidator.createMigrationPlan(allRows, transform, filter);
 
       if (plan.transformedRows.length === 0) {
-        vscode.window.showInformationMessage(
-          'LinesDB: Migration executed. No rows matched the filter.',
-        );
+        vscode.window.showInformationMessage('LinesDB: Migration executed. No rows matched the filter.');
         return;
       }
 
@@ -410,120 +396,108 @@ export function registerCommands(context: vscode.ExtensionContext) {
 
   // Edit JSONL Line Command
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      'lines-db.editJsonlLine',
-      async (uri?: vscode.Uri, lineNumber?: number) => {
-        const outChan = getOutputChannel();
+    vscode.commands.registerCommand('lines-db.editJsonlLine', async (uri?: vscode.Uri, lineNumber?: number) => {
+      const outChan = getOutputChannel();
 
-        // Get document and line number
-        let document: vscode.TextDocument;
-        let targetLine: number;
+      // Get document and line number
+      let document: vscode.TextDocument;
+      let targetLine: number;
 
-        if (uri && lineNumber !== undefined) {
-          // Called from DocumentLink or CodeAction
-          document = await vscode.workspace.openTextDocument(uri);
-          targetLine = lineNumber;
-        } else {
-          // Called from command palette
-          const editor = vscode.window.activeTextEditor;
-          if (!editor) {
-            vscode.window.showErrorMessage('No file is currently open');
-            return;
-          }
-          document = editor.document;
-          targetLine = editor.selection.active.line;
+      if (uri && lineNumber !== undefined) {
+        // Called from DocumentLink or CodeAction
+        document = await vscode.workspace.openTextDocument(uri);
+        targetLine = lineNumber;
+      } else {
+        // Called from command palette
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          vscode.window.showErrorMessage('No file is currently open');
+          return;
         }
+        document = editor.document;
+        targetLine = editor.selection.active.line;
+      }
 
-        // Check if it's a JSONL file
-        if (!document.fileName.endsWith('.jsonl')) {
-          vscode.window.showErrorMessage('Current file is not a JSONL file');
+      // Check if it's a JSONL file
+      if (!document.fileName.endsWith('.jsonl')) {
+        vscode.window.showErrorMessage('Current file is not a JSONL file');
+        return;
+      }
+
+      // Get the line text
+      const lineText = document.lineAt(targetLine).text.trim();
+      if (!lineText) {
+        vscode.window.showErrorMessage('Cannot edit empty line');
+        return;
+      }
+
+      // Validate JSON
+      try {
+        JSON.parse(lineText);
+      } catch (error) {
+        vscode.window.showErrorMessage(`Invalid JSON on line ${targetLine + 1}: ${error}`);
+        return;
+      }
+
+      // Create temp file and open it
+      try {
+        const tempFileManager = global.__tempFileManager;
+        if (!tempFileManager) {
+          vscode.window.showErrorMessage('Temp file manager not initialized');
           return;
         }
 
-        // Get the line text
-        const lineText = document.lineAt(targetLine).text.trim();
-        if (!lineText) {
-          vscode.window.showErrorMessage('Cannot edit empty line');
-          return;
+        const tempFilePath = await tempFileManager.createTempFile(document.uri, targetLine, lineText);
+
+        if (outChan) {
+          outChan.appendLine(`Created temp file: ${tempFilePath}`);
+          outChan.appendLine(`Editing line ${targetLine + 1} from ${document.uri.fsPath}`);
         }
 
-        // Validate JSON
-        try {
-          JSON.parse(lineText);
-        } catch (error) {
-          vscode.window.showErrorMessage(`Invalid JSON on line ${targetLine + 1}: ${error}`);
-          return;
-        }
+        // Open temp file
+        const tempDoc = await vscode.workspace.openTextDocument(tempFilePath);
+        await vscode.window.showTextDocument(tempDoc, {
+          preview: false,
+          viewColumn: vscode.ViewColumn.Active,
+        });
 
-        // Create temp file and open it
-        try {
-          const tempFileManager = global.__tempFileManager;
-          if (!tempFileManager) {
-            vscode.window.showErrorMessage('Temp file manager not initialized');
-            return;
-          }
-
-          const tempFilePath = await tempFileManager.createTempFile(
-            document.uri,
-            targetLine,
-            lineText,
-          );
-
-          if (outChan) {
-            outChan.appendLine(`Created temp file: ${tempFilePath}`);
-            outChan.appendLine(`Editing line ${targetLine + 1} from ${document.uri.fsPath}`);
-          }
-
-          // Open temp file
-          const tempDoc = await vscode.workspace.openTextDocument(tempFilePath);
-          await vscode.window.showTextDocument(tempDoc, {
-            preview: false,
-            viewColumn: vscode.ViewColumn.Active,
-          });
-
-          vscode.window.showInformationMessage(
-            'Edit the JSON and save (Cmd+S) to apply changes to the original file',
-          );
-        } catch (error) {
-          vscode.window.showErrorMessage(
-            `Failed to create temp file: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      },
-    ),
+        vscode.window.showInformationMessage('Edit the JSON and save (Cmd+S) to apply changes to the original file');
+      } catch (error) {
+        vscode.window.showErrorMessage(
+          `Failed to create temp file: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }),
   );
 
   // Preview JSONL Line Command
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      'lines-db.previewJsonlLine',
-      async (uri?: vscode.Uri, lineNumber?: number) => {
-        const { JsonlPreviewPanel } = await import('./previewPanel.js');
+    vscode.commands.registerCommand('lines-db.previewJsonlLine', async (uri?: vscode.Uri, lineNumber?: number) => {
+      const { JsonlPreviewPanel } = await import('./previewPanel.js');
 
-        let document: vscode.TextDocument;
-        let targetLine: number;
+      let document: vscode.TextDocument;
+      let targetLine: number;
 
-        if (uri && lineNumber !== undefined) {
-          document = await vscode.workspace.openTextDocument(uri);
-          targetLine = lineNumber;
-        } else {
-          const editor = vscode.window.activeTextEditor;
-          if (!editor) {
-            vscode.window.showErrorMessage('No file is currently open');
-            return;
-          }
-          document = editor.document;
-          targetLine = editor.selection.active.line;
-        }
-
-        if (!document.fileName.endsWith('.jsonl')) {
-          vscode.window.showErrorMessage('Current file is not a JSONL file');
+      if (uri && lineNumber !== undefined) {
+        document = await vscode.workspace.openTextDocument(uri);
+        targetLine = lineNumber;
+      } else {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          vscode.window.showErrorMessage('No file is currently open');
           return;
         }
+        document = editor.document;
+        targetLine = editor.selection.active.line;
+      }
 
-        JsonlPreviewPanel.previewLine(context.extensionUri, document, targetLine);
-      },
-    ),
+      if (!document.fileName.endsWith('.jsonl')) {
+        vscode.window.showErrorMessage('Current file is not a JSONL file');
+        return;
+      }
+
+      JsonlPreviewPanel.previewLine(context.extensionUri, document, targetLine);
+    }),
   );
 
   // Sort Rows Command
@@ -564,9 +538,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
         }
 
         if (outChan) {
-          outChan.appendLine(
-            `Sort keys: ${result.sortKeys.map((k) => `${k.column} (${k.order})`).join(', ')}`,
-          );
+          outChan.appendLine(`Sort keys: ${result.sortKeys.map((k) => `${k.column} (${k.order})`).join(', ')}`);
           outChan.appendLine(`Sorted ${result.sortedRows.length} rows`);
         }
 
@@ -653,9 +625,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
         }
 
         // Confirm before applying changes
-        const columnOrderPreview = result.columnOrder
-          .map((col, idx) => `${idx + 1}. ${col}`)
-          .join('\n');
+        const columnOrderPreview = result.columnOrder.map((col, idx) => `${idx + 1}. ${col}`).join('\n');
         const confirm = await vscode.window.showWarningMessage(
           `Sort all ${result.sortedRows.length} rows by column order?\n\nColumn order:\n${columnOrderPreview}`,
           { modal: true },
@@ -673,9 +643,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
 
         if (outChan) outChan.appendLine('File updated successfully');
 
-        vscode.window.showInformationMessage(
-          `LinesDB: Sorted ${result.sortedRows.length} rows by column order`,
-        );
+        vscode.window.showInformationMessage(`LinesDB: Sorted ${result.sortedRows.length} rows by column order`);
 
         // Refresh the document
         const document = await vscode.workspace.openTextDocument(filePath);

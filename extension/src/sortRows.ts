@@ -39,9 +39,7 @@ export async function showRowSortPicker(filePath: string): Promise<RowSortResult
     sortKeys.push(primaryKey);
 
     if (outputChannel) {
-      outputChannel.appendLine(
-        `[SortRows] Primary key: ${primaryKey.column} (${primaryKey.order})`,
-      );
+      outputChannel.appendLine(`[SortRows] Primary key: ${primaryKey.column} (${primaryKey.order})`);
     }
 
     // 2. Ask if user wants to add Secondary Key
@@ -80,9 +78,7 @@ export async function showRowSortPicker(filePath: string): Promise<RowSortResult
       } else {
         sortKeys.push(secondaryKey);
         if (outputChannel) {
-          outputChannel.appendLine(
-            `[SortRows] Secondary key: ${secondaryKey.column} (${secondaryKey.order})`,
-          );
+          outputChannel.appendLine(`[SortRows] Secondary key: ${secondaryKey.column} (${secondaryKey.order})`);
         }
       }
     }
@@ -191,9 +187,7 @@ async function sortRowsBySortKeys(filePath: string, sortKeys: SortKey[]): Promis
 
   if (outputChannel) {
     outputChannel.appendLine(`[SortRows] Sorting ${records.length} records`);
-    outputChannel.appendLine(
-      `[SortRows] Sort keys: ${sortKeys.map((k) => `${k.column} (${k.order})`).join(', ')}`,
-    );
+    outputChannel.appendLine(`[SortRows] Sort keys: ${sortKeys.map((k) => `${k.column} (${k.order})`).join(', ')}`);
   }
 
   // Sort with multi-key comparison

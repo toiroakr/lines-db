@@ -26,9 +26,7 @@ describe('migration parser', () => {
   });
 
   it('rejects when migration object is missing', async () => {
-    await expect(parseMigrationSource('const noMigration = {};')).rejects.toThrow(
-      /migration object is required/,
-    );
+    await expect(parseMigrationSource('const noMigration = {};')).rejects.toThrow(/migration object is required/);
   });
 
   it('should extract correct rowIndex from validation errors', () => {
@@ -41,18 +39,14 @@ describe('migration parser', () => {
           rowIndex: 0,
           rowData: { id: -1, name: 'Alice', active: true },
           error: {
-            issues: [
-              { message: 'Invalid value: Expected number>=1 but received -1', path: ['id'] },
-            ],
+            issues: [{ message: 'Invalid value: Expected number>=1 but received -1', path: ['id'] }],
           },
         },
         {
           rowIndex: 1,
           rowData: { id: -2, name: 'Bob', active: true },
           error: {
-            issues: [
-              { message: 'Invalid value: Expected number>=1 but received -2', path: ['id'] },
-            ],
+            issues: [{ message: 'Invalid value: Expected number>=1 but received -2', path: ['id'] }],
           },
         },
       ],

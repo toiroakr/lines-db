@@ -25,11 +25,7 @@ export class TempFileManager {
   /**
    * Creates a temporary JSON file from a JSONL line
    */
-  async createTempFile(
-    originalUri: vscode.Uri,
-    lineNumber: number,
-    lineText: string,
-  ): Promise<string> {
+  async createTempFile(originalUri: vscode.Uri, lineNumber: number, lineText: string): Promise<string> {
     // Parse and format the JSON
     let formatted: string;
     try {
@@ -89,10 +85,7 @@ export class TempFileManager {
       // Close the temp file tab
       const tabs = vscode.window.tabGroups.all
         .flatMap((group) => group.tabs)
-        .filter(
-          (tab) =>
-            tab.input instanceof vscode.TabInputText && tab.input.uri.fsPath === tempFilePath,
-        );
+        .filter((tab) => tab.input instanceof vscode.TabInputText && tab.input.uri.fsPath === tempFilePath);
       await vscode.window.tabGroups.close(tabs);
 
       // Delete the temp file

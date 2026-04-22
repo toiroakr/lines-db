@@ -2,10 +2,7 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 
 export type Table = Record<string, unknown>;
-export type StandardSchema<
-  Input extends Table = Table,
-  Output extends Table = Input,
-> = StandardSchemaV1<Input, Output>;
+export type StandardSchema<Input extends Table = Table, Output extends Table = Input> = StandardSchemaV1<Input, Output>;
 export type StandardSchemaResult<Output> = StandardSchemaV1.Result<Output>;
 export type StandardSchemaIssue = StandardSchemaV1.Issue;
 

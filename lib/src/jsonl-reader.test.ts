@@ -148,9 +148,7 @@ describe('JsonlReader', () => {
     });
 
     it('should throw error for empty data', () => {
-      expect(() => JsonlReader.inferSchema('empty', [])).toThrow(
-        'Cannot infer schema from empty data',
-      );
+      expect(() => JsonlReader.inferSchema('empty', [])).toThrow('Cannot infer schema from empty data');
     });
 
     it('should handle REAL numbers', () => {

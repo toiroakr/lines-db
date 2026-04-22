@@ -9,10 +9,7 @@ export class JsonlReader {
    * Temporarily override the data returned for specific JSONL files.
    * Useful for scenarios like migration validation where in-memory data should be used.
    */
-  static async withOverrides<T>(
-    overrides: Map<string, JsonObject[]>,
-    fn: () => Promise<T>,
-  ): Promise<T> {
+  static async withOverrides<T>(overrides: Map<string, JsonObject[]>, fn: () => Promise<T>): Promise<T> {
     const normalized = new Map<string, JsonObject[]>();
     for (const [filePath, rows] of overrides) {
       normalized.set(normalize(filePath), rows);

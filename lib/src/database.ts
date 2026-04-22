@@ -36,10 +36,7 @@ export class LinesDB<Tables extends TableDefs> {
     this.db = createDatabase(dbPath ?? ':memory:');
   }
 
-  static create<Tables extends TableDefs>(
-    config: DatabaseConfig<Tables>,
-    dbPath?: string,
-  ): LinesDB<Tables> {
+  static create<Tables extends TableDefs>(config: DatabaseConfig<Tables>, dbPath?: string): LinesDB<Tables> {
     return new LinesDB<Tables>(config, dbPath);
   }
 
@@ -73,9 +70,7 @@ export class LinesDB<Tables extends TableDefs> {
     // Validate that all requested tables exist BEFORE starting to load
     for (const tableNameToLoad of tablesToLoad) {
       if (!this.tables.has(tableNameToLoad)) {
-        throw new Error(
-          `Table '${tableNameToLoad}' not found in directory '${this.config.dataDir}'`,
-        );
+        throw new Error(`Table '${tableNameToLoad}' not found in directory '${this.config.dataDir}'`);
       }
     }
 
@@ -294,13 +289,7 @@ export class LinesDB<Tables extends TableDefs> {
         loaded,
         rowCount,
         errors: loadErrors,
-      } = await this.loadTable(
-        tableName,
-        tableConfig,
-        detailedValidate,
-        transform,
-        allSkippedDependencies,
-      );
+      } = await this.loadTable(tableName, tableConfig, detailedValidate, transform, allSkippedDependencies);
       errors.push(...loadErrors);
       rowCounts.set(tableName, rowCount);
 
@@ -373,10 +362,7 @@ export class LinesDB<Tables extends TableDefs> {
       // Only load if not already provided via config
       try {
         const { pathToFileURL } = await import('node:url');
-        const schemaPath = await findSchemaFile(
-          dirname(config.jsonlPath),
-          basename(config.jsonlPath, '.jsonl'),
-        );
+        const schemaPath = await findSchemaFile(dirname(config.jsonlPath), basename(config.jsonlPath, '.jsonl'));
         if (!schemaPath) throw new Error('Schema file not found');
         const schemaUrl = pathToFileURL(schemaPath).href;
         const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
@@ -544,12 +530,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Insert validated data (with detailed validation if requested)
     if (detailedValidate) {
-      const insertErrors = this.insertDataWithDetailedValidation(
-        tableName,
-        schema,
-        validatedData,
-        config.jsonlPath,
-      );
+      const insertErrors = this.insertDataWithDetailedValidation(tableName, schema, validatedData, config.jsonlPath);
       if (insertErrors.length > 0) {
         return { loaded: false, rowCount: data.length, errors: insertErrors };
       }
@@ -626,8 +607,7 @@ export class LinesDB<Tables extends TableDefs> {
         const index = schema.indexes[i];
         // Create safe index name by replacing special characters
         const safeTableName = schema.name.replace(/[^a-zA-Z0-9]/g, '_');
-        const resolvedIndexName =
-          index.name || `idx_${safeTableName}_${index.columns.join('_')}_${i}`;
+        const resolvedIndexName = index.name || `idx_${safeTableName}_${index.columns.join('_')}_${i}`;
         const uniqueKeyword = index.unique ? 'UNIQUE ' : '';
         const indexSql = `CREATE ${uniqueKeyword}INDEX IF NOT EXISTS ${this.quoteIdentifier(resolvedIndexName)} ON ${quotedTableName} (${index.columns
           .map((col) => this.quoteIdentifier(col))
@@ -836,10 +816,7 @@ export class LinesDB<Tables extends TableDefs> {
   /**
    * Execute a raw SQL query
    */
-  query<T = unknown>(
-    sql: string,
-    params: (string | number | bigint | null | Uint8Array)[] = [],
-  ): T[] {
+  query<T = unknown>(sql: string, params: (string | number | bigint | null | Uint8Array)[] = []): T[] {
     const stmt = this.db.prepare(sql);
     return stmt.all(...params) as T[];
   }
@@ -847,10 +824,7 @@ export class LinesDB<Tables extends TableDefs> {
   /**
    * Execute a SQL query that returns a single row
    */
-  queryOne<T = unknown>(
-    sql: string,
-    params: (string | number | bigint | null | Uint8Array)[] = [],
-  ): T | null {
+  queryOne<T = unknown>(sql: string, params: (string | number | bigint | null | Uint8Array)[] = []): T | null {
     const stmt = this.db.prepare(sql);
     const result = stmt.get(...params);
     return result === undefined ? null : (result as T);
@@ -896,10 +870,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Normal case: use SQL WHERE clause
     if (sql) {
-      const rawRows = this.query(
-        `SELECT * FROM ${this.quoteTableName(tableName)} WHERE ${sql}`,
-        values,
-      );
+      const rawRows = this.query(`SELECT * FROM ${this.quoteTableName(tableName)} WHERE ${sql}`, values);
       rows = rawRows.map((row) => this.deserializeRow(tableName, row)) as Tables[K][];
     } else {
       // If only function filters (AND case), get all rows
@@ -919,10 +890,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     let rows: Tables[K][];
     if (sql) {
-      const rawRows = this.query(
-        `SELECT * FROM ${this.quoteTableName(tableName)} WHERE ${sql}`,
-        values,
-      );
+      const rawRows = this.query(`SELECT * FROM ${this.quoteTableName(tableName)} WHERE ${sql}`, values);
       rows = rawRows.map((row) => this.deserializeRow(tableName, row)) as Tables[K][];
     } else {
       // If only function filters, get all rows
@@ -986,9 +954,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Only synchronous validation is supported
     if (result instanceof Promise) {
-      throw new Error(
-        'Asynchronous validation is not supported. Please use synchronous validation schemas.',
-      );
+      throw new Error('Asynchronous validation is not supported. Please use synchronous validation schemas.');
     }
 
     if (result.issues && result.issues.length > 0) {
@@ -1209,9 +1175,7 @@ export class LinesDB<Tables extends TableDefs> {
     for (const record of records) {
       const pkValue = record[pkName];
       if (pkValue === undefined) {
-        throw new Error(
-          `Record is missing primary key '${String(pkName)}': ${JSON.stringify(record)}`,
-        );
+        throw new Error(`Record is missing primary key '${String(pkName)}': ${JSON.stringify(record)}`);
       }
       pkValues.push(pkValue);
     }
@@ -1250,9 +1214,7 @@ export class LinesDB<Tables extends TableDefs> {
         const existingRow = existingRowsMap.get(pkValue);
 
         if (!existingRow) {
-          throw new Error(
-            `No existing row found with ${String(pkName)}=${JSON.stringify(pkValue)}`,
-          );
+          throw new Error(`No existing row found with ${String(pkName)}=${JSON.stringify(pkValue)}`);
         }
 
         const mergedData = { ...existingRow, ...record };
@@ -1396,8 +1358,7 @@ export class LinesDB<Tables extends TableDefs> {
   private normalizeValue(value: unknown): string | number | bigint | null | Uint8Array {
     if (value === null || value === undefined) return null;
     if (typeof value === 'boolean') return value ? 1 : 0;
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint')
-      return value;
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') return value;
     if (value instanceof Uint8Array) return value;
     // For objects, convert to JSON string
     return JSON.stringify(value);
@@ -1426,9 +1387,7 @@ export class LinesDB<Tables extends TableDefs> {
       if (Array.isArray(cond)) {
         const clauses = cond
           .map((item) => {
-            const clause = Array.isArray(item)
-              ? buildCondition(item, true)
-              : buildCondition(item, true);
+            const clause = Array.isArray(item) ? buildCondition(item, true) : buildCondition(item, true);
             return clause ? `(${clause})` : '';
           })
           .filter((clause) => clause !== ''); // Filter out empty clauses
@@ -1465,20 +1424,14 @@ export class LinesDB<Tables extends TableDefs> {
   /**
    * Apply OR condition with function filters by evaluating each row against the condition
    */
-  private applyOrConditionWithFilters<T extends Record<string, unknown>>(
-    rows: T[],
-    condition: WhereCondition<T>,
-  ): T[] {
+  private applyOrConditionWithFilters<T extends Record<string, unknown>>(rows: T[], condition: WhereCondition<T>): T[] {
     return rows.filter((row) => this.matchesOrCondition(row, condition));
   }
 
   /**
    * Check if a row matches an OR/AND condition (recursively)
    */
-  private matchesOrCondition<T extends Record<string, unknown>>(
-    row: T,
-    condition: WhereCondition<T>,
-  ): boolean {
+  private matchesOrCondition<T extends Record<string, unknown>>(row: T, condition: WhereCondition<T>): boolean {
     // Handle array (OR conditions)
     if (Array.isArray(condition)) {
       return condition.some((item) => this.matchesOrCondition(row, item));

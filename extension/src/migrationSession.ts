@@ -22,11 +22,7 @@ export class MigrationSessionManager {
     context.subscriptions.push(this.diagnosticCollection);
   }
 
-  static async createSession(
-    originalFilePath: string,
-    tableName: string,
-    dataDir: string,
-  ): Promise<string> {
+  static async createSession(originalFilePath: string, tableName: string, dataDir: string): Promise<string> {
     // Create temporary migration file
     const migrationFileName = `${tableName}.migration.ts`;
     const migrationFilePath = path.join(os.tmpdir(), migrationFileName);
@@ -65,10 +61,7 @@ export class MigrationSessionManager {
     }
   }
 
-  static async generateMigrationTemplate(
-    originalFilePath: string,
-    tableName: string,
-  ): Promise<string> {
+  static async generateMigrationTemplate(originalFilePath: string, tableName: string): Promise<string> {
     // Load sample data and schema information
     let sampleDataComment = '';
     let typeDefinition = '';

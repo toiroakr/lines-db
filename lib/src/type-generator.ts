@@ -23,12 +23,9 @@ export class TypeGenerator {
   constructor(options: TypeGeneratorOptions) {
     // For testing: allow overriding projectRoot via environment variable
     const envProjectRoot = process.env.LINES_DB_TEST_PROJECT_ROOT;
-    this.projectRoot =
-      envProjectRoot !== undefined ? envProjectRoot : options.projectRoot || process.cwd();
+    this.projectRoot = envProjectRoot !== undefined ? envProjectRoot : options.projectRoot || process.cwd();
     this.dataDir = options.dataDir;
-    this.dataDirPath = isAbsolute(this.dataDir)
-      ? this.dataDir
-      : join(this.projectRoot, this.dataDir);
+    this.dataDirPath = isAbsolute(this.dataDir) ? this.dataDir : join(this.projectRoot, this.dataDir);
     this.outputFile = options.output
       ? isAbsolute(options.output)
         ? options.output
@@ -44,9 +41,7 @@ export class TypeGenerator {
     const tables = await this.findTables();
 
     if (tables.length === 0) {
-      throw new Error(
-        `No JSONL files found in ${this.dataDirPath}. Place one or more *.jsonl files in the directory.`,
-      );
+      throw new Error(`No JSONL files found in ${this.dataDirPath}. Place one or more *.jsonl files in the directory.`);
     }
 
     // Generate type declarations
@@ -85,9 +80,7 @@ export class TypeGenerator {
       return tables;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new Error(
-          `Data directory not found: ${this.dataDirPath}. Set lines-db.dataDir to the correct location.`,
-        );
+        throw new Error(`Data directory not found: ${this.dataDirPath}. Set lines-db.dataDir to the correct location.`);
       }
       throw error;
     }

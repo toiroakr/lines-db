@@ -46,10 +46,7 @@ suite('Quote Helper', () => {
       const result = generateFieldNameInsertText('gender', 'enum', true);
 
       // Should NOT start with quote (already present)
-      assert.ok(
-        !result.startsWith('"'),
-        `Should NOT add opening quote when already present, got: ${result}`,
-      );
+      assert.ok(!result.startsWith('"'), `Should NOT add opening quote when already present, got: ${result}`);
 
       // Should be: gender": "${1}"
       assert.strictEqual(result, 'gender": "${1}"', 'Should only add closing quote and value');
@@ -57,29 +54,17 @@ suite('Quote Helper', () => {
 
     test('Case 3: Number field without quotes', () => {
       const result = generateFieldNameInsertText('age', 'number', false);
-      assert.strictEqual(
-        result,
-        '"age": ${1}',
-        'Number field should not quote the value placeholder',
-      );
+      assert.strictEqual(result, '"age": ${1}', 'Number field should not quote the value placeholder');
     });
 
     test('Case 4: Object field without quotes', () => {
       const result = generateFieldNameInsertText('address', 'object', false);
-      assert.strictEqual(
-        result,
-        '"address": {${1}}',
-        'Object field should use braces for value placeholder',
-      );
+      assert.strictEqual(result, '"address": {${1}}', 'Object field should use braces for value placeholder');
     });
 
     test('Case 5: Array field without quotes', () => {
       const result = generateFieldNameInsertText('tags', 'array', false);
-      assert.strictEqual(
-        result,
-        '"tags": [${1}]',
-        'Array field should use brackets for value placeholder',
-      );
+      assert.strictEqual(result, '"tags": [${1}]', 'Array field should use brackets for value placeholder');
     });
 
     test('Case 6: Quote count when opening quote exists', () => {
@@ -105,10 +90,7 @@ suite('Quote Helper', () => {
       const result = generateFieldNameInsertText('gender', 'enum', true);
 
       // Should NOT start with quote (already present before cursor)
-      assert.ok(
-        !result.startsWith('"'),
-        `Should NOT add opening quote when already present, got: ${result}`,
-      );
+      assert.ok(!result.startsWith('"'), `Should NOT add opening quote when already present, got: ${result}`);
 
       // Should NOT end with quote before colon (will be handled by item.range deletion)
       // Expected format: gender": "${1}"
