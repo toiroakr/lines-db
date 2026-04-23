@@ -3,5 +3,5 @@
   "singleQuote": true,
   "printWidth": 120,
   "sortPackageJson": false,
-  "ignorePatterns": ["pnpm-lock.yaml", "**/*.min.js"]
+  "ignorePatterns": ["pnpm-lock.yaml", "**/*.min.js", "**/CHANGELOG.md"]
 }
