@@ -1,5 +1,11 @@
 # @toiroakr/lines-db
 
+## 0.9.2
+
+### Patch Changes
+
+- 9982a21: Update runtime dependencies (`commander` to v14.0.3, `@standard-schema/spec` to v1.1.0, `tsx` to v4.21.0) and refresh devDependencies/tooling (migrate from ESLint/Prettier to Oxlint/Oxfmt, TypeScript v6).
+
 ## 0.9.1
 
 ### Patch Changes
@@ -21,6 +27,7 @@
 - c408b92: feat: display per-table validation results for directory validation
 
   The `validate` command now shows individual results per table when validating a directory, including record counts for successful tables (e.g., `✓ users (3 records)`).
+
   - Added `TableValidationResult` type and `tableResults` field to `ValidationResult`
   - Each table result includes `tableName`, `valid`, `rowCount`, `errors`, and `warnings`
 
@@ -37,6 +44,7 @@
 - 4597383: feat: support .mts and .cts schema file extensions
 
   Schema files are now auto-detected with the following priority: `.schema.ts` > `.schema.mts` > `.schema.cts`. Mixed extensions within a single project are supported.
+
   - Added `--output` option to `generate` command for specifying the output file path (e.g., `--output ./data/db.mts`)
   - Import paths are correctly rewritten: `.ts`→`.js`, `.mts`→`.mjs`, `.cts`→`.cjs`
   - New exported utilities: `findSchemaFile`, `isSchemaFile`, `extractTableNameFromSchemaFile`, `rewriteExtensionForImport`, `SCHEMA_EXTENSIONS`
@@ -78,6 +86,7 @@
 - b281dc8: Fix constraint validation in validator to properly detect primary key and unique index violations
 
   Previously, the validator was not creating indexes from schema metadata and was missing the default primaryKey behavior, causing constraint violations to go undetected. This fix ensures:
+
   - Indexes (both unique and non-unique) are now properly created from schema metadata in the validation database
   - Primary key defaults to 'id' column when not explicitly specified, matching database.ts behavior
   - Constraint violations are properly detected by inserting rows into an in-memory database and catching SQLite exceptions
@@ -118,6 +127,7 @@
 - 49089e1: fix: skip validation with warning instead of error when schema file is not found
 
   When validating a directory containing JSONL files, if a schema file is missing for some tables, the validator will now:
+
   - Skip validation for those files with a warning message instead of throwing an error
   - Display warnings in yellow in the CLI output
   - Continue validation for other files that have schema files
