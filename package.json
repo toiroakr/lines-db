@@ -4,7 +4,7 @@
   "private": true,
   "description": "Monorepo for lines-db library and related packages",
   "type": "module",
-  "packageManager": "pnpm@10.33.1",
+  "packageManager": "pnpm@10.33.2",
   "scripts": {
     "build": "pnpm --filter @toiroakr/lines-db build",
     "test": "pnpm --filter @toiroakr/lines-db-tests-unit test",
