@@ -2,6 +2,15 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 
+function getNonce(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 32; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
 /**
  * Manages the JSONL preview panel
  */
@@ -97,7 +106,7 @@ export class JsonlPreviewPanel {
     const panel = vscode.window.createWebviewPanel('jsonlPreview', 'JSONL Preview', column, {
       enableScripts: true,
       retainContextWhenHidden: true,
-      localResourceRoots: [extensionUri],
+      localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'dist', 'prism')],
     });
 
     JsonlPreviewPanel.currentPanel = new JsonlPreviewPanel(panel, extensionUri);
@@ -172,6 +181,19 @@ export class JsonlPreviewPanel {
       originalContent,
     );
     this.panel.webview.html = html;
+  }
+
+  /**
+   * Resolves local Prism asset URIs for offline use
+   */
+  private getPrismUris(): { prismUri: string; prismJsonUri: string; prismJson5Uri: string } {
+    const webview = this.panel.webview;
+    const prismDir = vscode.Uri.joinPath(this.extensionUri, 'dist', 'prism');
+    return {
+      prismUri: webview.asWebviewUri(vscode.Uri.joinPath(prismDir, 'prism.js')).toString(),
+      prismJsonUri: webview.asWebviewUri(vscode.Uri.joinPath(prismDir, 'prism-json.min.js')).toString(),
+      prismJson5Uri: webview.asWebviewUri(vscode.Uri.joinPath(prismDir, 'prism-json5.min.js')).toString(),
+    };
   }
 
   /**
@@ -292,18 +314,27 @@ export class JsonlPreviewPanel {
     if (isError) {
       contentHtml = `<div class="error">${this.escapeHtml(content)}</div>`;
     } else {
-      contentHtml = `<pre><code class="language-json">${this.escapeHtml(content)}</code></pre>`;
+      contentHtml = `<pre><code class="language-json5">${this.escapeHtml(content)}</code></pre>`;
     }
+
+    // Resolve local Prism asset URIs and generate per-render nonce
+    const { prismUri, prismJsonUri, prismJson5Uri } = this.getPrismUris();
+    const nonce = getNonce();
 
     // Replace placeholders
     html = html.replace(/{{LINE_NUMBER}}/g, lineNumber.toString());
     html = html.replace(/{{TOTAL_LINES}}/g, totalLines.toString());
-    html = html.replace(/<pre><code class="language-json">{{CONTENT}}<\/code><\/pre>/, contentHtml);
+    html = html.replace(/<pre><code class="language-json5">{{CONTENT}}<\/code><\/pre>/, contentHtml);
     html = html.replace('{{ORIGINAL_CONTENT}}', this.escapeHtml(originalContent));
+    html = html.replace(/{{NONCE}}/g, nonce);
+    html = html.replace(/{{CSP_SOURCE}}/g, this.panel.webview.cspSource);
+    html = html.replace('{{PRISM_URI}}', prismUri);
+    html = html.replace('{{PRISM_JSON_URI}}', prismJsonUri);
+    html = html.replace('{{PRISM_JSON5_URI}}', prismJson5Uri);
 
     // Remove Copy JSON button for errors/empty lines
     if (isError) {
-      html = html.replace(/<button class="copy-button"[^>]*>.*?<\/button>/s, '');
+      html = html.replace(/<button[^>]*class="copy-button"[^>]*>.*?<\/button>/s, '');
     }
 
     return html;

@@ -75,6 +75,9 @@ importers:
       mocha:
         specifier: 11.7.5
         version: 11.7.5
+      prismjs:
+        specifier: 1.30.0
+        version: 1.30.0
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -2654,6 +2657,10 @@ packages:
     resolution: {integrity: sha512-tdN8qQGvNjw4CHbY+XXk0JgCXn9QiF21a55rBe5LJAU+kDyC4WQn4+awm2Xfk2lQMk5fKup9XgzTZtGkjBdP9Q==}
     engines: {node: '>=10.13.0'}
     hasBin: true
+
+  prismjs@1.30.0:
+    resolution: {integrity: sha512-DEvV2ZF2r2/63V+tK8hQvrR2ZGn10srHbXviTlcv7Kpzw8jWiNTqbVgjO3IY8RxrrOUF8VPMQQFysYYYv0YZxw==}
+    engines: {node: '>=6'}
 
   process-nextick-args@2.0.1:
     resolution: {integrity: sha512-3ouUOpQhtgrbOa17J7+uxOTpITYWaGP7/AhoR3+A+/1e9skrzelGi/dXzEYyvbxubEF6Wn2ypscTKiKJFFn1ag==}
@@ -5635,6 +5642,8 @@ snapshots:
     optional: true
 
   prettier@2.8.8: {}
+
+  prismjs@1.30.0: {}
 
   process-nextick-args@2.0.1: {}
 

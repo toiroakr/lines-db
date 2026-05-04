@@ -5,6 +5,12 @@ All notable changes to the LinesDB VS Code Extension will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Bundle Prism.js syntax highlighter locally instead of loading from a CDN, so the JSONL preview works in offline environments. The webview now loads scripts from the extension's `dist/prism/` directory under a strict Content Security Policy with a per-render nonce. Switched the highlighted block to `language-json5` and bundled the JSON5 grammar component so the preview's inline `// Displayed as array for multiline string readability` annotation is tokenized as a comment. Inline `onclick`/`onchange` handlers were replaced with `addEventListener` calls so the navigation, edit, and copy buttons still work under the nonce-only CSP.
+
 ## [0.8.0]
 
 ### Added
