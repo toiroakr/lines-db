@@ -1,14 +1,10 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'node:crypto';
 
 function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < 32; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  return crypto.randomBytes(24).toString('base64');
 }
 
 /**
@@ -317,20 +313,23 @@ export class JsonlPreviewPanel {
       contentHtml = `<pre><code class="language-json5">${this.escapeHtml(content)}</code></pre>`;
     }
 
-    // Resolve local Prism asset URIs and generate per-render nonce
     const { prismUri, prismJsonUri, prismJson5Uri } = this.getPrismUris();
     const nonce = getNonce();
 
-    // Replace placeholders
+    // Trusted placeholders first; user-controlled CONTENT/ORIGINAL_CONTENT must not
+    // be able to smuggle in {{NONCE}} etc.
     html = html.replace(/{{LINE_NUMBER}}/g, lineNumber.toString());
     html = html.replace(/{{TOTAL_LINES}}/g, totalLines.toString());
-    html = html.replace(/<pre><code class="language-json5">{{CONTENT}}<\/code><\/pre>/, contentHtml);
-    html = html.replace('{{ORIGINAL_CONTENT}}', this.escapeHtml(originalContent));
     html = html.replace(/{{NONCE}}/g, nonce);
     html = html.replace(/{{CSP_SOURCE}}/g, this.panel.webview.cspSource);
     html = html.replace('{{PRISM_URI}}', prismUri);
     html = html.replace('{{PRISM_JSON_URI}}', prismJsonUri);
     html = html.replace('{{PRISM_JSON5_URI}}', prismJson5Uri);
+
+    // ORIGINAL_CONTENT before CONTENT so user input cannot hijack the later
+    // substitution; function replacers avoid $-sequence specials in user data.
+    html = html.replace('{{ORIGINAL_CONTENT}}', () => this.escapeHtml(originalContent));
+    html = html.replace(/<pre><code class="language-json5">{{CONTENT}}<\/code><\/pre>/, () => contentHtml);
 
     // Remove Copy JSON button for errors/empty lines
     if (isError) {
