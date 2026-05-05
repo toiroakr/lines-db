@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as crypto from 'node:crypto';
+import * as crypto from 'crypto';
 
 function getNonce(): string {
+  // CSP nonces must be unpredictable; use a CSPRNG instead of Math.random().
   return crypto.randomBytes(24).toString('base64');
 }
 
@@ -313,21 +314,24 @@ export class JsonlPreviewPanel {
       contentHtml = `<pre><code class="language-json5">${this.escapeHtml(content)}</code></pre>`;
     }
 
+    // Resolve local Prism asset URIs and generate per-render nonce
     const { prismUri, prismJsonUri, prismJson5Uri } = this.getPrismUris();
     const nonce = getNonce();
 
-    // Trusted placeholders first; user-controlled CONTENT/ORIGINAL_CONTENT must not
-    // be able to smuggle in {{NONCE}} etc.
+    // Inject trusted/static placeholders first so user-controlled CONTENT /
+    // ORIGINAL_CONTENT cannot smuggle in a {{NONCE}} marker that gets resolved
+    // to the real nonce. Use function replacers for user content so $-sequences
+    // (e.g. "$1", "$&") inside JSONL data are not parsed by String.replace.
     html = html.replace(/{{LINE_NUMBER}}/g, lineNumber.toString());
     html = html.replace(/{{TOTAL_LINES}}/g, totalLines.toString());
     html = html.replace(/{{NONCE}}/g, nonce);
     html = html.replace(/{{CSP_SOURCE}}/g, this.panel.webview.cspSource);
-    html = html.replace('{{PRISM_URI}}', prismUri);
-    html = html.replace('{{PRISM_JSON_URI}}', prismJsonUri);
-    html = html.replace('{{PRISM_JSON5_URI}}', prismJson5Uri);
-
-    // ORIGINAL_CONTENT before CONTENT so user input cannot hijack the later
-    // substitution; function replacers avoid $-sequence specials in user data.
+    html = html.replace('{{PRISM_URI}}', () => prismUri);
+    html = html.replace('{{PRISM_JSON_URI}}', () => prismJsonUri);
+    html = html.replace('{{PRISM_JSON5_URI}}', () => prismJson5Uri);
+    // Replace ORIGINAL_CONTENT before CONTENT: the template lays out CONTENT
+    // first, so if CONTENT carried the literal token "{{ORIGINAL_CONTENT}}"
+    // it would otherwise hijack the second substitution.
     html = html.replace('{{ORIGINAL_CONTENT}}', () => this.escapeHtml(originalContent));
     html = html.replace(/<pre><code class="language-json5">{{CONTENT}}<\/code><\/pre>/, () => contentHtml);
 

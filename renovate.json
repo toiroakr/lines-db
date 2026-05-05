@@ -17,6 +17,11 @@
       "matchDepTypes": ["devDependencies"],
       "matchUpdateTypes": ["minor", "patch"],
       "automerge": true
+    },
+    {
+      "description": "vsce package fails when @types/vscode is newer than engines.vscode. Disable automated updates so engines.vscode and @types/vscode are always bumped together in a single manual change.",
+      "matchPackageNames": ["@types/vscode"],
+      "enabled": false
     }
   ]
 }
