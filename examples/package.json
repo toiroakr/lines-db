@@ -10,7 +10,7 @@
     "datadir": "tsx datadir.ts"
   },
   "devDependencies": {
-    "@types/node": "24.12.3",
+    "@types/node": "24.12.4",
     "tsx": "4.21.0",
     "typescript": "5.9.3",
     "valibot": "1.4.0",
