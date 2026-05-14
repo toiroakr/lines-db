@@ -34,8 +34,8 @@ importers:
         specifier: 24.12.4
         version: 24.12.4
       tsx:
-        specifier: 4.21.0
-        version: 4.21.0
+        specifier: 4.22.0
+        version: 4.22.0
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -83,7 +83,7 @@ importers:
         version: 6.0.3
       vitest:
         specifier: 4.1.6
-        version: 4.1.6(@types/node@24.12.4)(@vitest/ui@4.1.6)(vite@7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.21.0))
+        version: 4.1.6(@types/node@24.12.4)(@vitest/ui@4.1.6)(vite@7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.22.0))
 
   lib:
     dependencies:
@@ -126,8 +126,8 @@ importers:
         specifier: 24.12.4
         version: 24.12.4
       tsx:
-        specifier: 4.21.0
-        version: 4.21.0
+        specifier: 4.22.0
+        version: 4.22.0
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -152,7 +152,7 @@ importers:
         version: 1.4.0(typescript@5.9.3)
       vitest:
         specifier: 4.1.6
-        version: 4.1.6(@types/node@24.12.4)(@vitest/ui@4.1.6)(vite@7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.21.0))
+        version: 4.1.6(@types/node@24.12.4)(@vitest/ui@4.1.6)(vite@7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.22.0))
 
 packages:
 
@@ -3195,6 +3195,11 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
+  tsx@4.22.0:
+    resolution: {integrity: sha512-8ccZMPD69s1AbKXx0C5ddTNZfNjwV04iIKgjZmKfKxMynEtSYcK0Lh7iQFh53fI5Yu4pb9usgAiqyPmEONaALg==}
+    engines: {node: '>=18.0.0'}
+    hasBin: true
+
   tunnel-agent@0.6.0:
     resolution: {integrity: sha512-McnNiV1l8RYeY8tBgEpuodCC1mLUdbSN+CYBL7kJsJNInOP8UjDDEwdk6Mw60vdLLrr5NHKZhMAOSrR2NZuQ+w==}
 
@@ -4506,6 +4511,14 @@ snapshots:
     optionalDependencies:
       vite: 7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.21.0)
 
+  '@vitest/mocker@4.1.6(vite@7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.22.0))':
+    dependencies:
+      '@vitest/spy': 4.1.6
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.22.0)
+
   '@vitest/pretty-format@4.1.6':
     dependencies:
       tinyrainbow: 3.1.0
@@ -4533,7 +4546,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
-      vitest: 4.1.6(@types/node@24.12.4)(@vitest/ui@4.1.6)(vite@7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.21.0))
+      vitest: 4.1.6(@types/node@24.12.4)(@vitest/ui@4.1.6)(vite@7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.22.0))
 
   '@vitest/utils@4.1.6':
     dependencies:
@@ -6329,6 +6342,12 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
+  tsx@4.22.0:
+    dependencies:
+      esbuild: 0.28.0
+    optionalDependencies:
+      fsevents: 2.3.3
+
   tunnel-agent@0.6.0:
     dependencies:
       safe-buffer: 5.2.1
@@ -6415,6 +6434,20 @@ snapshots:
       jiti: 2.6.1
       tsx: 4.21.0
 
+  vite@7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.22.0):
+    dependencies:
+      esbuild: 0.25.12
+      fdir: 6.5.0(picomatch@4.0.4)
+      picomatch: 4.0.4
+      postcss: 8.5.10
+      rollup: 4.60.2
+      tinyglobby: 0.2.16
+    optionalDependencies:
+      '@types/node': 24.12.4
+      fsevents: 2.3.3
+      jiti: 2.6.1
+      tsx: 4.22.0
+
   vitest@4.1.6(@types/node@24.12.4)(@vitest/ui@4.1.6)(vite@7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.21.0)):
     dependencies:
       '@vitest/expect': 4.1.6
@@ -6436,6 +6469,34 @@ snapshots:
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
       vite: 7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.21.0)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@types/node': 24.12.4
+      '@vitest/ui': 4.1.6(vitest@4.1.6)
+    transitivePeerDependencies:
+      - msw
+
+  vitest@4.1.6(@types/node@24.12.4)(@vitest/ui@4.1.6)(vite@7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.22.0)):
+    dependencies:
+      '@vitest/expect': 4.1.6
+      '@vitest/mocker': 4.1.6(vite@7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.22.0))
+      '@vitest/pretty-format': 4.1.6
+      '@vitest/runner': 4.1.6
+      '@vitest/snapshot': 4.1.6
+      '@vitest/spy': 4.1.6
+      '@vitest/utils': 4.1.6
+      es-module-lexer: 2.0.0
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      obug: 2.1.1
+      pathe: 2.0.3
+      picomatch: 4.0.4
+      std-env: 4.1.0
+      tinybench: 2.9.0
+      tinyexec: 1.1.2
+      tinyglobby: 0.2.16
+      tinyrainbow: 3.1.0
+      vite: 7.1.12(@types/node@24.12.4)(jiti@2.6.1)(tsx@4.22.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 24.12.4
