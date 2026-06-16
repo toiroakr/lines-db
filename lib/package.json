@@ -44,7 +44,7 @@
   "homepage": "https://github.com/toiroakr/lines-db#readme",
   "devDependencies": {
     "@types/node": "24.13.2",
-    "tsdown": "0.22.2",
+    "tsdown": "0.22.3",
     "type-fest": "5.7.0",
     "typescript": "6.0.3",
     "valibot": "1.4.1",
