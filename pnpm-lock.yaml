@@ -93,16 +93,13 @@ importers:
       amaro:
         specifier: ^1.1.10
         version: 1.1.10
-      politty:
-        specifier: ^0.10.0
-        version: 0.10.0(zod@4.4.3)
-      zod:
-        specifier: ^4.2.1
-        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: 24.13.2
         version: 24.13.2
+      politty:
+        specifier: ^0.10.0
+        version: 0.10.0(zod@4.4.3)
       tsdown:
         specifier: 0.22.3
         version: 0.22.3(tsx@4.22.4)(typescript@6.0.3)(unrun@0.2.37(synckit@0.11.12))
@@ -118,6 +115,9 @@ importers:
       vitest:
         specifier: 4.1.9
         version: 4.1.9(@types/node@24.13.2)(@vitest/ui@4.1.9)(vite@7.1.12(@types/node@24.13.2)(jiti@2.6.1)(tsx@4.22.4)(yaml@2.9.0))
+      zod:
+        specifier: ^4.2.1
+        version: 4.4.3
 
   tests/unit:
     dependencies:
