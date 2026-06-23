@@ -8,7 +8,8 @@ import { TypeGenerator } from './type-generator.js';
 import { LinesDB } from './database.js';
 import { ErrorFormatter } from './error-formatter.js';
 import type { ValidationError, JsonObject } from './types.js';
-import { Command } from 'commander';
+import { z } from 'zod';
+import { arg, defineCommand, runMain } from 'politty';
 import { styleText } from 'node:util';
 import { writeFile, stat, readdir } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
@@ -45,51 +46,59 @@ function runInSandbox<T>(expression: string, context: Record<string, unknown> = 
   return runInNewContext(expression, sandbox, { timeout: 1000 }) as T;
 }
 
-const program = new Command();
-
-program.name('@toiroakr/lines-db').description('Database utilities for JSONL files').version('1.0.0');
-
-// Generate command
-program
-  .command('generate')
-  .description('Generate TypeScript type definitions from schema files')
-  .argument('<dataDir>', 'Directory containing JSONL and schema files')
-  .option('-o, --output <path>', 'Output file path (default: db.ts in dataDir)')
-  .action(async (dataDir: string, options: { output?: string }) => {
+const generateCommand = defineCommand({
+  name: 'generate',
+  description: 'Generate TypeScript type definitions from schema files',
+  args: z.object({
+    dataDir: arg(z.string(), {
+      positional: true,
+      description: 'Directory containing JSONL and schema files',
+    }),
+    output: arg(z.string().optional(), {
+      alias: 'o',
+      description: 'Output file path (default: db.ts in dataDir)',
+    }),
+  }),
+  run: async (args) => {
     try {
-      const generator = new TypeGenerator({ dataDir, output: options.output });
+      const generator = new TypeGenerator({ dataDir: args.dataDir, output: args.output });
       await generator.generate();
       console.log('Type generation completed successfully!');
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : String(error));
       process.exit(1);
     }
-  });
+  },
+});
 
-// Validate command
-program
-  .command('validate')
-  .description('Validate JSONL file(s) against schema')
-  .argument('<path>', 'File or directory path to validate')
-  .option('-v, --verbose', 'Show verbose error output', false)
-  .action(async (path: string, options: { verbose: boolean }) => {
+const validateCommand = defineCommand({
+  name: 'validate',
+  description: 'Validate JSONL file(s) against schema',
+  args: z.object({
+    path: arg(z.string(), {
+      positional: true,
+      description: 'File or directory path to validate',
+    }),
+    verbose: arg(z.boolean().default(false), {
+      alias: 'v',
+      description: 'Show verbose error output',
+    }),
+  }),
+  run: async (args) => {
     try {
-      // Determine if path is a file or directory
-      const stats = await stat(path);
+      const stats = await stat(args.path);
       let dataDir: string;
       let tableName: string | undefined;
 
       if (stats.isDirectory()) {
-        dataDir = path;
-        // Validate all tables in directory
-      } else if (stats.isFile() && path.endsWith('.jsonl')) {
-        dataDir = dirname(path);
-        tableName = basename(path, '.jsonl');
+        dataDir = args.path;
+      } else if (stats.isFile() && args.path.endsWith('.jsonl')) {
+        dataDir = dirname(args.path);
+        tableName = basename(args.path, '.jsonl');
       } else {
-        throw new Error(`Invalid path: ${path}. Must be a directory or .jsonl file.`);
+        throw new Error(`Invalid path: ${args.path}. Must be a directory or .jsonl file.`);
       }
 
-      // Use LinesDB.initialize() with detailed validation
       const db = LinesDB.create({ dataDir });
       let result;
       try {
@@ -98,21 +107,17 @@ program
         await db.close();
       }
 
-      // Directory validation: display per-table results
       if (!tableName) {
-        const formatter = new ErrorFormatter({ verbose: options.verbose });
+        const formatter = new ErrorFormatter({ verbose: args.verbose });
 
         for (const tableResult of result.tableResults) {
           if (tableResult.valid && tableResult.warnings.length === 0) {
-            // Success
             console.log(styleText('green', `✓ ${tableResult.tableName} (${tableResult.rowCount} records)`));
           } else if (tableResult.valid && tableResult.warnings.length > 0) {
-            // Warnings
             for (const warning of tableResult.warnings) {
               console.warn(styleText('yellow', `⚠ ${warning}`));
             }
           } else {
-            // Errors
             const fileErrors = tableResult.errors;
             console.error(formatter.formatErrorHeader(fileErrors.length, fileErrors[0]?.file));
             console.error('');
@@ -159,7 +164,6 @@ program
           process.exit(1);
         }
       } else {
-        // Single file validation: existing behavior
         if (result.warnings.length > 0) {
           for (const warning of result.warnings) {
             console.warn(styleText('yellow', `⚠ ${warning}`));
@@ -171,7 +175,7 @@ program
           console.log(styleText('green', '✓ All records are valid'));
           process.exit(0);
         } else {
-          const formatter = new ErrorFormatter({ verbose: options.verbose });
+          const formatter = new ErrorFormatter({ verbose: args.verbose });
 
           for (const [, fileErrors] of result.errors.reduce((map, error) => {
             const errors = map.get(error.file) || [];
@@ -222,46 +226,76 @@ program
       console.error('Error:', error instanceof Error ? error.message : String(error));
       process.exit(1);
     }
-  });
+  },
+});
 
-// Migrate command
-program
-  .command('migrate')
-  .description('Migrate data with transformation function')
-  .argument('<path>', 'File or directory path to migrate')
-  .argument('<transform>', 'Transform function (e.g., "(row) => ({ ...row, age: row.age + 1 })")')
-  .option('-f, --filter <expr>', 'Filter expression')
-  .option('-e, --errorOutput <path>', 'Output file path for transformed data when migration fails')
-  .option('-v, --verbose', 'Show verbose error output', false)
-  .action(
-    async (
-      path: string,
-      transformStr: string,
-      options: { filter?: string; errorOutput?: string; verbose: boolean },
-    ) => {
-      try {
-        const stats = await stat(path);
+const migrateCommand = defineCommand({
+  name: 'migrate',
+  description: 'Migrate data with transformation function',
+  args: z.object({
+    path: arg(z.string(), {
+      positional: true,
+      description: 'File or directory path to migrate',
+    }),
+    transform: arg(z.string(), {
+      positional: true,
+      description: 'Transform function (e.g., "(row) => ({ ...row, age: row.age + 1 })")',
+    }),
+    filter: arg(z.string().optional(), {
+      alias: 'f',
+      description: 'Filter expression',
+    }),
+    errorOutput: arg(z.string().optional(), {
+      alias: 'e',
+      description: 'Output file path for transformed data when migration fails',
+    }),
+    verbose: arg(z.boolean().default(false), {
+      alias: 'v',
+      description: 'Show verbose error output',
+    }),
+  }),
+  run: async (args) => {
+    try {
+      const stats = await stat(args.path);
 
-        if (stats.isDirectory()) {
-          // Migrate all JSONL files in directory
-          await migrateDirectory(path, transformStr, options);
-        } else if (stats.isFile() && path.endsWith('.jsonl')) {
-          // Migrate single file
-          await migrateFile(path, transformStr, options);
-        } else {
-          console.error(`Error: Invalid path: ${path}. Must be a directory or .jsonl file.`);
-          process.exit(1);
-        }
-      } catch (error) {
-        if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
-          console.error(`Error: Path not found: ${path}`);
-        } else {
-          console.error(`Error: ${String(error)}`);
-        }
+      if (stats.isDirectory()) {
+        await migrateDirectory(args.path, args.transform, {
+          filter: args.filter,
+          errorOutput: args.errorOutput,
+          verbose: args.verbose,
+        });
+      } else if (stats.isFile() && args.path.endsWith('.jsonl')) {
+        await migrateFile(args.path, args.transform, {
+          filter: args.filter,
+          errorOutput: args.errorOutput,
+          verbose: args.verbose,
+        });
+      } else {
+        console.error(`Error: Invalid path: ${args.path}. Must be a directory or .jsonl file.`);
         process.exit(1);
       }
-    },
-  );
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+        console.error(`Error: Path not found: ${args.path}`);
+      } else {
+        console.error(`Error: ${String(error)}`);
+      }
+      process.exit(1);
+    }
+  },
+});
+
+const program = defineCommand({
+  name: '@toiroakr/lines-db',
+  description: 'Database utilities for JSONL files',
+  subCommands: {
+    generate: generateCommand,
+    validate: validateCommand,
+    migrate: migrateCommand,
+  },
+});
+
+runMain(program, { version: '1.0.0' });
 
 /**
  * Migrate all JSONL files in a directory
@@ -271,7 +305,6 @@ async function migrateDirectory(
   transformStr: string,
   options: { filter?: string; errorOutput?: string; verbose: boolean },
 ) {
-  // Find all JSONL files in directory
   const entries = await readdir(dirPath, { withFileTypes: true });
   const jsonlFiles = entries
     .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
@@ -284,18 +317,15 @@ async function migrateDirectory(
 
   console.log(`Found ${jsonlFiles.length} JSONL file(s) in directory`);
 
-  // Initialize database
   const db = LinesDB.create({ dataDir: dirPath });
   const initResult = await db.initialize({ detailedValidate: true });
 
-  // Display warnings if any
   if (initResult.warnings.length > 0) {
     for (const warning of initResult.warnings) {
       console.warn(styleText('yellow', `⚠ ${warning}`));
     }
   }
 
-  // Check for initialization errors
   if (!initResult.valid) {
     console.error(`Error: Failed to initialize database due to validation errors:`);
     const formatter = new ErrorFormatter({ verbose: options.verbose });
@@ -324,7 +354,6 @@ async function migrateDirectory(
   console.log(`Loaded ${tableNames.length} table(s): ${tableNames.join(', ')}\n`);
 
   try {
-    // Parse transform function
     const transform = runInSandbox<unknown>(`(${transformStr})`);
 
     if (typeof transform !== 'function') {
@@ -333,7 +362,6 @@ async function migrateDirectory(
       process.exit(1);
     }
 
-    // Parse filter if provided
     let filter: unknown = undefined;
     if (options.filter) {
       try {
@@ -346,12 +374,10 @@ async function migrateDirectory(
     let totalRowsMigrated = 0;
     let hasErrors = false;
 
-    // Process each table
     for (const tableName of tableNames) {
       try {
         console.log(`Processing table '${tableName}'...`);
 
-        // Get rows to migrate
         const rowsToMigrate = filter ? db.find(tableName, filter as Parameters<typeof db.find>[1]) : db.find(tableName);
 
         if (rowsToMigrate.length === 0) {
@@ -361,10 +387,8 @@ async function migrateDirectory(
 
         console.log(`  Found ${rowsToMigrate.length} row(s) to migrate`);
 
-        // Apply transformation
         const transformedRows = rowsToMigrate.map((row) => transform(row as JsonObject));
 
-        // Perform the migration in a transaction
         await db.transaction(async () => {
           db.batchUpdate(tableName, transformedRows as Parameters<typeof db.batchUpdate>[1], {
             validate: true,
@@ -440,7 +464,6 @@ async function migrateFile(
   transformStr: string,
   options: { filter?: string; errorOutput?: string; verbose: boolean },
 ) {
-  // Extract table name from file path
   const fileName = filePath.split('/').pop() || '';
   const tableName = fileName.replace('.jsonl', '');
 
@@ -449,11 +472,9 @@ async function migrateFile(
     process.exit(1);
   }
 
-  // Get directory from file path
   const lastSlashIndex = filePath.lastIndexOf('/');
   const dataDir = lastSlashIndex > 0 ? filePath.substring(0, lastSlashIndex) : '.';
 
-  // Parse transform function first (before initialization)
   let transform: (row: JsonObject) => JsonObject;
   try {
     const parsedTransform = runInSandbox<unknown>(`(${transformStr})`);
@@ -468,18 +489,15 @@ async function migrateFile(
     process.exit(1);
   }
 
-  // Initialize database with transform applied
   const db = LinesDB.create({ dataDir });
   const initResult = await db.initialize({ tableName, transform, detailedValidate: true });
 
-  // Display warnings if any
   if (initResult.warnings.length > 0) {
     for (const warning of initResult.warnings) {
       console.warn(styleText('yellow', `⚠ ${warning}`));
     }
   }
 
-  // Check for initialization errors
   if (!initResult.valid) {
     console.error(`Error: Failed to initialize database due to validation errors:`);
     const formatter = new ErrorFormatter({ verbose: options.verbose });
@@ -499,21 +517,16 @@ async function migrateFile(
   }
 
   try {
-    // Parse filter if provided
     let filter: unknown = undefined;
     if (options.filter) {
       try {
-        // Try JSON parse first
         filter = JSON.parse(options.filter);
       } catch {
-        // Fall back to eval for JavaScript expressions
         filter = runInSandbox(`(${options.filter})`);
       }
     }
 
-    // If filter is provided, we need to apply transform only to matching rows
     if (filter) {
-      // Get rows to migrate
       let rowsToMigrate;
       try {
         rowsToMigrate = db.find(tableName, filter as Parameters<typeof db.find>[1]);
@@ -534,10 +547,8 @@ async function migrateFile(
         process.exit(0);
       }
 
-      // Apply transformation
       const transformedRows = rowsToMigrate.map((row) => transform(row as JsonObject));
 
-      // Perform the migration in a transaction
       try {
         await db.transaction(async () => {
           db.batchUpdate(tableName, transformedRows as Parameters<typeof db.batchUpdate>[1], {
@@ -553,7 +564,6 @@ async function migrateFile(
       } catch (error) {
         await db.close();
 
-        // Write transformed data to error output file if --errorOutput is specified
         if (options.errorOutput) {
           try {
             const jsonlContent = transformedRows.map((row) => JSON.stringify(row)).join('\n');
@@ -577,7 +587,6 @@ async function migrateFile(
         const formatter = new ErrorFormatter({ verbose: options.verbose });
         console.error(formatter.formatMigrationFailureHeader());
 
-        // Display detailed error information
         if (error instanceof Error && error.name === 'ValidationError') {
           const validationError = error as ValidationError & {
             validationErrors?: Array<{
@@ -588,7 +597,6 @@ async function migrateFile(
             }>;
           };
 
-          // Display all validation errors
           if (validationError.validationErrors) {
             console.error(
               `\nFound ${validationError.validationErrors.length} validation error(s) in transformed data:\n`,
@@ -605,7 +613,6 @@ async function migrateFile(
             const formatted = formatter.formatValidationErrors(errorInfos);
             console.error(formatted);
           } else {
-            // Fallback for single validation error (backward compatibility)
             console.error('\nValidation error:\n');
             const errorInfo = {
               file: filePath,
@@ -618,12 +625,10 @@ async function migrateFile(
         } else if (error instanceof Error) {
           console.error(`\n  ${error.message}`);
 
-          // Output stack trace for debugging
           if (options.verbose && error.stack) {
             console.error(`\nStack trace:\n${error.stack}`);
           }
 
-          // Check if it's a SQLite constraint error
           if (
             error.message.includes('UNIQUE constraint failed') ||
             error.message.includes('FOREIGN KEY constraint failed') ||
@@ -641,8 +646,6 @@ async function migrateFile(
         process.exit(1);
       }
     } else {
-      // No filter - all rows have been transformed during initialization
-      // Just sync to write back to JSONL file
       try {
         const allRows = db.find(tableName);
         console.log(`Migrated ${allRows.length} row(s) in table '${tableName}'`);
@@ -665,5 +668,3 @@ async function migrateFile(
     throw error;
   }
 }
-
-program.parse();
