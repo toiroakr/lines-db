@@ -8,9 +8,7 @@
   "scripts": {
     "build": "pnpm --filter @toiroakr/lines-db build",
     "test": "pnpm --filter @toiroakr/lines-db-tests-unit test",
-    "test:runtime": "pnpm test:cjs",
-    "test:cjs": "pnpm --filter @toiroakr/lines-db-tests-runtime-cjs test",
-    "test:all": "pnpm test && pnpm test:runtime",
+    "test:all": "pnpm test",
     "typecheck": "pnpm -r run typecheck",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",

@@ -45,12 +45,11 @@ This repository is organized as a monorepo:
 lines-db/
 ├── lib/                 # Core library package (@toiroakr/lines-db)
 │   ├── src/            # Source code
-│   ├── dist/           # Build output (ESM + CJS)
+│   ├── dist/           # Build output (ESM)
 │   ├── bin/            # CLI executable
 │   └── README.md       # 📚 User documentation (published to npm)
 ├── tests/              # Integration tests
-│   ├── unit/          # Unit tests
-│   └── runtime-cjs/   # Node.js CommonJS tests
+│   └── unit/          # Unit tests
 ├── examples/           # Usage examples
 └── extension/          # VSCode extension
 ```
@@ -69,7 +68,7 @@ The main npm package that provides the database functionality.
 - SQLite database abstraction
 - Schema inference and validation
 - Type-safe query APIs
-- Node.js 22.5+ support
+- Node.js 22.12+ support
 - CLI tools for validation and type generation
 
 ### 🔌 VSCode Extension: [lines-db-vscode](./extension)
@@ -90,7 +89,7 @@ VSCode extension for lines-db with real-time validation and development tools.
 
 ### Prerequisites
 
-- Node.js 22.5.0 or later
+- Node.js 22.12.0 or later
 - pnpm 10.x or later
 
 ### Setup
@@ -109,15 +108,6 @@ pnpm run build
 ```bash
 # Run unit tests
 pnpm test
-
-# Run runtime tests (Node.js)
-pnpm test:runtime
-
-# Run Node.js CommonJS tests
-pnpm test:cjs
-
-# Run all tests
-pnpm test:all
 ```
 
 ### Other Commands

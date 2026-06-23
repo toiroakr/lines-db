@@ -1,4 +1,4 @@
-import { JsonValue } from '../../lib/dist/index.cjs';
+import type { JsonValue } from '../../lib/dist/index.mjs';
 import { runInNewContext } from 'node:vm';
 
 export type MigrationRow = Record<string, JsonValue>;

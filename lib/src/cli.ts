@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-// Register tsx for TypeScript schema file support
+// Register amaro for TypeScript schema file support
 import { register } from 'node:module';
-register('tsx', import.meta.url, { data: {} });
+register('amaro/transform', import.meta.url);
 
 import { TypeGenerator } from './type-generator.js';
 import { LinesDB } from './database.js';

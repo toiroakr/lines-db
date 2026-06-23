@@ -82,13 +82,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Try to load @toiroakr/lines-db from workspace
     try {
-      // Dynamic require is necessary here to load from user's workspace
-
       const nodeRequire = require;
+      const { pathToFileURL: toFileURL } = await import('node:url');
       const linesDbPath = nodeRequire.resolve('@toiroakr/lines-db', { paths: [workspaceRoot] });
       outputChannel.appendLine(`Found @toiroakr/lines-db at: ${linesDbPath}`);
 
-      global.__linesDbModule = nodeRequire(linesDbPath);
+      global.__linesDbModule = await import(toFileURL(linesDbPath).href);
       outputChannel.appendLine('@toiroakr/lines-db loaded successfully');
     } catch (linesDbError) {
       outputChannel.appendLine(`@toiroakr/lines-db not found in workspace: ${linesDbError}`);
@@ -97,31 +96,26 @@ export async function activate(context: vscode.ExtensionContext) {
       );
     }
 
-    // Register tsx for TypeScript schema file support
-    // tsx is bundled with @toiroakr/lines-db, so we resolve it from there
+    // Register amaro for TypeScript schema file support
+    // amaro is a dependency of @toiroakr/lines-db, so we resolve it from there
     try {
       const { register } = await import('node:module');
       const { pathToFileURL } = await import('node:url');
       const path = await import('node:path');
       const nodeRequire = require;
 
-      // Resolve tsx from @toiroakr/lines-db's location (it's a dependency)
+      // Resolve amaro from @toiroakr/lines-db's location (it's a dependency)
       const linesDbPath = nodeRequire.resolve('@toiroakr/lines-db', { paths: [workspaceRoot] });
       const linesDbDir = path.dirname(linesDbPath);
-      const tsxPath = nodeRequire.resolve('tsx', { paths: [linesDbDir] });
-      outputChannel.appendLine(`Found tsx at: ${tsxPath}`);
+      const amaroTransformPath = nodeRequire.resolve('amaro/transform', { paths: [linesDbDir] });
+      outputChannel.appendLine(`Found amaro/transform at: ${amaroTransformPath}`);
 
-      // Change cwd to workspace root so tsx can find tsconfig.json for path aliases
-      process.chdir(workspaceRoot);
-
-      // Register tsx using tsx's own directory as parent URL
-      // This allows tsx to be found when the loader is initialized
-      const tsxDir = path.dirname(path.dirname(tsxPath)); // Go up from dist/loader.mjs to tsx root
-      const tsxParentUrl = pathToFileURL(tsxDir + '/');
-      register('tsx', tsxParentUrl, { data: {} });
-      outputChannel.appendLine('tsx registered successfully for TypeScript schema support');
+      const amaroDir = path.dirname(path.dirname(amaroTransformPath)); // Go up from dist/register-transform.mjs to amaro root
+      const amaroParentUrl = pathToFileURL(amaroDir + '/');
+      register('amaro/transform', amaroParentUrl);
+      outputChannel.appendLine('amaro registered successfully for TypeScript schema support');
     } catch (error) {
-      outputChannel.appendLine(`Failed to register tsx: ${error}`);
+      outputChannel.appendLine(`Failed to register amaro: ${error}`);
     }
   }
 

@@ -6,19 +6,19 @@ export default defineConfig([
     entry: ['src/cli.ts'],
     format: ['esm'],
     platform: 'node',
-    target: 'node18',
+    target: 'node22',
     clean: true,
     shims: true,
     outDir: 'bin',
     dts: false,
     treeshake: true,
   },
-  // Library build (ESM + CJS)
+  // Library build (ESM only)
   {
     entry: ['src/index.ts'],
-    format: ['esm', 'cjs'],
+    format: ['esm'],
     platform: 'node',
-    target: 'node18',
+    target: 'node22',
     outDir: 'dist',
     dts: true,
     treeshake: true,
