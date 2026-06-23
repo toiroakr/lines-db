@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "basic": "tsx basic.ts",
-    "validation": "tsx validation.ts",
-    "json": "tsx json-columns.ts",
-    "datadir": "tsx datadir.ts"
+    "basic": "node --import=amaro/transform basic.ts",
+    "validation": "node --import=amaro/transform validation.ts",
+    "json": "node --import=amaro/transform json-columns.ts",
+    "datadir": "node --import=amaro/transform datadir.ts"
   },
   "devDependencies": {
     "@types/node": "24.13.2",
-    "tsx": "4.22.4",
+    "amaro": "^1.1.10",
     "typescript": "5.9.3",
     "valibot": "1.4.1",
     "zod": "4.4.3"

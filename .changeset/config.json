@@ -7,10 +7,5 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": [
-    "@toiroakr/lines-db-examples",
-    "@toiroakr/lines-db-tests-unit",
-    "@toiroakr/lines-db-tests-runtime-cjs",
-    "lines-db-vscode"
-  ]
+  "ignore": ["@toiroakr/lines-db-examples", "@toiroakr/lines-db-tests-unit", "lines-db-vscode"]
 }

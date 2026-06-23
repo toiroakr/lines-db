@@ -45,12 +45,11 @@ await db.close();
 lines-db/
 ├── lib/                 # コアライブラリパッケージ（@toiroakr/lines-db）
 │   ├── src/            # ソースコード
-│   ├── dist/           # ビルド出力（ESM + CJS）
+│   ├── dist/           # ビルド出力（ESM）
 │   ├── bin/            # CLI実行ファイル
 │   └── README.ja.md    # 📚 ユーザー向けドキュメント（npmに公開）
 ├── tests/              # 統合テスト
-│   ├── unit/          # ユニットテスト
-│   └── runtime-cjs/   # Node.js CommonJSテスト
+│   └── unit/          # ユニットテスト
 ├── examples/           # 使用例
 └── extension/          # VSCode拡張
 ```
@@ -69,7 +68,7 @@ lines-db/
 - SQLiteデータベース抽象化
 - スキーマ推論とバリデーション
 - 型安全なクエリAPI
-- Node.js 22.5+サポート
+- Node.js 22.12+サポート
 - バリデーションと型生成のためのCLIツール
 
 ### 🔌 VSCode拡張: [lines-db-vscode](./extension)
@@ -90,7 +89,7 @@ lines-db/
 
 ### 前提条件
 
-- Node.js 22.5.0以降
+- Node.js 22.12.0以降
 - pnpm 10.x以降
 
 ### セットアップ
@@ -109,15 +108,6 @@ pnpm run build
 ```bash
 # ユニットテストを実行
 pnpm test
-
-# ランタイムテスト（Node.js）
-pnpm test:runtime
-
-# Node.js CommonJSテスト
-pnpm test:cjs
-
-# 全テストを実行
-pnpm test:all
 ```
 
 ### その他のコマンド
