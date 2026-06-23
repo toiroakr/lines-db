@@ -3,3 +3,11 @@ packages:
   - 'examples'
   - 'tests/*'
   - 'extension'
+
+allowBuilds:
+  '@vscode/vsce-sign': true
+  esbuild: true
+  keytar: true
+  lefthook: true
+
+minimumReleaseAge: 4320

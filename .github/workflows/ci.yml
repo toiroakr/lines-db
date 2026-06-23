@@ -30,6 +30,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Publint
+        run: pnpm --filter @toiroakr/lines-db publint
+
       - name: Run tests
         run: pnpm test
 

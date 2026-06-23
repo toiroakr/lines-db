@@ -123,7 +123,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/toiroakr/lines-db.git"
+    "url": "git+https://github.com/toiroakr/lines-db.git"
   },
   "bugs": {
     "url": "https://github.com/toiroakr/lines-db/issues"

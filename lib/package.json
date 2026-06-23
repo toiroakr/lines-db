@@ -18,6 +18,7 @@
   },
   "scripts": {
     "build": "tsdown",
+    "publint": "publint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -31,7 +32,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/toiroakr/lines-db.git"
+    "url": "git+https://github.com/toiroakr/lines-db.git"
   },
   "bugs": {
     "url": "https://github.com/toiroakr/lines-db/issues"
@@ -39,7 +40,8 @@
   "homepage": "https://github.com/toiroakr/lines-db#readme",
   "devDependencies": {
     "@types/node": "24.13.2",
-    "politty": "^0.10.0",
+    "politty": "0.9.2",
+    "publint": "0.3.21",
     "tsdown": "0.22.3",
     "type-fest": "5.7.0",
     "typescript": "6.0.3",
