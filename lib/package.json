@@ -13,6 +13,9 @@
       "default": "./dist/index.mjs"
     }
   },
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",

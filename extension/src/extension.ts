@@ -82,13 +82,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Try to load @toiroakr/lines-db from workspace
     try {
-      // Dynamic require is necessary here to load from user's workspace
-
       const nodeRequire = require;
+      const { pathToFileURL: toFileURL } = await import('node:url');
       const linesDbPath = nodeRequire.resolve('@toiroakr/lines-db', { paths: [workspaceRoot] });
       outputChannel.appendLine(`Found @toiroakr/lines-db at: ${linesDbPath}`);
 
-      global.__linesDbModule = nodeRequire(linesDbPath);
+      global.__linesDbModule = await import(toFileURL(linesDbPath).href);
       outputChannel.appendLine('@toiroakr/lines-db loaded successfully');
     } catch (linesDbError) {
       outputChannel.appendLine(`@toiroakr/lines-db not found in workspace: ${linesDbError}`);
