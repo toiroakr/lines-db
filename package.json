@@ -40,6 +40,14 @@
     "url": "https://github.com/toiroakr/lines-db/issues"
   },
   "homepage": "https://github.com/toiroakr/lines-db#readme",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@vscode/vsce-sign",
+      "esbuild",
+      "keytar",
+      "lefthook"
+    ]
+  },
   "devDependencies": {
     "@changesets/cli": "2.31.0",
     "@toiroakr/lines-db": "workspace:*",
