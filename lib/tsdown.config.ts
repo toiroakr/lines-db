@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsdown';
 
 export default defineConfig([
-  // CLI build (ESM only)
+  // CLI build (ESM only, fully bundled)
   {
     entry: ['src/cli.ts'],
     format: ['esm'],
@@ -12,6 +12,10 @@ export default defineConfig([
     outDir: 'bin',
     dts: false,
     treeshake: true,
+    deps: {
+      alwaysBundle: ['zod', 'politty'],
+      onlyBundle: false,
+    },
   },
   // Library build (ESM only)
   {
