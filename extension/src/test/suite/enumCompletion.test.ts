@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { suite, test } from 'mocha';
+import { describe, test } from 'vitest';
 
 /**
  * Tests for enum value completions
@@ -7,8 +7,8 @@ import { suite, test } from 'mocha';
  * These tests verify that enum values are properly suggested and inserted
  * when completing values for enum-type fields.
  */
-suite('Enum Value Completion', () => {
-  suite('isInFieldNamePosition logic', () => {
+describe('Enum Value Completion', () => {
+  describe('isInFieldNamePosition logic', () => {
     test('should return false when cursor is after colon in quotes (value position)', () => {
       // When typing: {"gender": "|
       // This should be detected as value position, not field name position
@@ -52,7 +52,7 @@ suite('Enum Value Completion', () => {
     });
   });
 
-  suite('findCurrentFieldName', () => {
+  describe('findCurrentFieldName', () => {
     test('should extract field name from text before cursor', () => {
       // Case 1: Cursor after colon and opening quote
       // {"gender": "|
@@ -88,7 +88,7 @@ suite('Enum Value Completion', () => {
     });
   });
 
-  suite('enum value insert text', () => {
+  describe('enum value insert text', () => {
     test('should wrap enum value in quotes when no quotes present', () => {
       // User reported issue:
       // Input: {"gender": |}

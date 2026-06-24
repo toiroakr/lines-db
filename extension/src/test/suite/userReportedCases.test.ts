@@ -1,12 +1,12 @@
 import * as assert from 'assert';
-import { suite, test } from 'mocha';
+import { describe, test } from 'vitest';
 import { hasQuoteBefore, hasQuoteAfter, generateFieldNameInsertText } from '../../quoteHelper';
 
 /**
  * Tests for user-reported issues with specific examples
  */
-suite('User Reported Cases', () => {
-  suite('Case 1: Field name completion with partial input', () => {
+describe('User Reported Cases', () => {
+  describe('Case 1: Field name completion with partial input', () => {
     test('Input: {"gende| }', () => {
       // User reported:
       // Input: {"gende| }
@@ -113,7 +113,7 @@ suite('User Reported Cases', () => {
     });
   });
 
-  suite('Case 2: Enum value completion without quotes', () => {
+  describe('Case 2: Enum value completion without quotes', () => {
     test('Input: {"gender": | }', () => {
       // User reported:
       // Input: {"id":1,"name":"Alice","age":0,"email":"alice@example.com", "gender":  }
@@ -174,7 +174,7 @@ suite('User Reported Cases', () => {
     });
   });
 
-  suite('Field name extraction', () => {
+  describe('Field name extraction', () => {
     test('Should extract "gender" from {"gender": ', () => {
       const beforeCursor = '{"id":1,"name":"Alice", "gender": ';
       const match = beforeCursor.match(/"([^"]+)"\s*:\s*(?:"[^"]*)?$/);

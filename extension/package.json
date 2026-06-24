@@ -102,20 +102,15 @@
     "package": "vsce package",
     "use": "vsce package && code --install-extension lines-db-vscode-$(jq -r '.version' < package.json).vsix",
     "lint": "oxlint src",
-    "compile:test": "tsc -p tsconfig.test.json",
-    "test:integration": "pnpm run build && pnpm run compile:test && node ./dist-test/test/runTest.js",
-    "test:unit": "vitest run",
-    "test:unit:watch": "vitest"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
-    "@types/mocha": "10.0.10",
     "@types/node": "24.13.2",
     "@types/vscode": "1.118.0",
-    "@vscode/test-electron": "3.0.0",
     "@vscode/vsce": "3.9.2",
     "esbuild": "0.28.1",
     "glob": "13.0.6",
-    "mocha": "11.7.6",
     "prismjs": "1.30.0",
     "typescript": "6.0.3",
     "vitest": "4.1.9"
