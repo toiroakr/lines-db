@@ -1,9 +1,9 @@
 import * as assert from 'assert';
-import { suite, test } from 'mocha';
+import { describe, test } from 'vitest';
 import { generateFieldNameInsertText, hasQuoteBefore, hasQuoteAfter } from '../../quoteHelper';
 
-suite('Quote Helper', () => {
-  suite('hasQuoteBefore', () => {
+describe('Quote Helper', () => {
+  describe('hasQuoteBefore', () => {
     test('should return true when text ends with quote', () => {
       assert.strictEqual(hasQuoteBefore('{"id":1, "'), true);
     });
@@ -17,7 +17,7 @@ suite('Quote Helper', () => {
     });
   });
 
-  suite('hasQuoteAfter', () => {
+  describe('hasQuoteAfter', () => {
     test('should return true when text starts with quote', () => {
       assert.strictEqual(hasQuoteAfter('"'), true);
     });
@@ -31,7 +31,7 @@ suite('Quote Helper', () => {
     });
   });
 
-  suite('generateFieldNameInsertText', () => {
+  describe('generateFieldNameInsertText', () => {
     test('Case 1: No quotes before or after cursor: {, |', () => {
       // Input: {"id":1,"name":"Alice", |
       // Expected: "gender": "${1}"
