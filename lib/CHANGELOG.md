@@ -1,5 +1,18 @@
 # @toiroakr/lines-db
 
+## 0.10.0
+
+### Minor Changes
+
+- 332b239: Drop CJS build and replace tsx with amaro
+
+  - ESM-only build. Node.js 22.12+ (VSCode 1.118+) required.
+  - Replace `tsx` runtime dependency with `amaro` for TypeScript schema file loading.
+
+### Patch Changes
+
+- c42865e: Replace commander with politty for the CLI framework. Bundle zod and politty into the CLI binary so they are no longer installed as runtime dependencies for library users.
+
 ## 0.9.2
 
 ### Patch Changes
