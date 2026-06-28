@@ -40,7 +40,7 @@
   "homepage": "https://github.com/toiroakr/lines-db#readme",
   "devDependencies": {
     "@types/node": "24.13.2",
-    "politty": "0.10.0",
+    "politty": "0.10.1",
     "publint": "0.3.21",
     "tsdown": "0.22.3",
     "type-fest": "5.7.0",
