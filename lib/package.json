@@ -45,7 +45,7 @@
     "tsdown": "0.22.3",
     "type-fest": "5.7.0",
     "typescript": "6.0.3",
-    "valibot": "1.4.1",
+    "valibot": "1.4.2",
     "vitest": "4.1.9",
     "zod": "4.4.3"
   },
