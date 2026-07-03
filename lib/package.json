@@ -49,14 +49,6 @@
     "vitest": "4.1.9",
     "zod": "4.4.3"
   },
-  "peerDependencies": {
-    "valibot": ">=1.0.0"
-  },
-  "peerDependenciesMeta": {
-    "valibot": {
-      "optional": true
-    }
-  },
   "dependencies": {
     "@standard-schema/spec": "^1.0.0",
     "amaro": "^1.1.10"
