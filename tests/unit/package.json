@@ -9,10 +9,10 @@
   },
   "devDependencies": {
     "@types/node": "24.13.2",
-    "@vitest/ui": "4.1.9",
+    "@vitest/ui": "4.1.10",
     "typescript": "6.0.3",
     "valibot": "1.4.2",
-    "vitest": "4.1.9"
+    "vitest": "4.1.10"
   },
   "dependencies": {
     "@toiroakr/lines-db": "workspace:*"

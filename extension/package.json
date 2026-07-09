@@ -112,7 +112,7 @@
     "esbuild": "0.28.1",
     "prismjs": "1.30.0",
     "typescript": "6.0.3",
-    "vitest": "4.1.9"
+    "vitest": "4.1.10"
   },
   "repository": {
     "type": "git",
