@@ -111,7 +111,7 @@
     "@vscode/vsce": "3.9.2",
     "esbuild": "0.28.1",
     "prismjs": "1.30.0",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "vitest": "4.1.10"
   },
   "repository": {

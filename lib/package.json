@@ -44,7 +44,7 @@
     "publint": "0.3.21",
     "tsdown": "0.22.4",
     "type-fest": "5.8.0",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "valibot": "1.4.2",
     "vitest": "4.1.10",
     "zod": "4.4.3"
