@@ -86,8 +86,8 @@ importers:
         specifier: 24.13.3
         version: 24.13.3
       politty:
-        specifier: 0.11.1
-        version: 0.11.1(zod@4.4.3)
+        specifier: 0.11.2
+        version: 0.11.2(zod@4.4.3)
       publint:
         specifier: 0.3.21
         version: 0.3.21
@@ -2232,8 +2232,8 @@ packages:
     resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
     engines: {node: '>=4'}
 
-  politty@0.11.1:
-    resolution: {integrity: sha512-Gc5D0JQoEnT8dg8gpc2JYJ4AQHbhtTGPGHtaokyyKpExCcdke+R1eZq+W7NWOErvnPV6tQJePufGz/DBERInTg==}
+  politty@0.11.2:
+    resolution: {integrity: sha512-bPVWpt8b+TD6RfX04BZJxgFWIyH72Dgqi3cBqhNYzsIbdXxUdajIacimCYfb++Gf6FJ782yGbAQ0LwPjoFRSrA==}
     engines: {node: '>=20.12.0 <21.0.0 || >=21.7.0'}
     hasBin: true
     peerDependencies:
@@ -4764,7 +4764,7 @@ snapshots:
 
   pluralize@8.0.0: {}
 
-  politty@0.11.1(zod@4.4.3):
+  politty@0.11.2(zod@4.4.3):
     dependencies:
       yaml: 2.9.0
       zod: 4.4.3
