@@ -39,7 +39,7 @@
   },
   "homepage": "https://github.com/toiroakr/lines-db#readme",
   "devDependencies": {
-    "@changesets/cli": "2.31.0",
+    "@changesets/cli": "2.31.1",
     "@toiroakr/lines-db": "workspace:*",
     "lefthook": "2.1.10",
     "oxfmt": "0.59.0",
