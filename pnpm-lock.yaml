@@ -80,7 +80,7 @@ importers:
         version: 1.1.0
       amaro:
         specifier: ^1.1.10
-        version: 1.1.10
+        version: 1.1.11
     devDependencies:
       '@types/node':
         specifier: 24.13.3
@@ -1230,10 +1230,6 @@ packages:
 
   ajv@8.20.0:
     resolution: {integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==}
-
-  amaro@1.1.10:
-    resolution: {integrity: sha512-ceFv+QA3SlhFsn0hu8Q8oyj36YZdIgoJFpyS2sGJGK2dyncwcMWuBlNzhXfc1oLWtbDWM2Ol2rrzOYa+HNyEjg==}
-    engines: {node: '>=22'}
 
   amaro@1.1.11:
     resolution: {integrity: sha512-Tg8KzTpeCUQ23RNSuA2GeVRxHhkHyq8U9jNpKRjiMQKY2C9iJ7pLlGw2iRy4nNMYtB+tkLghk3swCo13O68zDg==}
@@ -3810,8 +3806,6 @@ snapshots:
       fast-uri: 3.1.2
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
-
-  amaro@1.1.10: {}
 
   amaro@1.1.11: {}
 
