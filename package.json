@@ -42,7 +42,7 @@
     "@changesets/cli": "2.31.1",
     "@toiroakr/lines-db": "workspace:*",
     "lefthook": "2.1.10",
-    "oxfmt": "0.59.0",
-    "oxlint": "1.74.0"
+    "oxfmt": "0.60.0",
+    "oxlint": "1.75.0"
   }
 }
