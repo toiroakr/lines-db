@@ -180,6 +180,22 @@ describe('write-back fields', () => {
     ]);
   });
 
+  it('backfills a file that only some rows carry a primary key in', async () => {
+    await writeFile(dataPath, `{"name":"John"}\n{"id":"u2","name":"Jane","nickname":"J"}\n{"name":"Judy"}\n`);
+
+    const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['id'] });
+    await db.initialize();
+    await db.sync('User');
+    await db.close();
+
+    const rows = await readJsonl(dataPath);
+    expect(rows).toEqual([
+      { name: 'John', id: expect.any(String) },
+      { id: 'u2', name: 'Jane', nickname: 'J' },
+      { name: 'Judy', id: expect.any(String) },
+    ]);
+  });
+
   it('rejects fields the table does not have', async () => {
     await writeFile(dataPath, `{"name":"John"}\n`);
 
