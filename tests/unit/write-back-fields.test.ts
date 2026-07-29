@@ -257,6 +257,33 @@ export const schema = defineSchema(
     ]);
   });
 
+  it('treats every row as new once the file has no lines left to preserve', async () => {
+    // Log has no primary key, so rows can only be matched to lines by position
+    await writeFile(join(testDir, 'Log.jsonl'), `{"msg":"a"}\n`);
+    await writeFile(
+      join(testDir, 'Log.schema.ts'),
+      `import { defineSchema } from '@toiroakr/lines-db';
+
+export const schema = defineSchema({
+  '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) },
+});
+`,
+    );
+
+    const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['msg'] });
+    await db.initialize({ tableName: 'Log' });
+    db.delete('Log', { msg: 'a' });
+    await db.sync('Log');
+    // The file holds no lines at all now
+    db.insert('Log', { msg: 'b' });
+    db.insert('Log', { msg: 'c' });
+    await db.sync('Log');
+    await db.close();
+
+    // Nothing is left to preserve, so the rows are written rather than refused as unmatchable
+    expect(await readJsonl(join(testDir, 'Log.jsonl'))).toEqual([{ msg: 'b' }, { msg: 'c' }]);
+  });
+
   it('keeps the file line order on a full write-back too', async () => {
     await writeFile(join(testDir, 'Item.jsonl'), `{"id":3,"name":"c"}\n{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n`);
     await writeFile(join(testDir, 'Item.schema.ts'), ITEM_SCHEMA);

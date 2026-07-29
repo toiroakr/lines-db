@@ -30,8 +30,9 @@ export interface SyncOptions {
   /**
    * Fields written back to the JSONL file.
    * When provided, only these fields are taken from the database and merged into the matching
-   * JSONL line; every other field keeps the value the file already had. An empty list writes no
-   * field back, leaving every line as the file had it.
+   * JSONL line; every other field keeps the value the file already had. An empty list takes no
+   * field from the database, so existing lines keep every value they hold - rows added to or
+   * removed from the database are still reflected.
    * Defaults to `writeBackFields` from the database config, or writing every field of the row.
    */
   fields?: readonly string[];
@@ -1636,6 +1637,11 @@ export class LinesDB<Tables extends TableDefs> {
     existingRows: JsonObject[],
     options: { required: boolean },
   ): Array<JsonObject | undefined> | undefined {
+    // Nothing in the file to preserve, so every row is one the file never had
+    if (existingRows.length === 0) {
+      return rows.map(() => undefined);
+    }
+
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
     const pkValues = pkName ? existingRows.map((row) => row[pkName]) : [];
     const hasUsablePk =
