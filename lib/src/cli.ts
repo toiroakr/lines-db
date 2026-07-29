@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { arg, defineCommand, runMain } from 'politty';
 import { styleText } from 'node:util';
 import { writeFile, stat, readdir } from 'node:fs/promises';
-import { basename, dirname } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 
 const originalEmitWarning = process.emitWarning;
@@ -466,7 +466,7 @@ async function migrateDirectory(
               : db.find(tableName);
 
             const errorInfos = validationError.validationErrors.map(({ rowIndex, rowData, error: rowError }) => ({
-              file: `${dirPath}/${tableName}.jsonl`,
+              file: join(dirPath, `${tableName}.jsonl`),
               rowIndex,
               issues: rowError.issues,
               data: rowData,
@@ -509,16 +509,14 @@ async function migrateFile(
   transformStr: string,
   options: { filter?: string; writeBackFields?: string[]; errorOutput?: string; verbose: boolean },
 ) {
-  const fileName = filePath.split('/').pop() || '';
-  const tableName = fileName.replace('.jsonl', '');
+  const tableName = basename(filePath, '.jsonl');
 
   if (!tableName) {
     console.error('Error: Invalid file path. Must be a .jsonl file');
     process.exit(1);
   }
 
-  const lastSlashIndex = filePath.lastIndexOf('/');
-  const dataDir = lastSlashIndex > 0 ? filePath.substring(0, lastSlashIndex) : '.';
+  const dataDir = dirname(filePath);
 
   let transform: (row: JsonObject) => JsonObject;
   try {
