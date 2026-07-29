@@ -85,6 +85,7 @@ export interface DatabaseConfig<_Tables extends TableDefs = TableDefs> {
    * Fields written back to the JSONL files on sync.
    * When set, only these fields are taken from the database; every other field keeps the value
    * its JSONL line already had, so hook-computed values and omitted optional fields are untouched.
+   * An empty list writes no field back, leaving every line as the file had it.
    * Defaults to writing every field of the row.
    */
   writeBackFields?: readonly string[];

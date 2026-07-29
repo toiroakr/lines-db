@@ -30,7 +30,8 @@ export interface SyncOptions {
   /**
    * Fields written back to the JSONL file.
    * When provided, only these fields are taken from the database and merged into the matching
-   * JSONL line; every other field keeps the value the file already had.
+   * JSONL line; every other field keeps the value the file already had. An empty list writes no
+   * field back, leaving every line as the file had it.
    * Defaults to `writeBackFields` from the database config, or writing every field of the row.
    */
   fields?: readonly string[];
@@ -1541,8 +1542,9 @@ export class LinesDB<Tables extends TableDefs> {
     }
 
     // Write back only the requested fields, keeping the rest of each line as the file had it
+    // An empty list means no field is written back, not that every field is
     const fields = options?.fields ?? this.config.writeBackFields;
-    if (fields && fields.length > 0) {
+    if (fields) {
       finalRows = await this.mergeWriteBackFields(tableName, tableConfig.jsonlPath, finalRows, fields, {
         strictFields: options?.strictFields ?? false,
       });
@@ -1585,7 +1587,7 @@ export class LinesDB<Tables extends TableDefs> {
     }
 
     const existingRows = await this.readExistingRows(jsonlPath);
-    const existing = this.matchExistingRows(tableName, rows, existingRows, fields);
+    const existing = this.matchExistingRows(tableName, rows, existingRows);
 
     return rows.map((row, index) => {
       const base = existing[index];
@@ -1593,7 +1595,11 @@ export class LinesDB<Tables extends TableDefs> {
 
       const merged: JsonObject = { ...base };
       for (const field of tableFields) {
-        merged[field] = row[field];
+        // A row without the field (a backward transformation can drop it) must not
+        // erase what the file holds: assigning undefined would drop the key entirely
+        if (field in row) {
+          merged[field] = row[field];
+        }
       }
       return merged;
     });
@@ -1606,7 +1612,6 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: string,
     rows: JsonObject[],
     existingRows: JsonObject[],
-    fields: readonly string[],
   ): Array<JsonObject | undefined> {
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
     const pkValues = pkName ? existingRows.map((row) => row[pkName]) : [];
@@ -1628,7 +1633,7 @@ export class LinesDB<Tables extends TableDefs> {
     // added or removed and positions no longer line up.
     if (rows.length !== existingRows.length) {
       throw new Error(
-        `Cannot write back only [${fields.join(', ')}] for table '${tableName}': ` +
+        `Cannot write back selected fields for table '${tableName}': ` +
           `the file has ${existingRows.length} row(s) but the table has ${rows.length}, and ` +
           `${pkName ? `column '${pkName}' is not usable as a primary key in the file` : 'the table has no primary key'}, ` +
           `so rows cannot be matched to their existing lines.`,

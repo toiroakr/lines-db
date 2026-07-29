@@ -196,6 +196,52 @@ describe('write-back fields', () => {
     ]);
   });
 
+  it('writes no field back when the list is empty', async () => {
+    await writeFile(dataPath, `{"name":"John"}\n`);
+
+    const db = LinesDB.create({ dataDir: testDir, writeBackFields: [] });
+    await db.initialize();
+    await db.sync('User');
+    await db.close();
+
+    // An empty list must not fall back to writing the whole row
+    expect(await readJsonl(dataPath)).toEqual([{ name: 'John' }]);
+  });
+
+  it('keeps the file value for rows the backward transformation drops the field from', async () => {
+    await writeFile(join(testDir, 'Event.jsonl'), `{"id":"e1","note":"keep"}\n{"id":"e2","note":"stale"}\n`);
+    await writeFile(
+      join(testDir, 'Event.schema.ts'),
+      `import { defineSchema } from '@toiroakr/lines-db';
+
+export const schema = defineSchema(
+  {
+    '~standard': {
+      version: 1,
+      vendor: 'test',
+      validate: (data) => ({ value: { ...data, note: 'from-db' } }),
+    },
+    primaryKey: 'id',
+  },
+  {
+    // Drops 'note' for e1, so the written row does not carry the field at all
+    backward: (output) => (output.id === 'e1' ? { id: output.id } : output),
+  },
+);
+`,
+    );
+
+    const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['note'] });
+    await db.initialize({ tableName: 'Event' });
+    await db.sync('Event');
+    await db.close();
+
+    expect(await readJsonl(join(testDir, 'Event.jsonl'))).toEqual([
+      { id: 'e1', note: 'keep' },
+      { id: 'e2', note: 'from-db' },
+    ]);
+  });
+
   it('rejects fields the table does not have', async () => {
     await writeFile(dataPath, `{"name":"John"}\n`);
 
