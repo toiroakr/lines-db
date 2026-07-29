@@ -350,6 +350,9 @@ db.insert('users', { id: 10, name: 'Alice', age: 30 });
 // ↑ Automatically synced to users.jsonl
 ```
 
+A sync keeps the order the file lists its rows in and appends rows the file did not have, so the
+diff stays limited to what actually changed.
+
 Batch operations with transactions:
 
 ```typescript

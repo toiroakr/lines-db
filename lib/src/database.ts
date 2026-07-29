@@ -1541,45 +1541,43 @@ export class LinesDB<Tables extends TableDefs> {
       finalRows = deserializedRows.map((row) => biSchema.backward!(row) as JsonObject);
     }
 
-    // Write back only the requested fields, keeping the rest of each line as the file had it
     // An empty list means no field is written back, not that every field is
     const fields = options?.fields ?? this.config.writeBackFields;
-    if (fields) {
-      finalRows = await this.mergeWriteBackFields(tableName, tableConfig.jsonlPath, finalRows, fields, {
-        strictFields: options?.strictFields ?? false,
-      });
-    }
+    finalRows = await this.mergeWithExistingLines(tableName, tableConfig.jsonlPath, finalRows, {
+      fields,
+      strictFields: options?.strictFields ?? false,
+    });
 
     // Write back to JSONL file
     await JsonlWriter.write(tableConfig.jsonlPath, finalRows);
   }
 
   /**
-   * Merge the given fields into the rows the JSONL file already holds.
-   * Every field outside `fields` keeps its existing value, so values a validation hook computed
-   * and fields the file omitted are never materialized.
+   * Lay the rows out over the lines the JSONL file already holds.
    *
-   * Rows are matched to their existing line by primary key when the file carries one, and by
-   * position otherwise (the case a primary key is itself being backfilled). Rows with no matching
-   * line are new, so they are written in full - there is nothing to preserve for them.
+   * Rows keep the order the file lists them in - the database returns rows in its own order, and
+   * an integer primary key is SQLite's rowid, so writing rows back in query order would reshuffle
+   * the file. Rows the file never had follow, in database order.
    *
-   * Fields this table does not have are simply not written, so one list of fields can cover a
-   * directory of tables that do not all share it. A sync asked for a single table by name rejects
-   * them instead, since there the caller named both the table and the fields.
+   * With `fields`, only those fields are taken from the row and every other field keeps the value
+   * its line already had, so values a validation hook computed and fields the file omitted are
+   * never materialized. Fields this table does not have are simply not written, so one list can
+   * cover a directory of tables that do not all share it; a sync asked for a single table by name
+   * rejects them instead, since there the caller named both the table and the fields.
    */
-  private async mergeWriteBackFields(
+  private async mergeWithExistingLines(
     tableName: string,
     jsonlPath: string,
     rows: JsonObject[],
-    fields: readonly string[],
-    options: { strictFields: boolean },
+    options: { fields?: readonly string[]; strictFields: boolean },
   ): Promise<JsonObject[]> {
     if (rows.length === 0) {
       return rows;
     }
 
-    const tableFields = fields.filter((field) => rows.some((row) => field in row));
-    if (options.strictFields && tableFields.length < fields.length) {
+    const { fields } = options;
+    const tableFields = fields?.filter((field) => rows.some((row) => field in row));
+    if (fields && tableFields && options.strictFields && tableFields.length < fields.length) {
       const unknownFields = fields.filter((field) => !tableFields.includes(field));
       throw new Error(
         `Cannot write back field(s) [${unknownFields.join(', ')}] for table '${tableName}': ` +
@@ -1588,7 +1586,12 @@ export class LinesDB<Tables extends TableDefs> {
     }
 
     const existingRows = await this.readExistingRows(jsonlPath);
-    const existing = this.matchExistingRows(tableName, rows, existingRows);
+    // Without `fields` the rows are written whole, so matching them to their line only decides the
+    // order: fall back to database order rather than failing when they cannot be matched
+    const existing = this.matchExistingRows(tableName, rows, existingRows, { required: fields !== undefined });
+    if (!existing) {
+      return rows;
+    }
 
     const rowByLine = new Map<JsonObject, JsonObject>();
     const newRows: JsonObject[] = [];
@@ -1601,13 +1604,12 @@ export class LinesDB<Tables extends TableDefs> {
       }
     });
 
-    // Keep the file's own line order - the database returns rows in its own order, and an
-    // integer primary key is SQLite's rowid, so writing rows back in query order would
-    // reshuffle the file. Rows the file never had follow, in database order.
-    const mergedRows = existingRows
+    const writtenRows = existingRows
       .filter((base) => rowByLine.has(base))
       .map((base) => {
         const row = rowByLine.get(base)!;
+        if (!tableFields) return row;
+
         const merged: JsonObject = { ...base };
         for (const field of tableFields) {
           // A row missing the field - a backward transformation can drop it - must not erase
@@ -1619,17 +1621,19 @@ export class LinesDB<Tables extends TableDefs> {
         return merged;
       });
 
-    return [...mergedRows, ...newRows];
+    return [...writtenRows, ...newRows];
   }
 
   /**
-   * Pair each row with the JSONL line it came from, indexed the same way as `rows`
+   * Pair each row with the JSONL line it came from, indexed the same way as `rows`.
+   * Returns undefined when the rows cannot be matched and the caller can do without it.
    */
   private matchExistingRows(
     tableName: string,
     rows: JsonObject[],
     existingRows: JsonObject[],
-  ): Array<JsonObject | undefined> {
+    options: { required: boolean },
+  ): Array<JsonObject | undefined> | undefined {
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
     const pkValues = pkName ? existingRows.map((row) => row[pkName]) : [];
     const hasUsablePk =
@@ -1649,6 +1653,9 @@ export class LinesDB<Tables extends TableDefs> {
     // Only safe while the row count is unchanged, since anything else means rows were
     // added or removed and positions no longer line up.
     if (rows.length !== existingRows.length) {
+      if (!options.required) {
+        return undefined;
+      }
       throw new Error(
         `Cannot write back selected fields for table '${tableName}': ` +
           `the file has ${existingRows.length} row(s) but the table has ${rows.length}, and ` +

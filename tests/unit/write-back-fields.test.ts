@@ -42,6 +42,21 @@ export const schema = defineSchema(
 );
 `;
 
+/** Integer primary key, so SQLite makes it the rowid and returns rows in id order */
+const ITEM_SCHEMA = `import { defineSchema } from '@toiroakr/lines-db';
+
+export const schema = defineSchema(
+  {
+    '~standard': {
+      version: 1,
+      vendor: 'test',
+      validate: (data) => ({ value: { ...data, computed: 'derived' } }),
+    },
+    primaryKey: 'id',
+  },
+);
+`;
+
 async function readJsonl(filePath: string): Promise<Record<string, unknown>[]> {
   const content = await readFile(filePath, 'utf-8');
   return content
@@ -242,25 +257,52 @@ export const schema = defineSchema(
     ]);
   });
 
+  it('keeps the file line order on a full write-back too', async () => {
+    await writeFile(join(testDir, 'Item.jsonl'), `{"id":3,"name":"c"}\n{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n`);
+    await writeFile(join(testDir, 'Item.schema.ts'), ITEM_SCHEMA);
+
+    const db = LinesDB.create({ dataDir: testDir });
+    await db.initialize({ tableName: 'Item' });
+    db.update('Item', { name: 'A' }, { id: 1 });
+    db.insert('Item', { id: 4, name: 'd', computed: 'derived' });
+    await db.sync('Item');
+    await db.close();
+
+    expect(await readJsonl(join(testDir, 'Item.jsonl'))).toEqual([
+      { id: 3, name: 'c', computed: 'derived' },
+      { id: 1, name: 'A', computed: 'derived' },
+      { id: 2, name: 'b', computed: 'derived' },
+      // A row the file never had goes last
+      { id: 4, name: 'd', computed: 'derived' },
+    ]);
+  });
+
+  it('falls back to database order when a full write-back cannot match rows to lines', async () => {
+    // No primary key to match on, and the row count changes
+    await writeFile(join(testDir, 'Log.jsonl'), `{"msg":"a"}\n{"msg":"b"}\n`);
+    await writeFile(
+      join(testDir, 'Log.schema.ts'),
+      `import { defineSchema } from '@toiroakr/lines-db';
+
+export const schema = defineSchema({
+  '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) },
+});
+`,
+    );
+
+    const db = LinesDB.create({ dataDir: testDir });
+    await db.initialize({ tableName: 'Log' });
+    db.insert('Log', { msg: 'c' });
+    await db.sync('Log');
+    await db.close();
+
+    expect(await readJsonl(join(testDir, 'Log.jsonl'))).toEqual([{ msg: 'a' }, { msg: 'b' }, { msg: 'c' }]);
+  });
+
   it('keeps the file line order when the database returns rows in another order', async () => {
     // An integer primary key is SQLite's rowid, so a query returns these rows as 1, 2, 3
     await writeFile(join(testDir, 'Item.jsonl'), `{"id":3,"name":"c"}\n{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n`);
-    await writeFile(
-      join(testDir, 'Item.schema.ts'),
-      `import { defineSchema } from '@toiroakr/lines-db';
-
-export const schema = defineSchema(
-  {
-    '~standard': {
-      version: 1,
-      vendor: 'test',
-      validate: (data) => ({ value: { ...data, computed: 'derived' } }),
-    },
-    primaryKey: 'id',
-  },
-);
-`,
-    );
+    await writeFile(join(testDir, 'Item.schema.ts'), ITEM_SCHEMA);
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['name'] });
     await db.initialize({ tableName: 'Item' });
