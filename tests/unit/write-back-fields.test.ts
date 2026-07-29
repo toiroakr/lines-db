@@ -242,6 +242,39 @@ export const schema = defineSchema(
     ]);
   });
 
+  it('keeps the file line order when the database returns rows in another order', async () => {
+    // An integer primary key is SQLite's rowid, so a query returns these rows as 1, 2, 3
+    await writeFile(join(testDir, 'Item.jsonl'), `{"id":3,"name":"c"}\n{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n`);
+    await writeFile(
+      join(testDir, 'Item.schema.ts'),
+      `import { defineSchema } from '@toiroakr/lines-db';
+
+export const schema = defineSchema(
+  {
+    '~standard': {
+      version: 1,
+      vendor: 'test',
+      validate: (data) => ({ value: { ...data, computed: 'derived' } }),
+    },
+    primaryKey: 'id',
+  },
+);
+`,
+    );
+
+    const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['name'] });
+    await db.initialize({ tableName: 'Item' });
+    db.update('Item', { name: 'A' }, { id: 1 });
+    await db.sync('Item');
+    await db.close();
+
+    expect(await readJsonl(join(testDir, 'Item.jsonl'))).toEqual([
+      { id: 3, name: 'c' },
+      { id: 1, name: 'A' },
+      { id: 2, name: 'b' },
+    ]);
+  });
+
   it('rejects fields the table does not have', async () => {
     await writeFile(dataPath, `{"name":"John"}\n`);
 

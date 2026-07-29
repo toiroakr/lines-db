@@ -143,10 +143,10 @@ npx lines-db migrate ./data/users.jsonl "(row) => row" --fields id
 ```
 
 Rows are matched to their existing line by primary key, or by position when the file does not carry
-one yet (the case when the primary key itself is being backfilled). Rows the file never had are
-written in full, since there is nothing to preserve for them. When rows cannot be matched to their
-lines - the file has no usable primary key _and_ the row count changed - the migration fails instead
-of guessing.
+one yet (the case when the primary key itself is being backfilled). Lines keep the order the file
+has them in, and rows the file never had are appended, since there is nothing to preserve for them.
+When rows cannot be matched to their lines - the file has no usable primary key _and_ the row count
+changed - the migration fails instead of guessing.
 
 One list covers every table the migration touches. A table that does not have a named field simply
 has nothing written back to it, so a directory holding tables that do not all share an `id` works
@@ -380,9 +380,10 @@ const db = LinesDB.create({ dataDir: './data', writeBackFields: ['id'] });
 ```
 
 Rows are matched to their existing line by primary key, or by position when the file does not carry
-one yet (the case when the primary key itself is being backfilled). Rows the file never had are
-written in full. A field you name is always taken from the database - including when it is `null`
-there - and `sync` throws when rows cannot be matched to their lines, rather than guessing.
+one yet (the case when the primary key itself is being backfilled). Lines keep the order the file
+has them in, and rows the file never had are appended. A field you name is always taken from the
+database - including when it is `null` there - and `sync` throws when rows cannot be matched to
+their lines, rather than guessing.
 
 `sync('users', { fields })` names one table, so a field that table does not have is rejected. A sync
 covering every table - `sync()` or the config option - leaves such a field out of the tables without

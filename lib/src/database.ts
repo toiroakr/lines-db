@@ -1582,27 +1582,44 @@ export class LinesDB<Tables extends TableDefs> {
     if (options.strictFields && tableFields.length < fields.length) {
       const unknownFields = fields.filter((field) => !tableFields.includes(field));
       throw new Error(
-        `Cannot write back field(s) [${unknownFields.join(', ')}] for table '${tableName}': no such field in the table.`,
+        `Cannot write back field(s) [${unknownFields.join(', ')}] for table '${tableName}': ` +
+          `no such field in the rows written back to the file.`,
       );
     }
 
     const existingRows = await this.readExistingRows(jsonlPath);
     const existing = this.matchExistingRows(tableName, rows, existingRows);
 
-    return rows.map((row, index) => {
+    const rowByLine = new Map<JsonObject, JsonObject>();
+    const newRows: JsonObject[] = [];
+    rows.forEach((row, index) => {
       const base = existing[index];
-      if (!base) return row;
-
-      const merged: JsonObject = { ...base };
-      for (const field of tableFields) {
-        // A row without the field (a backward transformation can drop it) must not
-        // erase what the file holds: assigning undefined would drop the key entirely
-        if (field in row) {
-          merged[field] = row[field];
-        }
+      if (base) {
+        rowByLine.set(base, row);
+      } else {
+        newRows.push(row);
       }
-      return merged;
     });
+
+    // Keep the file's own line order - the database returns rows in its own order, and an
+    // integer primary key is SQLite's rowid, so writing rows back in query order would
+    // reshuffle the file. Rows the file never had follow, in database order.
+    const mergedRows = existingRows
+      .filter((base) => rowByLine.has(base))
+      .map((base) => {
+        const row = rowByLine.get(base)!;
+        const merged: JsonObject = { ...base };
+        for (const field of tableFields) {
+          // A row missing the field - a backward transformation can drop it - must not erase
+          // what the file holds, since writing undefined would drop the key entirely
+          if (row[field] !== undefined) {
+            merged[field] = row[field];
+          }
+        }
+        return merged;
+      });
+
+    return [...mergedRows, ...newRows];
   }
 
   /**
