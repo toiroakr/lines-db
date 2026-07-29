@@ -7,12 +7,12 @@ register('amaro/transform', import.meta.url);
 import { TypeGenerator } from './type-generator.js';
 import { LinesDB } from './database.js';
 import { ErrorFormatter } from './error-formatter.js';
-import type { ValidationError, JsonObject } from './types.js';
+import type { ValidationError, JsonObject, TableDefs } from './types.js';
 import { z } from 'zod';
 import { arg, defineCommand, runMain } from 'politty';
 import { styleText } from 'node:util';
 import { writeFile, stat, readdir } from 'node:fs/promises';
-import { basename, dirname } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 
 const originalEmitWarning = process.emitWarning;
@@ -245,6 +245,10 @@ const migrateCommand = defineCommand({
       alias: 'f',
       description: 'Filter expression',
     }),
+    fields: arg(z.string().optional(), {
+      description:
+        'Comma-separated fields to write back (e.g. "id"). Every other field keeps the value the JSONL file already had. Default: write every field',
+    }),
     errorOutput: arg(z.string().optional(), {
       alias: 'e',
       description: 'Output file path for transformed data when migration fails',
@@ -256,17 +260,20 @@ const migrateCommand = defineCommand({
   }),
   run: async (args) => {
     try {
+      const writeBackFields = parseWriteBackFields(args.fields);
       const stats = await stat(args.path);
 
       if (stats.isDirectory()) {
         await migrateDirectory(args.path, args.transform, {
           filter: args.filter,
+          writeBackFields,
           errorOutput: args.errorOutput,
           verbose: args.verbose,
         });
       } else if (stats.isFile() && args.path.endsWith('.jsonl')) {
         await migrateFile(args.path, args.transform, {
           filter: args.filter,
+          writeBackFields,
           errorOutput: args.errorOutput,
           verbose: args.verbose,
         });
@@ -298,12 +305,48 @@ const program = defineCommand({
 runMain(program, { version: '1.0.0' });
 
 /**
+ * Parse the --fields option into the list of fields to write back
+ */
+function parseWriteBackFields(fields: string | undefined): string[] | undefined {
+  if (fields === undefined) return undefined;
+
+  const parsed = fields
+    .split(',')
+    .map((field) => field.trim())
+    .filter((field) => field.length > 0);
+
+  if (parsed.length === 0) {
+    console.error('Error: --fields must name at least one field');
+    process.exit(1);
+  }
+
+  return parsed;
+}
+
+/**
+ * Reject fields no loaded table has, so a typo in --fields is not a silent no-op.
+ * A field only some tables have is fine: the tables without it just leave it out.
+ */
+async function assertWriteBackFieldsExist(db: LinesDB<TableDefs>, fields: string[] | undefined) {
+  if (!fields) return;
+
+  const known = new Set(db.getTableNames().flatMap((name) => db.getSchema(name)?.columns.map((col) => col.name) ?? []));
+  const unknown = fields.filter((field) => !known.has(field));
+
+  if (unknown.length > 0) {
+    console.error(`Error: --fields names field(s) no table has: ${unknown.join(', ')}`);
+    await db.close();
+    process.exit(1);
+  }
+}
+
+/**
  * Migrate all JSONL files in a directory
  */
 async function migrateDirectory(
   dirPath: string,
   transformStr: string,
-  options: { filter?: string; errorOutput?: string; verbose: boolean },
+  options: { filter?: string; writeBackFields?: string[]; errorOutput?: string; verbose: boolean },
 ) {
   const entries = await readdir(dirPath, { withFileTypes: true });
   const jsonlFiles = entries
@@ -317,7 +360,7 @@ async function migrateDirectory(
 
   console.log(`Found ${jsonlFiles.length} JSONL file(s) in directory`);
 
-  const db = LinesDB.create({ dataDir: dirPath });
+  const db = LinesDB.create({ dataDir: dirPath, writeBackFields: options.writeBackFields });
   const initResult = await db.initialize({ detailedValidate: true });
 
   if (initResult.warnings.length > 0) {
@@ -352,6 +395,8 @@ async function migrateDirectory(
   }
 
   console.log(`Loaded ${tableNames.length} table(s): ${tableNames.join(', ')}\n`);
+
+  await assertWriteBackFieldsExist(db as LinesDB<TableDefs>, options.writeBackFields);
 
   try {
     const transform = runInSandbox<unknown>(`(${transformStr})`);
@@ -421,7 +466,7 @@ async function migrateDirectory(
               : db.find(tableName);
 
             const errorInfos = validationError.validationErrors.map(({ rowIndex, rowData, error: rowError }) => ({
-              file: `${dirPath}/${tableName}.jsonl`,
+              file: join(dirPath, `${tableName}.jsonl`),
               rowIndex,
               issues: rowError.issues,
               data: rowData,
@@ -462,18 +507,16 @@ async function migrateDirectory(
 async function migrateFile(
   filePath: string,
   transformStr: string,
-  options: { filter?: string; errorOutput?: string; verbose: boolean },
+  options: { filter?: string; writeBackFields?: string[]; errorOutput?: string; verbose: boolean },
 ) {
-  const fileName = filePath.split('/').pop() || '';
-  const tableName = fileName.replace('.jsonl', '');
+  const tableName = basename(filePath, '.jsonl');
 
   if (!tableName) {
     console.error('Error: Invalid file path. Must be a .jsonl file');
     process.exit(1);
   }
 
-  const lastSlashIndex = filePath.lastIndexOf('/');
-  const dataDir = lastSlashIndex > 0 ? filePath.substring(0, lastSlashIndex) : '.';
+  const dataDir = dirname(filePath);
 
   let transform: (row: JsonObject) => JsonObject;
   try {
@@ -489,7 +532,7 @@ async function migrateFile(
     process.exit(1);
   }
 
-  const db = LinesDB.create({ dataDir });
+  const db = LinesDB.create({ dataDir, writeBackFields: options.writeBackFields });
   const initResult = await db.initialize({ tableName, transform, detailedValidate: true });
 
   if (initResult.warnings.length > 0) {
@@ -515,6 +558,8 @@ async function migrateFile(
     await db.close();
     process.exit(1);
   }
+
+  await assertWriteBackFieldsExist(db as LinesDB<TableDefs>, options.writeBackFields);
 
   try {
     let filter: unknown = undefined;

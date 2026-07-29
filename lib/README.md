@@ -116,15 +116,41 @@ npx lines-db migrate ./data/users.jsonl "(row) => ({ ...row, active: true })" --
 
 # Save transformed data on error
 npx lines-db migrate ./data/users.jsonl "(row) => ({ ...row, age: row.age + 1 })" --errorOutput ./migrated.jsonl
+
+# Backfill ids without rewriting anything else
+npx lines-db migrate ./data "(row) => ({ ...row, id: row.id ?? crypto.randomUUID() })" --fields id
 ```
 
 **Options:**
 
 - `--filter, -f <expr>` - Filter expression to select rows
+- `--fields <list>` - Comma-separated fields to write back; every other field keeps the value the JSONL file already had (default: write every field)
 - `--errorOutput, -e <path>` - Save transformed data to file if migration fails
 - `--verbose, -v` - Show detailed error messages
 
 The migration runs in a transaction and validates all transformed rows before committing.
+
+#### Writing back only some fields
+
+By default a migration writes each row back in full, so values a validation schema computed and
+fields the JSONL file omitted end up materialized in the file. `--fields` narrows the write-back to
+the fields you name - everything else in the line is left exactly as it was:
+
+```bash
+# users.jsonl before: {"name":"John"}
+npx lines-db migrate ./data/users.jsonl "(row) => row" --fields id
+# users.jsonl after:  {"name":"John","id":"..."}
+```
+
+Rows are matched to their existing line by primary key, or by position when the file does not carry
+one yet (the case when the primary key itself is being backfilled). Lines keep the order the file
+has them in, and rows the file never had are appended, since there is nothing to preserve for them.
+When rows cannot be matched to their lines - the file has no usable primary key _and_ the row count
+changed - the migration fails instead of guessing.
+
+One list covers every table the migration touches. A table that does not have a named field simply
+has nothing written back to it, so a directory holding tables that do not all share an `id` works
+with a single `--fields id`. A field _no_ table has is a typo, and the migration stops.
 
 ## TypeScript Usage
 
@@ -232,6 +258,7 @@ await db.close();
 **Transaction & Schema:**
 
 - `transaction(fn)` - Execute operations in a transaction
+- `sync(table?, options?)` - Write changes back to the JSONL file(s)
 - `getSchema(table)` - Get table schema
 - `getTableNames()` - Get all table names
 
@@ -323,6 +350,9 @@ db.insert('users', { id: 10, name: 'Alice', age: 30 });
 // ↑ Automatically synced to users.jsonl
 ```
 
+A sync keeps the order the file lists its rows in and appends rows the file did not have, so the
+diff stays limited to what actually changed.
+
 Batch operations with transactions:
 
 ```typescript
@@ -333,11 +363,41 @@ await db.transaction(async (tx) => {
 });
 ```
 
+### Writing Back Only Some Fields
+
+A sync writes each row back in full by default, which materializes values a validation schema
+computed and fields the JSONL file omitted. Name the fields to write back to keep the rest of every
+line exactly as the file had it:
+
+```typescript
+// users.jsonl: {"name":"Alice"}
+await db.sync('users', { fields: ['id'] });
+// users.jsonl: {"name":"Alice","id":"..."}
+```
+
+Use `writeBackFields` on the config to apply the same rule to every sync, including the automatic
+sync after an insert, update, or transaction:
+
+```typescript
+const db = LinesDB.create({ dataDir: './data', writeBackFields: ['id'] });
+```
+
+Rows are matched to their existing line by primary key, or by position when the file does not carry
+one yet (the case when the primary key itself is being backfilled). Lines keep the order the file
+has them in, and rows the file never had are appended. A field you name is always taken from the
+database - including when it is `null` there - and `sync` throws when rows cannot be matched to
+their lines, rather than guessing.
+
+`sync('users', { fields })` names one table, so a field that table does not have is rejected. A sync
+covering every table - `sync()` or the config option - leaves such a field out of the tables without
+it instead, so one list can serve a directory of tables that do not all share it.
+
 ## Configuration
 
 ```typescript
 interface DatabaseConfig {
   dataDir: string; // Directory containing JSONL files
+  writeBackFields?: readonly string[]; // Fields written back on sync (default: every field)
 }
 
 const db = LinesDB.create({ dataDir: './data' });

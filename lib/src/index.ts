@@ -1,4 +1,5 @@
 export { LinesDB } from './database.js';
+export type { SyncOptions } from './database.js';
 export { JsonlReader } from './jsonl-reader.js';
 export { JsonlWriter } from './jsonl-writer.js';
 export { SchemaLoader } from './schema-loader.js';
