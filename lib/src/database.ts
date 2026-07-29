@@ -36,6 +36,12 @@ export interface SyncOptions {
   fields?: readonly string[];
 }
 
+/**
+ * Sync options plus how to treat fields a table does not have: a sync asked for one table by name
+ * rejects them, while a sync covering every table just leaves them out.
+ */
+type InternalSyncOptions = SyncOptions & { strictFields?: boolean };
+
 export class LinesDB<Tables extends TableDefs> {
   private db: SQLiteDatabase;
   private config: DatabaseConfig<Tables>;
@@ -1497,7 +1503,7 @@ export class LinesDB<Tables extends TableDefs> {
    * Syncs of the same table run one after another: auto-sync is fire-and-forget, and a write-back
    * that reads the file first must never see a file another sync is halfway through writing.
    */
-  private async syncTable(tableName: string, options?: SyncOptions): Promise<void> {
+  private async syncTable(tableName: string, options?: InternalSyncOptions): Promise<void> {
     const pending = this.syncQueue.get(tableName) ?? Promise.resolve();
     const current = pending.then(() => this.writeTable(tableName, options));
 
@@ -1513,7 +1519,7 @@ export class LinesDB<Tables extends TableDefs> {
    * Write a table back to its JSONL file
    * Uses backward transformation when available
    */
-  private async writeTable(tableName: string, options?: SyncOptions): Promise<void> {
+  private async writeTable(tableName: string, options?: InternalSyncOptions): Promise<void> {
     const tableConfig = this.tables.get(tableName);
     if (!tableConfig) {
       throw new Error(`Table ${tableName} not found`);
@@ -1537,7 +1543,9 @@ export class LinesDB<Tables extends TableDefs> {
     // Write back only the requested fields, keeping the rest of each line as the file had it
     const fields = options?.fields ?? this.config.writeBackFields;
     if (fields && fields.length > 0) {
-      finalRows = await this.mergeWriteBackFields(tableName, tableConfig.jsonlPath, finalRows, fields);
+      finalRows = await this.mergeWriteBackFields(tableName, tableConfig.jsonlPath, finalRows, fields, {
+        strictFields: options?.strictFields ?? false,
+      });
     }
 
     // Write back to JSONL file
@@ -1552,19 +1560,25 @@ export class LinesDB<Tables extends TableDefs> {
    * Rows are matched to their existing line by primary key when the file carries one, and by
    * position otherwise (the case a primary key is itself being backfilled). Rows with no matching
    * line are new, so they are written in full - there is nothing to preserve for them.
+   *
+   * Fields this table does not have are simply not written, so one list of fields can cover a
+   * directory of tables that do not all share it. A sync asked for a single table by name rejects
+   * them instead, since there the caller named both the table and the fields.
    */
   private async mergeWriteBackFields(
     tableName: string,
     jsonlPath: string,
     rows: JsonObject[],
     fields: readonly string[],
+    options: { strictFields: boolean },
   ): Promise<JsonObject[]> {
     if (rows.length === 0) {
       return rows;
     }
 
-    const unknownFields = fields.filter((field) => !rows.some((row) => field in row));
-    if (unknownFields.length > 0) {
+    const tableFields = fields.filter((field) => rows.some((row) => field in row));
+    if (options.strictFields && tableFields.length < fields.length) {
+      const unknownFields = fields.filter((field) => !tableFields.includes(field));
       throw new Error(
         `Cannot write back field(s) [${unknownFields.join(', ')}] for table '${tableName}': no such field in the table.`,
       );
@@ -1578,10 +1592,8 @@ export class LinesDB<Tables extends TableDefs> {
       if (!base) return row;
 
       const merged: JsonObject = { ...base };
-      for (const field of fields) {
-        if (field in row) {
-          merged[field] = row[field];
-        }
+      for (const field of tableFields) {
+        merged[field] = row[field];
       }
       return merged;
     });
@@ -1652,7 +1664,8 @@ export class LinesDB<Tables extends TableDefs> {
       if (!this.schemas.has(tableName)) {
         throw new Error(`Table '${tableName}' is not loaded`);
       }
-      await this.syncTable(tableName, options);
+      // The caller named both the table and the fields, so a field it does not have is a mistake
+      await this.syncTable(tableName, { ...options, strictFields: options?.fields !== undefined });
     } else {
       // Sync all tables that are loaded (present in schemas map)
       for (const [name] of this.schemas) {

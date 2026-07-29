@@ -148,6 +148,10 @@ written in full, since there is nothing to preserve for them. When rows cannot b
 lines - the file has no usable primary key _and_ the row count changed - the migration fails instead
 of guessing.
 
+One list covers every table the migration touches. A table that does not have a named field simply
+has nothing written back to it, so a directory holding tables that do not all share an `id` works
+with a single `--fields id`. A field _no_ table has is a typo, and the migration stops.
+
 ## TypeScript Usage
 
 ### Generate Types
@@ -379,6 +383,10 @@ Rows are matched to their existing line by primary key, or by position when the 
 one yet (the case when the primary key itself is being backfilled). Rows the file never had are
 written in full. A field you name is always taken from the database - including when it is `null`
 there - and `sync` throws when rows cannot be matched to their lines, rather than guessing.
+
+`sync('users', { fields })` names one table, so a field that table does not have is rejected. A sync
+covering every table - `sync()` or the config option - leaves such a field out of the tables without
+it instead, so one list can serve a directory of tables that do not all share it.
 
 ## Configuration
 

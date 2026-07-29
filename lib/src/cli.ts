@@ -7,7 +7,7 @@ register('amaro/transform', import.meta.url);
 import { TypeGenerator } from './type-generator.js';
 import { LinesDB } from './database.js';
 import { ErrorFormatter } from './error-formatter.js';
-import type { ValidationError, JsonObject } from './types.js';
+import type { ValidationError, JsonObject, TableDefs } from './types.js';
 import { z } from 'zod';
 import { arg, defineCommand, runMain } from 'politty';
 import { styleText } from 'node:util';
@@ -324,6 +324,23 @@ function parseWriteBackFields(fields: string | undefined): string[] | undefined 
 }
 
 /**
+ * Reject fields no loaded table has, so a typo in --fields is not a silent no-op.
+ * A field only some tables have is fine: the tables without it just leave it out.
+ */
+async function assertWriteBackFieldsExist(db: LinesDB<TableDefs>, fields: string[] | undefined) {
+  if (!fields) return;
+
+  const known = new Set(db.getTableNames().flatMap((name) => db.getSchema(name)?.columns.map((col) => col.name) ?? []));
+  const unknown = fields.filter((field) => !known.has(field));
+
+  if (unknown.length > 0) {
+    console.error(`Error: --fields names field(s) no table has: ${unknown.join(', ')}`);
+    await db.close();
+    process.exit(1);
+  }
+}
+
+/**
  * Migrate all JSONL files in a directory
  */
 async function migrateDirectory(
@@ -378,6 +395,8 @@ async function migrateDirectory(
   }
 
   console.log(`Loaded ${tableNames.length} table(s): ${tableNames.join(', ')}\n`);
+
+  await assertWriteBackFieldsExist(db as LinesDB<TableDefs>, options.writeBackFields);
 
   try {
     const transform = runInSandbox<unknown>(`(${transformStr})`);
@@ -541,6 +560,8 @@ async function migrateFile(
     await db.close();
     process.exit(1);
   }
+
+  await assertWriteBackFieldsExist(db as LinesDB<TableDefs>, options.writeBackFields);
 
   try {
     let filter: unknown = undefined;

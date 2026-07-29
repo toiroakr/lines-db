@@ -279,6 +279,46 @@ export const schema = defineSchema(
     ]);
   });
 
+  it('leaves out fields a table does not have', async () => {
+    // A seed directory where one table is keyed on something other than an id
+    await writeFile(dataPath, `{"name":"John"}\n`);
+    await writeFile(join(testDir, 'Account.jsonl'), `{"email":"john@example.com","password":"secret"}\n`);
+    await writeFile(
+      join(testDir, 'Account.schema.ts'),
+      `import { defineSchema } from '@toiroakr/lines-db';
+
+export const schema = defineSchema(
+  {
+    '~standard': {
+      version: 1,
+      vendor: 'test',
+      validate: (data) => ({ value: { ...data, computed: 'derived' } }),
+    },
+    primaryKey: 'email',
+  },
+);
+`,
+    );
+
+    await execFileAsync(process.execPath, [cliPath, 'migrate', testDir, '(row) => row', '--fields', 'id']);
+
+    expect(await readJsonl(dataPath)).toEqual([{ name: 'John', id: expect.any(String) }]);
+    // Account has no id, so nothing is written back to it - not even its computed field
+    expect(await readJsonl(join(testDir, 'Account.jsonl'))).toEqual([
+      { email: 'john@example.com', password: 'secret' },
+    ]);
+  });
+
+  it('fails when --fields names a field no table has', async () => {
+    await writeFile(dataPath, `{"name":"John"}\n`);
+
+    await expect(
+      execFileAsync(process.execPath, [cliPath, 'migrate', testDir, '(row) => row', '--fields', 'idd']),
+    ).rejects.toThrow(/--fields names field\(s\) no table has: idd/);
+
+    expect(await readJsonl(dataPath)).toEqual([{ name: 'John' }]);
+  });
+
   it('migrates every field through the CLI when --fields is omitted', async () => {
     await writeFile(dataPath, `{"name":"John"}\n`);
 
