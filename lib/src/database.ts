@@ -23,6 +23,19 @@ import type {
 } from './types.js';
 import type { BiDirectionalSchema } from './schema.js';
 
+/**
+ * Options for {@link LinesDB.sync}
+ */
+export interface SyncOptions {
+  /**
+   * Fields written back to the JSONL file.
+   * When provided, only these fields are taken from the database and merged into the matching
+   * JSONL line; every other field keeps the value the file already had.
+   * Defaults to `writeBackFields` from the database config, or writing every field of the row.
+   */
+  fields?: readonly string[];
+}
+
 export class LinesDB<Tables extends TableDefs> {
   private db: SQLiteDatabase;
   private config: DatabaseConfig<Tables>;
@@ -30,6 +43,7 @@ export class LinesDB<Tables extends TableDefs> {
   private validationSchemas: Map<string, StandardSchema | undefined> = new Map();
   private tables: Map<string, TableConfig> = new Map();
   private inTransaction: boolean = false;
+  private syncQueue: Map<string, Promise<void>> = new Map();
 
   private constructor(config: DatabaseConfig<Tables>, dbPath?: string) {
     this.config = config;
@@ -1480,9 +1494,26 @@ export class LinesDB<Tables extends TableDefs> {
 
   /**
    * Sync a specific table back to its JSONL file
+   * Syncs of the same table run one after another: auto-sync is fire-and-forget, and a write-back
+   * that reads the file first must never see a file another sync is halfway through writing.
+   */
+  private async syncTable(tableName: string, options?: SyncOptions): Promise<void> {
+    const pending = this.syncQueue.get(tableName) ?? Promise.resolve();
+    const current = pending.then(() => this.writeTable(tableName, options));
+
+    this.syncQueue.set(
+      tableName,
+      current.catch(() => {}),
+    );
+
+    return current;
+  }
+
+  /**
+   * Write a table back to its JSONL file
    * Uses backward transformation when available
    */
-  private async syncTable(tableName: string): Promise<void> {
+  private async writeTable(tableName: string, options?: SyncOptions): Promise<void> {
     const tableConfig = this.tables.get(tableName);
     if (!tableConfig) {
       throw new Error(`Table ${tableName} not found`);
@@ -1503,26 +1534,129 @@ export class LinesDB<Tables extends TableDefs> {
       finalRows = deserializedRows.map((row) => biSchema.backward!(row) as JsonObject);
     }
 
+    // Write back only the requested fields, keeping the rest of each line as the file had it
+    const fields = options?.fields ?? this.config.writeBackFields;
+    if (fields && fields.length > 0) {
+      finalRows = await this.mergeWriteBackFields(tableName, tableConfig.jsonlPath, finalRows, fields);
+    }
+
     // Write back to JSONL file
     await JsonlWriter.write(tableConfig.jsonlPath, finalRows);
+  }
+
+  /**
+   * Merge the given fields into the rows the JSONL file already holds.
+   * Every field outside `fields` keeps its existing value, so values a validation hook computed
+   * and fields the file omitted are never materialized.
+   *
+   * Rows are matched to their existing line by primary key when the file carries one, and by
+   * position otherwise (the case a primary key is itself being backfilled). Rows with no matching
+   * line are new, so they are written in full - there is nothing to preserve for them.
+   */
+  private async mergeWriteBackFields(
+    tableName: string,
+    jsonlPath: string,
+    rows: JsonObject[],
+    fields: readonly string[],
+  ): Promise<JsonObject[]> {
+    if (rows.length === 0) {
+      return rows;
+    }
+
+    const unknownFields = fields.filter((field) => !rows.some((row) => field in row));
+    if (unknownFields.length > 0) {
+      throw new Error(
+        `Cannot write back field(s) [${unknownFields.join(', ')}] for table '${tableName}': no such field in the table.`,
+      );
+    }
+
+    const existingRows = await this.readExistingRows(jsonlPath);
+    const existing = this.matchExistingRows(tableName, rows, existingRows, fields);
+
+    return rows.map((row, index) => {
+      const base = existing[index];
+      if (!base) return row;
+
+      const merged: JsonObject = { ...base };
+      for (const field of fields) {
+        if (field in row) {
+          merged[field] = row[field];
+        }
+      }
+      return merged;
+    });
+  }
+
+  /**
+   * Pair each row with the JSONL line it came from, indexed the same way as `rows`
+   */
+  private matchExistingRows(
+    tableName: string,
+    rows: JsonObject[],
+    existingRows: JsonObject[],
+    fields: readonly string[],
+  ): Array<JsonObject | undefined> {
+    const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
+    const pkValues = pkName ? existingRows.map((row) => row[pkName]) : [];
+    const hasUsablePk =
+      pkName !== undefined &&
+      pkValues.every((value) => value !== undefined && value !== null) &&
+      new Set(pkValues.map((value) => String(value))).size === pkValues.length;
+
+    if (hasUsablePk) {
+      const byPk = new Map(existingRows.map((row, index) => [String(pkValues[index]), row]));
+      return rows.map((row) => {
+        const pkValue = row[pkName!];
+        return pkValue === undefined || pkValue === null ? undefined : byPk.get(String(pkValue));
+      });
+    }
+
+    // No usable primary key in the file: fall back to matching rows to lines by position.
+    // Only safe while the row count is unchanged, since anything else means rows were
+    // added or removed and positions no longer line up.
+    if (rows.length !== existingRows.length) {
+      throw new Error(
+        `Cannot write back only [${fields.join(', ')}] for table '${tableName}': ` +
+          `the file has ${existingRows.length} row(s) but the table has ${rows.length}, and ` +
+          `${pkName ? `column '${pkName}' is not usable as a primary key in the file` : 'the table has no primary key'}, ` +
+          `so rows cannot be matched to their existing lines.`,
+      );
+    }
+
+    return existingRows;
+  }
+
+  /**
+   * Read the rows a JSONL file currently holds, treating a missing file as empty
+   */
+  private async readExistingRows(jsonlPath: string): Promise<JsonObject[]> {
+    try {
+      return await JsonlReader.read(jsonlPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return [];
+      }
+      throw error;
+    }
   }
 
   /**
    * Sync database changes back to JSONL files
    * Uses backward transformation when available
    * @param tableName Optional table name to sync. If not provided, syncs all loaded tables
+   * @param options Optional sync options, e.g. the fields to write back
    */
-  async sync(tableName?: string): Promise<void> {
+  async sync(tableName?: string, options?: SyncOptions): Promise<void> {
     if (tableName) {
       // Sync only the specified table
       if (!this.schemas.has(tableName)) {
         throw new Error(`Table '${tableName}' is not loaded`);
       }
-      await this.syncTable(tableName);
+      await this.syncTable(tableName, options);
     } else {
       // Sync all tables that are loaded (present in schemas map)
       for (const [name] of this.schemas) {
-        await this.syncTable(name);
+        await this.syncTable(name, options);
       }
     }
   }
@@ -1558,9 +1692,28 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
+   * Wait for every queued sync to finish, so a fire-and-forget auto-sync is not dropped
+   */
+  private async waitForPendingSyncs(): Promise<void> {
+    const awaited = new Set<Promise<void>>();
+    // Queued promises never reject: syncTable stores them with their rejection swallowed
+    let pending = Array.from(this.syncQueue.values());
+
+    while (pending.length > 0) {
+      for (const promise of pending) {
+        awaited.add(promise);
+      }
+      await Promise.all(pending);
+      pending = Array.from(this.syncQueue.values()).filter((promise) => !awaited.has(promise));
+    }
+  }
+
+  /**
    * Close the database connection
    */
   async close(): Promise<void> {
+    await this.waitForPendingSyncs();
+
     try {
       this.db.close();
     } catch (_error) {

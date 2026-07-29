@@ -116,15 +116,36 @@ npx lines-db migrate ./data/users.jsonl "(row) => ({ ...row, active: true })" --
 
 # エラー時に変換後のデータを保存
 npx lines-db migrate ./data/users.jsonl "(row) => ({ ...row, age: row.age + 1 })" --errorOutput ./migrated.jsonl
+
+# 他のフィールドを書き換えずに id だけを後入れする
+npx lines-db migrate ./data "(row) => ({ ...row, id: row.id ?? crypto.randomUUID() })" --fields id
 ```
 
 **オプション：**
 
 - `--filter, -f <expr>` - 行を選択するフィルター式
+- `--fields <list>` - 書き戻すフィールドをカンマ区切りで指定。指定外のフィールドは JSONL ファイルの元の値がそのまま保たれる（デフォルト：全フィールドを書き戻す）
 - `--errorOutput, -e <path>` - マイグレーション失敗時に変換後のデータを保存するファイルパス
 - `--verbose, -v` - 詳細なエラーメッセージを表示
 
 マイグレーションはトランザクション内で実行され、コミット前に全ての変換後の行がバリデーションされます。
+
+#### 一部のフィールドだけを書き戻す
+
+デフォルトではマイグレーションは各行を丸ごと書き戻すため、バリデーションスキーマが計算した値や
+JSONL ファイルで省略されていたフィールドまでファイルに実体化されてしまいます。`--fields` を使うと
+書き戻しを指定したフィールドだけに絞り込み、行のそれ以外の内容は元のまま保たれます：
+
+```bash
+# 実行前の users.jsonl: {"name":"John"}
+npx lines-db migrate ./data/users.jsonl "(row) => row" --fields id
+# 実行後の users.jsonl: {"name":"John","id":"..."}
+```
+
+行と元の行との対応付けは主キーで行い、ファイルにまだ主キーが無い場合（主キー自体を後入れする
+ケース）は行の位置で対応付けます。ファイルに存在しなかった行は保持すべき内容が無いため丸ごと
+書き出されます。ファイルに使える主キーが無く、かつ行数が変わっている場合は対応付けができないため、
+推測せずにエラーになります。
 
 ## TypeScript での使い方
 
@@ -232,6 +253,7 @@ await db.close();
 **トランザクションとスキーマ：**
 
 - `transaction(fn)` - トランザクション内で操作を実行
+- `sync(table?, options?)` - 変更を JSONL ファイルに書き戻す
 - `getSchema(table)` - テーブルスキーマを取得
 - `getTableNames()` - 全てのテーブル名を取得
 
@@ -333,11 +355,36 @@ await db.transaction(async (tx) => {
 });
 ```
 
+### 一部のフィールドだけを書き戻す
+
+同期はデフォルトで各行を丸ごと書き戻すため、バリデーションスキーマが計算した値や JSONL ファイルで
+省略されていたフィールドまで実体化されてしまいます。書き戻すフィールドを指定すれば、行のそれ以外の
+内容はファイルの元の値がそのまま保たれます：
+
+```typescript
+// users.jsonl: {"name":"Alice"}
+await db.sync('users', { fields: ['id'] });
+// users.jsonl: {"name":"Alice","id":"..."}
+```
+
+設定の `writeBackFields` に指定すると、insert・update・トランザクション後の自動同期を含む全ての
+同期に同じルールが適用されます：
+
+```typescript
+const db = LinesDB.create({ dataDir: './data', writeBackFields: ['id'] });
+```
+
+行と元の行との対応付けは主キーで行い、ファイルにまだ主キーが無い場合（主キー自体を後入れする
+ケース）は行の位置で対応付けます。ファイルに存在しなかった行は丸ごと書き出されます。指定した
+フィールドは常にデータベースの値が使われ（データベース側が `null` の場合も含む）、行を対応付け
+られない場合は推測せずに `sync` がエラーになります。
+
 ## 設定
 
 ```typescript
 interface DatabaseConfig {
   dataDir: string; // JSONLファイルが含まれるディレクトリ
+  writeBackFields?: readonly string[]; // 同期時に書き戻すフィールド（デフォルト：全フィールド）
 }
 
 const db = LinesDB.create({ dataDir: './data' });
