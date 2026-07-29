@@ -1526,8 +1526,10 @@ export class LinesDB<Tables extends TableDefs> {
       throw new Error(`Table ${tableName} not found`);
     }
 
-    // Get all rows from the table
-    const rows = this.query<JsonObject>(`SELECT * FROM ${this.quoteTableName(tableName)}`);
+    // Get all rows from the table. Order by rowid so the rows arrive in insertion order:
+    // without it SQLite may return them in any order, and matching rows to their existing
+    // line by position depends on that order being the one the file was read in.
+    const rows = this.query<JsonObject>(`SELECT * FROM ${this.quoteTableName(tableName)} ORDER BY rowid`);
 
     // Deserialize JSON columns
     const deserializedRows = rows.map((row) => this.deserializeRow(tableName, row));
