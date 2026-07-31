@@ -13,6 +13,11 @@
       "default": "./dist/index.mjs"
     }
   },
+  "files": [
+    "dist",
+    "bin",
+    "CHANGELOG.md"
+  ],
   "engines": {
     "node": ">=22.12.0"
   },
