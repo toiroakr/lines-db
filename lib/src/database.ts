@@ -54,7 +54,7 @@ export class LinesDB<Tables extends TableDefs> {
   private inTransaction: boolean = false;
   private syncQueue: Map<string, Promise<void>> = new Map();
   /** The order a table's schema declares its fields in, as the rows it computes list them */
-  private keyOrders: Map<string, string[]> = new Map();
+  private keyOrders: Map<string, Set<string>> = new Map();
 
   private constructor(config: DatabaseConfig<Tables>, dbPath?: string) {
     this.config = config;
@@ -1039,13 +1039,11 @@ export class LinesDB<Tables extends TableDefs> {
    * have at the place this order gives it.
    */
   private recordKeyOrder(tableName: string, row: JsonObject): void {
-    const order = this.keyOrders.get(tableName) ?? [];
+    const order = this.keyOrders.get(tableName) ?? new Set<string>();
     for (const key of Object.keys(row)) {
-      // A field only some rows carry lands after the ones already seen, which is where the row that
-      // carries it puts it too
-      if (!order.includes(key)) {
-        order.push(key);
-      }
+      // A set keeps the order keys were added in, so a field only some rows carry lands after the
+      // ones already seen - which is where the row that carries it puts it too
+      order.add(key);
     }
     this.keyOrders.set(tableName, order);
   }

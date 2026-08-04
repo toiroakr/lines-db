@@ -53,13 +53,41 @@ describe('mergeFields', () => {
 
   it('leaves a field the computed row has no value for alone', () => {
     const line = { id: 'a-1', invoiceNumber: 1024 };
-    const computed = { id: 'a-1', invoiceNumber: undefined } as unknown as Record<string, never>;
+    const computed = { id: 'a-1', invoiceNumber: undefined };
 
     // Writing the missing value would drop the key or null it out; the line keeps what it has
     expect(mergeFields(line, computed, { fields: ['id', 'invoiceNumber'] })).toEqual({
       id: 'a-1',
       invoiceNumber: 1024,
     });
+  });
+
+  it('leaves a field the computed row does not have at all alone', () => {
+    const line = { id: 'a-1', invoiceNumber: 1024 };
+
+    expect(mergeFields(line, { id: 'a-1' }, { fields: ['id', 'invoiceNumber'] })).toEqual({
+      id: 'a-1',
+      invoiceNumber: 1024,
+    });
+  });
+
+  it('does not take a field from Object.prototype', () => {
+    const line = { name: 'Alice' };
+
+    // The computed row has neither field of its own, so there is nothing to write for them
+    expect(mergeFields(line, { name: 'Alice' }, { fields: ['toString', 'constructor'] })).toEqual({
+      name: 'Alice',
+    });
+  });
+
+  it('accepts a set as the declared order', () => {
+    const line = { name: 'Alice' };
+    const computed = { name: 'Alice', id: '018f' };
+
+    // What the database keeps its recorded field order in
+    const merged = mergeFields(line, computed, { fields: ['id'], keyOrder: new Set(['id', 'name']) });
+
+    expect(Object.keys(merged)).toEqual(['id', 'name']);
   });
 
   it('writes a null the computed row does hold', () => {
