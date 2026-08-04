@@ -441,6 +441,9 @@ export class LinesDB<Tables extends TableDefs> {
       error: ValidationError;
     }> = [];
     const validatedData: JsonObject[] = [];
+    // The field order describes the rows this load computes, so a reload does not keep the order a
+    // schema had the last time the table was loaded
+    this.keyOrders.delete(tableName);
 
     for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
       const row = data[rowIndex];

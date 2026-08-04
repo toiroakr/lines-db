@@ -80,6 +80,16 @@ describe('mergeFields', () => {
     });
   });
 
+  it('writes a field named after an Object member when the computed row owns it', () => {
+    const line = { name: 'Alice' };
+    const computed = { toString: 'own value', name: 'Alice' };
+
+    const merged = mergeFields(line, computed, { fields: ['toString'] });
+
+    expect(Object.keys(merged)).toEqual(['toString', 'name']);
+    expect(merged.toString).toBe('own value');
+  });
+
   it('accepts a set as the declared order', () => {
     const line = { name: 'Alice' };
     const computed = { name: 'Alice', id: '018f' };
