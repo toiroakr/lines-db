@@ -2,6 +2,8 @@ export { LinesDB } from './database.js';
 export type { SyncOptions } from './database.js';
 export { JsonlReader } from './jsonl-reader.js';
 export { JsonlWriter } from './jsonl-writer.js';
+export { mergeFields } from './merge-fields.js';
+export type { MergeFieldsOptions } from './merge-fields.js';
 export { SchemaLoader } from './schema-loader.js';
 export { DirectoryScanner } from './directory-scanner.js';
 export { defineSchema, hasBackward } from './schema.js';

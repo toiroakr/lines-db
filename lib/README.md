@@ -139,7 +139,7 @@ the fields you name - everything else in the line is left exactly as it was:
 ```bash
 # users.jsonl before: {"name":"John"}
 npx lines-db migrate ./data/users.jsonl "(row) => row" --fields id
-# users.jsonl after:  {"name":"John","id":"..."}
+# users.jsonl after:  {"id":"...","name":"John"}
 ```
 
 Rows are matched to their existing line by primary key, or by position when the file does not carry
@@ -372,7 +372,7 @@ line exactly as the file had it:
 ```typescript
 // users.jsonl: {"name":"Alice"}
 await db.sync('users', { fields: ['id'] });
-// users.jsonl: {"name":"Alice","id":"..."}
+// users.jsonl: {"id":"...","name":"Alice"}
 ```
 
 Use `writeBackFields` on the config to apply the same rule to every sync, including the automatic
@@ -388,9 +388,39 @@ has them in, and rows the file never had are appended. A field you name is alway
 database - including when it is `null` there - and `sync` throws when rows cannot be matched to
 their lines, rather than guessing.
 
+A field a line did not have is inserted where the schema declares it rather than appended, so a
+backfilled `id` lands at the front of the line the way a hand-written row has it. Keys the schema
+does not declare stay behind the declared ones, and no key a line already had moves.
+
+The order is read off the rows the schema computes, since that is where a schema states it: a field
+it fills in first is ranked first. A field only some rows carry is ranked after the ones already seen,
+and `mergeFields` takes a `keyOrder` for stating the order outright.
+
 `sync('users', { fields })` names one table, so a field that table does not have is rejected. A sync
 covering every table - `sync()` or the config option - leaves such a field out of the tables without
 it instead, so one list can serve a directory of tables that do not all share it.
+
+### Editing a Line Yourself
+
+`mergeFields` is the write-back merge on its own, without a database: give it a line and the row a
+schema computed from it, and it hands back the line with the named fields written into it. Reach for it
+when the values come from somewhere other than a query - a hook that fills in ids, say - and loading the
+file into SQLite would only get in the way:
+
+```typescript
+import { JsonlReader, JsonlWriter, mergeFields } from '@toiroakr/lines-db';
+
+const rows = await JsonlReader.read('./data/users.jsonl');
+const filled = rows.map((row) => mergeFields(row, fillIds(row), { fields: ['id'] }));
+await JsonlWriter.write('./data/users.jsonl', filled);
+
+// {"name":"Alice"}  ->  {"id":"018f...","name":"Alice"}
+```
+
+Nothing else in the line is read or checked, so a field in a format a schema would reject cannot keep
+the named ones from being written. A field the computed row has no value for is left alone rather than
+nulled out, and `keyOrder` overrides where a new key lands when the computed row does not list its
+fields in the order the schema declares them.
 
 ## Configuration
 

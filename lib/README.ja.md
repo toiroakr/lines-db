@@ -139,7 +139,7 @@ JSONL ファイルで省略されていたフィールドまでファイルに�
 ```bash
 # 実行前の users.jsonl: {"name":"John"}
 npx lines-db migrate ./data/users.jsonl "(row) => row" --fields id
-# 実行後の users.jsonl: {"name":"John","id":"..."}
+# 実行後の users.jsonl: {"id":"...","name":"John"}
 ```
 
 行と元の行との対応付けは主キーで行い、ファイルにまだ主キーが無い場合（主キー自体を後入れする
@@ -371,7 +371,7 @@ await db.transaction(async (tx) => {
 ```typescript
 // users.jsonl: {"name":"Alice"}
 await db.sync('users', { fields: ['id'] });
-// users.jsonl: {"name":"Alice","id":"..."}
+// users.jsonl: {"id":"...","name":"Alice"}
 ```
 
 設定の `writeBackFields` に指定すると、insert・update・トランザクション後の自動同期を含む全ての
@@ -386,9 +386,37 @@ const db = LinesDB.create({ dataDir: './data', writeBackFields: ['id'] });
 末尾に追加されます。指定したフィールドは常にデータベースの値が使われ（データベース側が `null` の
 場合も含む）、行を対応付けられない場合は推測せずに `sync` がエラーになります。
 
+行が持っていなかったフィールドは末尾に追加されるのではなく、スキーマがそれを宣言している位置に
+挿入されます。後入れした `id` は、手で書いた行と同じように行の先頭に来ます。スキーマが宣言していない
+キーは宣言済みのキーより後ろに留まり、行が既に持っていたキーは動きません。
+
+順序はスキーマが計算した行から読み取ります（スキーマが順序を表明しているのはそこだけです）。先に埋める
+フィールドが先に並びます。一部の行にしか無いフィールドは、それまでに見たフィールドより後ろに置かれます。
+順序を明示したい場合は `mergeFields` の `keyOrder` を使います。
+
 `sync('users', { fields })` はテーブルを一つ名指しするため、そのテーブルに無いフィールドはエラーに
 なります。一方、全テーブルを対象とする同期（`sync()` や設定オプション）では、そのフィールドを持たない
 テーブルでは単に対象外となるため、フィールド構成が異なるテーブルが混在していても一つのリストで済みます。
+
+### 行を自分で書き換える
+
+`mergeFields` は、書き戻しのマージ処理だけをデータベース抜きで取り出したものです。行と、スキーマが
+その行から計算した行を渡すと、指定フィールドを書き込んだ行を返します。値がクエリ以外の場所から来る場合
+（id を埋める hook など）に、ファイルを SQLite に載せる意味がないときに使います：
+
+```typescript
+import { JsonlReader, JsonlWriter, mergeFields } from '@toiroakr/lines-db';
+
+const rows = await JsonlReader.read('./data/users.jsonl');
+const filled = rows.map((row) => mergeFields(row, fillIds(row), { fields: ['id'] }));
+await JsonlWriter.write('./data/users.jsonl', filled);
+
+// {"name":"Alice"}  ->  {"id":"018f...","name":"Alice"}
+```
+
+行の他の部分は読まれも検証もされないため、スキーマなら弾かれる形式のフィールドがあっても、指定した
+フィールドの書き込みは妨げられません。計算した行が値を持たないフィールドは null で潰さずそのまま残し、
+計算した行のキー順がスキーマの宣言順と違う場合は `keyOrder` で挿入位置を指定できます。
 
 ## 設定
 
