@@ -4,6 +4,7 @@ import { JsonlWriter } from './jsonl-writer.js';
 import { SchemaLoader } from './schema-loader.js';
 import { DirectoryScanner } from './directory-scanner.js';
 import { hasBackward } from './schema.js';
+import { mergeFields } from './merge-fields.js';
 import { findSchemaFile } from './schema-extensions.js';
 import { dirname, basename } from 'node:path';
 import type {
@@ -52,6 +53,8 @@ export class LinesDB<Tables extends TableDefs> {
   private tables: Map<string, TableConfig> = new Map();
   private inTransaction: boolean = false;
   private syncQueue: Map<string, Promise<void>> = new Map();
+  /** The order a table's schema declares its fields in, as the rows it computes list them */
+  private keyOrders: Map<string, string[]> = new Map();
 
   private constructor(config: DatabaseConfig<Tables>, dbPath?: string) {
     this.config = config;
@@ -443,6 +446,7 @@ export class LinesDB<Tables extends TableDefs> {
       const row = data[rowIndex];
       try {
         const validatedRow = this.validateAndTransform(tableName, row);
+        this.recordKeyOrder(tableName, validatedRow);
         validatedData.push(validatedRow);
       } catch (error) {
         if (error instanceof Error && error.name === 'ValidationError') {
@@ -1030,6 +1034,23 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
+   * Remember the order a computed row lists its fields in - the order the schema declares them, since
+   * that is the order a hook or a validation fills a row in. A sync inserts a key the line did not
+   * have at the place this order gives it.
+   */
+  private recordKeyOrder(tableName: string, row: JsonObject): void {
+    const order = this.keyOrders.get(tableName) ?? [];
+    for (const key of Object.keys(row)) {
+      // A field only some rows carry lands after the ones already seen, which is where the row that
+      // carries it puts it too
+      if (!order.includes(key)) {
+        order.push(key);
+      }
+    }
+    this.keyOrders.set(tableName, order);
+  }
+
+  /**
    * Insert a row into a table with validation
    */
   insert<K extends keyof Tables & string>(
@@ -1611,17 +1632,11 @@ export class LinesDB<Tables extends TableDefs> {
       .filter((base) => rowByLine.has(base))
       .map((base) => {
         const row = rowByLine.get(base)!;
-        if (!tableFields) return row;
-
-        const merged: JsonObject = { ...base };
-        for (const field of tableFields) {
-          // A row missing the field - a backward transformation can drop it - must not erase
-          // what the file holds, since writing undefined would drop the key entirely
-          if (row[field] !== undefined) {
-            merged[field] = row[field];
-          }
-        }
-        return merged;
+        // A row missing a named field - a backward transformation can drop it - keeps what the file
+        // holds, and a field the line did not have is inserted where the schema declares it
+        return tableFields
+          ? mergeFields(base, row, { fields: tableFields, keyOrder: this.keyOrders.get(tableName) })
+          : row;
       });
 
     return [...writtenRows, ...newRows];

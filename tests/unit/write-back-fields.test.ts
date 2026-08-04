@@ -115,6 +115,22 @@ describe('write-back fields', () => {
     ]);
   });
 
+  it('inserts a field the line did not have where the schema declares it', async () => {
+    // The schema's validation fills `id` and `nickname` in before the fields the line carries
+    await writeFile(dataPath, `{"name":"John","note":"kept"}\n{"name":"Jane","id":"u2","note":"kept too"}\n`);
+
+    const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['id'] });
+    await db.initialize();
+    await db.sync('User');
+    await db.close();
+
+    const rows = await readJsonl(dataPath);
+    // `id` lands at the front, and the undeclared `note` stays behind the declared fields
+    expect(Object.keys(rows[0])).toEqual(['id', 'name', 'note']);
+    // A key the line already had does not move, even though the schema declares it earlier
+    expect(Object.keys(rows[1])).toEqual(['name', 'id', 'note']);
+  });
+
   it('takes the fields to write back from the database config', async () => {
     await writeFile(dataPath, `{"name":"John"}\n`);
 
