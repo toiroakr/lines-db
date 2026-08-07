@@ -46,7 +46,7 @@
   "devDependencies": {
     "@types/node": "24.13.3",
     "politty": "0.11.6",
-    "publint": "0.3.22",
+    "publint": "0.3.23",
     "tsdown": "0.22.14",
     "type-fest": "5.8.0",
     "typescript": "6.0.3",
