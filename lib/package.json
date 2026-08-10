@@ -54,7 +54,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",
-    "amaro": "^1.1.10",
+    "amaro": "^1.1.11",
     "politty": "^0.11.6",
     "zod": "^4.4.3"
   }
