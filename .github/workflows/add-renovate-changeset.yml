@@ -90,7 +90,7 @@ jobs:
             echo "---"
             while IFS= read -r name; do
               [ -z "$name" ] && continue
-              printf '"%s": patch\n' "$name"
+              printf "'%s': patch\n" "$name"
             done <<< "$NAMES"
             echo "---"
             echo ""
