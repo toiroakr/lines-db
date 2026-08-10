@@ -45,17 +45,17 @@
   "homepage": "https://github.com/toiroakr/lines-db#readme",
   "devDependencies": {
     "@types/node": "24.13.3",
-    "politty": "0.11.6",
     "publint": "0.3.23",
     "tsdown": "0.22.14",
     "type-fest": "5.8.0",
     "typescript": "6.0.3",
     "valibot": "1.4.2",
-    "vitest": "4.1.10",
-    "zod": "4.4.3"
+    "vitest": "4.1.10"
   },
   "dependencies": {
     "@standard-schema/spec": "^1.0.0",
-    "amaro": "^1.1.10"
+    "amaro": "^1.1.10",
+    "politty": "^0.11.6",
+    "zod": "^4.4.3"
   }
 }
