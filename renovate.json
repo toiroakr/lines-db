@@ -2,7 +2,9 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended", "helpers:pinGitHubActionDigests", ":pinDevDependencies"],
   "labels": ["dependencies"],
+  "gitIgnoredAuthors": ["271965483+toiroakr-release-bot[bot]@users.noreply.github.com"],
   "minimumReleaseAge": "3 days",
+  "rangeStrategy": "bump",
   "ignorePaths": ["**/node_modules/**", "**/bower_components/**"],
   "packageRules": [
     {
@@ -23,6 +25,10 @@
       "description": "vsce package fails when @types/vscode is newer than engines.vscode. Disable automated updates so engines.vscode and @types/vscode are always bumped together in a single manual change.",
       "matchPackageNames": ["@types/vscode"],
       "enabled": false
+    },
+    {
+      "matchDepTypes": ["devDependencies"],
+      "rangeStrategy": "bump"
     }
   ]
 }

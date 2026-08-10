@@ -12,19 +12,19 @@ importers:
   .:
     devDependencies:
       '@changesets/cli':
-        specifier: 2.31.1
+        specifier: ^2.31.1
         version: 2.31.1(@types/node@24.13.3)
       '@toiroakr/lines-db':
         specifier: workspace:*
         version: link:lib
       lefthook:
-        specifier: 2.1.10
+        specifier: ^2.1.10
         version: 2.1.10
       oxfmt:
-        specifier: 0.62.0
+        specifier: ^0.62.0
         version: 0.62.0
       oxlint:
-        specifier: 1.77.0
+        specifier: ^1.77.0
         version: 1.77.0
 
   examples:
@@ -34,43 +34,43 @@ importers:
         version: link:../lib
     devDependencies:
       '@types/node':
-        specifier: 24.13.3
+        specifier: ^24.13.3
         version: 24.13.3
       amaro:
-        specifier: 1.1.11
+        specifier: ^1.1.11
         version: 1.1.11
       typescript:
-        specifier: 6.0.3
+        specifier: ^6.0.3
         version: 6.0.3
       valibot:
-        specifier: 1.4.2
+        specifier: ^1.4.2
         version: 1.4.2(typescript@6.0.3)
       zod:
-        specifier: 4.4.3
+        specifier: ^4.4.3
         version: 4.4.3
 
   extension:
     devDependencies:
       '@types/node':
-        specifier: 24.13.3
+        specifier: ^24.13.3
         version: 24.13.3
       '@types/vscode':
         specifier: 1.118.0
         version: 1.118.0
       '@vscode/vsce':
-        specifier: 3.9.2
+        specifier: ^3.9.2
         version: 3.9.2(supports-color@7.2.0)
       esbuild:
-        specifier: 0.28.1
+        specifier: ^0.28.1
         version: 0.28.1
       prismjs:
-        specifier: 1.30.0
+        specifier: ^1.30.0
         version: 1.30.0
       typescript:
-        specifier: 6.0.3
+        specifier: ^6.0.3
         version: 6.0.3
       vitest:
-        specifier: 4.1.10
+        specifier: ^4.1.10
         version: 4.1.10(@types/node@24.13.3)(@vitest/ui@4.1.10)(vite@8.0.16(@types/node@24.13.3)(esbuild@0.28.1)(yaml@2.9.0))
 
   lib:
@@ -89,25 +89,25 @@ importers:
         version: 4.4.3
     devDependencies:
       '@types/node':
-        specifier: 24.13.3
+        specifier: ^24.13.3
         version: 24.13.3
       publint:
-        specifier: 0.3.23
+        specifier: ^0.3.23
         version: 0.3.23
       tsdown:
-        specifier: 0.22.14
+        specifier: ^0.22.14
         version: 0.22.14(publint@0.3.23)(typescript@6.0.3)
       type-fest:
-        specifier: 5.8.0
+        specifier: ^5.8.0
         version: 5.8.0
       typescript:
-        specifier: 6.0.3
+        specifier: ^6.0.3
         version: 6.0.3
       valibot:
-        specifier: 1.4.2
+        specifier: ^1.4.2
         version: 1.4.2(typescript@6.0.3)
       vitest:
-        specifier: 4.1.10
+        specifier: ^4.1.10
         version: 4.1.10(@types/node@24.13.3)(@vitest/ui@4.1.10)(vite@8.0.16(@types/node@24.13.3)(esbuild@0.28.1)(yaml@2.9.0))
 
   tests/unit:
@@ -117,19 +117,19 @@ importers:
         version: link:../../lib
     devDependencies:
       '@types/node':
-        specifier: 24.13.3
+        specifier: ^24.13.3
         version: 24.13.3
       '@vitest/ui':
-        specifier: 4.1.10
+        specifier: ^4.1.10
         version: 4.1.10(vitest@4.1.10)
       typescript:
-        specifier: 6.0.3
+        specifier: ^6.0.3
         version: 6.0.3
       valibot:
-        specifier: 1.4.2
+        specifier: ^1.4.2
         version: 1.4.2(typescript@6.0.3)
       vitest:
-        specifier: 4.1.10
+        specifier: ^4.1.10
         version: 4.1.10(@types/node@24.13.3)(@vitest/ui@4.1.10)(vite@8.0.16(@types/node@24.13.3)(esbuild@0.28.1)(yaml@2.9.0))
 
 packages:
