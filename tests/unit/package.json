@@ -8,11 +8,11 @@
     "test": "vitest run --typecheck"
   },
   "devDependencies": {
-    "@types/node": "24.13.3",
-    "@vitest/ui": "4.1.10",
-    "typescript": "6.0.3",
-    "valibot": "1.4.2",
-    "vitest": "4.1.10"
+    "@types/node": "^24.13.3",
+    "@vitest/ui": "^4.1.10",
+    "typescript": "^6.0.3",
+    "valibot": "^1.4.2",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "@toiroakr/lines-db": "workspace:*"
