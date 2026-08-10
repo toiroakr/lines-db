@@ -8,6 +8,7 @@
 
 import { readFileSync, appendFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 function parseArgs(argv) {
   const args = { after: 'pnpm-lock.yaml' };
@@ -122,8 +123,9 @@ function main() {
 
   const outputFile = process.env.GITHUB_OUTPUT;
   if (outputFile) {
+    const delimiter = `LOCKFILE_DIFF_EOF_${randomUUID()}`;
     appendFileSync(outputFile, `has-runtime-changes=${hasRuntimeChanges}\n`);
-    appendFileSync(outputFile, `changed-names<<LOCKFILE_DIFF_EOF\n${sortedNames.join('\n')}\nLOCKFILE_DIFF_EOF\n`);
+    appendFileSync(outputFile, `changed-names<<${delimiter}\n${sortedNames.join('\n')}\n${delimiter}\n`);
   }
 }
 
