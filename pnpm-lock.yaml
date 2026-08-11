@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  serialize-javascript: '>=7.0.7'
+  serialize-javascript: '>=7.1.0'
 
 importers:
 
