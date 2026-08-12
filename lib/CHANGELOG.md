@@ -1,5 +1,12 @@
 # @toiroakr/lines-db
 
+## 0.12.2
+
+### Patch Changes
+
+- 7ff9a08: fix(deps): update dependency @standard-schema/spec to ^1.1.0
+- 8e303a1: fix(deps): update dependency amaro to ^1.1.11
+
 ## 0.12.1
 
 ### Patch Changes
