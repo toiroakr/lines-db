@@ -82,8 +82,8 @@ importers:
         specifier: ^1.1.11
         version: 1.1.11
       politty:
-        specifier: ^0.11.6
-        version: 0.11.6(zod@4.4.3)
+        specifier: ^0.11.7
+        version: 0.11.7(zod@4.4.3)
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -710,6 +710,20 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [win32]
+
+  '@politty/zod@0.1.0':
+    resolution: {integrity: sha512-KbQiaxUZjVhapxUcY9qGvTtwbvcswKbL57Dx35cJ7DHHh0KK4wPQ0nh9i5gcn5vh9GhPSXQ/K6FxRmeUBCJ+VQ==}
+    engines: {node: '>=20.12.0 <21.0.0 || >=21.7.0'}
+    hasBin: true
+    peerDependencies:
+      '@clack/prompts': ^0.10.0 || ^0.11.0 || ^1.0.0
+      '@inquirer/prompts': ^8.3.2
+      zod: ^4.2.1
+    peerDependenciesMeta:
+      '@clack/prompts':
+        optional: true
+      '@inquirer/prompts':
+        optional: true
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
@@ -2236,8 +2250,8 @@ packages:
     resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
     engines: {node: '>=4'}
 
-  politty@0.11.6:
-    resolution: {integrity: sha512-yX2vsYOeeY1+Dygir/7EOnVYJ4emByfWaegN/aYj5+t2yB1Q3ctSwEhHUzu6VK+1csXSGTJRjpJtI3ec0Zd9oA==}
+  politty@0.11.7:
+    resolution: {integrity: sha512-wI4lFVBdwV/BO/xMwct086mOA1ckJtZsxiRhdaeABf2TicRZE2r8Sd2nyoVtQUw5NVrKSgFdhNm3oc2ePNHGrQ==}
     engines: {node: '>=20.12.0 <21.0.0 || >=21.7.0'}
     hasBin: true
     peerDependencies:
@@ -3359,6 +3373,11 @@ snapshots:
 
   '@oxlint/binding-win32-x64-msvc@1.77.0':
     optional: true
+
+  '@politty/zod@0.1.0(zod@4.4.3)':
+    dependencies:
+      yaml: 2.9.0
+      zod: 4.4.3
 
   '@polka/url@1.0.0-next.29': {}
 
@@ -4776,9 +4795,9 @@ snapshots:
 
   pluralize@8.0.0: {}
 
-  politty@0.11.6(zod@4.4.3):
+  politty@0.11.7(zod@4.4.3):
     dependencies:
-      yaml: 2.9.0
+      '@politty/zod': 0.1.0(zod@4.4.3)
       zod: 4.4.3
 
   postcss@8.5.15:
