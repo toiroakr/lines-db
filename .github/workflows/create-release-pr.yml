@@ -32,12 +32,11 @@ jobs:
         uses: ./.github/actions/install-deps
 
       - name: Create Release Pull Request
-        uses: changesets/action@22ccf9aa43179fe9e27dc62e575971d28cce197c # v2.0.0
+        uses: changesets/action@198f833dd7d863100ea6e28967bc9a9fdefadb0a # v2.1.0
         with:
-          title: 'chore: release @toiroakr/lines-db'
-          commit: 'chore: version packages'
-          version: pnpm changeset version
-          setupGitUser: true
-          createGithubReleases: true
+          pr-title: 'chore: release @toiroakr/lines-db'
+          commit-message: 'chore: version packages'
+          version-script: pnpm changeset version
+          create-github-releases: true
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
