@@ -38,5 +38,4 @@ jobs:
           commit-message: 'chore: version packages'
           version-script: pnpm changeset version
           create-github-releases: true
-        env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          github-token: ${{ steps.app-token.outputs.token }}
