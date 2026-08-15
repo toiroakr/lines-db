@@ -82,8 +82,8 @@ importers:
         specifier: ^1.1.11
         version: 1.1.11
       politty:
-        specifier: ^0.11.7
-        version: 0.11.7(@clack/prompts@1.7.0)(zod@4.4.3)
+        specifier: ^0.11.8
+        version: 0.11.8(@clack/prompts@1.7.0)(zod@4.4.3)
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -722,8 +722,8 @@ packages:
     resolution: {integrity: sha512-pOr5+q1fLYKwFN3LAJuGZEnfXDcQ73zqgDHMtGy+K+uIoUqyY+6MeDCWFwfu+4EFuq76I5EPFofoNAI+Bmmq4A==}
     engines: {node: '>=22.13'}
 
-  '@politty/zod@0.1.0':
-    resolution: {integrity: sha512-KbQiaxUZjVhapxUcY9qGvTtwbvcswKbL57Dx35cJ7DHHh0KK4wPQ0nh9i5gcn5vh9GhPSXQ/K6FxRmeUBCJ+VQ==}
+  '@politty/zod@0.1.1':
+    resolution: {integrity: sha512-YmmQb+0fuBmBVNlOi8l+RCBo3OCow7WI2uK/mvIcPM6hjY/NYcz+fCckJkGQYPYBU5rZg/L1jQsdMjXJqGI11w==}
     engines: {node: '>=20.12.0 <21.0.0 || >=21.7.0'}
     hasBin: true
     peerDependencies:
@@ -2143,8 +2143,8 @@ packages:
     resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
     engines: {node: '>=4'}
 
-  politty@0.11.7:
-    resolution: {integrity: sha512-wI4lFVBdwV/BO/xMwct086mOA1ckJtZsxiRhdaeABf2TicRZE2r8Sd2nyoVtQUw5NVrKSgFdhNm3oc2ePNHGrQ==}
+  politty@0.11.8:
+    resolution: {integrity: sha512-WjiPe6zxjFnj3eddtyZrjRZMQS6W5HHcxv1ltee+Lbj/ZCT+EGkytyV0V/5Mz5nHeOhK2QqxIRhvxYdrE+BZpA==}
     engines: {node: '>=20.12.0 <21.0.0 || >=21.7.0'}
     hasBin: true
     peerDependencies:
@@ -3188,7 +3188,7 @@ snapshots:
 
   '@pnpm/deps.graph-sequencer@1100.0.1': {}
 
-  '@politty/zod@0.1.0(@clack/prompts@1.7.0)(zod@4.4.3)':
+  '@politty/zod@0.1.1(@clack/prompts@1.7.0)(zod@4.4.3)':
     dependencies:
       yaml: 2.9.0
       zod: 4.4.3
@@ -4508,9 +4508,9 @@ snapshots:
 
   pluralize@8.0.0: {}
 
-  politty@0.11.7(@clack/prompts@1.7.0)(zod@4.4.3):
+  politty@0.11.8(@clack/prompts@1.7.0)(zod@4.4.3):
     dependencies:
-      '@politty/zod': 0.1.0(@clack/prompts@1.7.0)(zod@4.4.3)
+      '@politty/zod': 0.1.1(@clack/prompts@1.7.0)(zod@4.4.3)
       zod: 4.4.3
     optionalDependencies:
       '@clack/prompts': 1.7.0
