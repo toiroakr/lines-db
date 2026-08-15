@@ -6,7 +6,7 @@
   "publisher": "toiroakr",
   "author": "toiroakr",
   "engines": {
-    "vscode": "^1.132.0"
+    "vscode": "^1.132.1"
   },
   "icon": "assets/logo.png",
   "categories": [
