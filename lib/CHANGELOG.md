@@ -1,5 +1,14 @@
 # @toiroakr/lines-db
 
+## 0.12.3
+
+### Patch Changes
+
+- 1a16efa: chore(deps): migrate from politty to @politty/zod
+- ef529f6: fix(deps): update dependency politty to ^0.11.7
+- 66f2ed3: chore(deps): update dependency @changesets/cli to v3
+- c0f6205: fix(deps): update dependency politty to ^0.11.8
+
 ## 0.12.2
 
 ### Patch Changes
