@@ -9,7 +9,7 @@ import { LinesDB } from './database.js';
 import { ErrorFormatter } from './error-formatter.js';
 import type { ValidationError, JsonObject, TableDefs } from './types.js';
 import { z } from 'zod';
-import { arg, defineCommand, runMain } from 'politty';
+import { arg, defineCommand, runMain } from '@politty/zod';
 import { styleText } from 'node:util';
 import { writeFile, stat, readdir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
