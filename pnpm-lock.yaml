@@ -75,15 +75,15 @@ importers:
 
   lib:
     dependencies:
+      '@politty/zod':
+        specifier: ^0.1.1
+        version: 0.1.1(@clack/prompts@1.7.0)(zod@4.4.3)
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
       amaro:
         specifier: ^1.1.11
         version: 1.1.11
-      politty:
-        specifier: ^0.11.8
-        version: 0.11.8(@clack/prompts@1.7.0)(zod@4.4.3)
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -2142,20 +2142,6 @@ packages:
   pluralize@8.0.0:
     resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
     engines: {node: '>=4'}
-
-  politty@0.11.8:
-    resolution: {integrity: sha512-WjiPe6zxjFnj3eddtyZrjRZMQS6W5HHcxv1ltee+Lbj/ZCT+EGkytyV0V/5Mz5nHeOhK2QqxIRhvxYdrE+BZpA==}
-    engines: {node: '>=20.12.0 <21.0.0 || >=21.7.0'}
-    hasBin: true
-    peerDependencies:
-      '@clack/prompts': ^0.10.0 || ^0.11.0 || ^1.0.0
-      '@inquirer/prompts': ^8.3.2
-      zod: ^4.2.1
-    peerDependenciesMeta:
-      '@clack/prompts':
-        optional: true
-      '@inquirer/prompts':
-        optional: true
 
   postcss@8.5.15:
     resolution: {integrity: sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A==}
@@ -4507,13 +4493,6 @@ snapshots:
   pluralize@2.0.0: {}
 
   pluralize@8.0.0: {}
-
-  politty@0.11.8(@clack/prompts@1.7.0)(zod@4.4.3):
-    dependencies:
-      '@politty/zod': 0.1.1(@clack/prompts@1.7.0)(zod@4.4.3)
-      zod: 4.4.3
-    optionalDependencies:
-      '@clack/prompts': 1.7.0
 
   postcss@8.5.15:
     dependencies:
