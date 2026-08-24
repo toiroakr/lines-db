@@ -1,5 +1,11 @@
 # @toiroakr/lines-db
 
+## 0.12.4
+
+### Patch Changes
+
+- 937c5a5: fix(deps): update dependency @politty/zod to ^0.1.2
+
 ## 0.12.3
 
 ### Patch Changes
