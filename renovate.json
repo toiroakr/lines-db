@@ -27,6 +27,11 @@
       "enabled": false
     },
     {
+      "description": "engines.node must not be auto-bumped just because a CI workflow's actions/setup-node node-version got pinned to a newer version. Requiring a newer Node than runtime dependencies actually need breaks consumers on older Node LTS. Keep it a manual decision.",
+      "matchDepTypes": ["engines"],
+      "enabled": false
+    },
+    {
       "matchDepTypes": ["devDependencies"],
       "rangeStrategy": "bump"
     }
