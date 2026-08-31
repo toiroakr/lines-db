@@ -14,7 +14,7 @@
     "amaro": "^1.1.11",
     "typescript": "^6.0.3",
     "valibot": "^1.4.2",
-    "zod": "^4.4.3"
+    "zod": "^4.5.1"
   },
   "dependencies": {
     "@toiroakr/lines-db": "workspace:*"
