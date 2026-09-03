@@ -1,5 +1,11 @@
 # @toiroakr/lines-db
 
+## 0.12.6
+
+### Patch Changes
+
+- 149dd11: fix(deps): update dependency zod to ^4.5.4
+
 ## 0.12.5
 
 ### Patch Changes
