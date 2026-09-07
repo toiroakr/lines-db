@@ -1,5 +1,12 @@
 # @toiroakr/lines-db
 
+## 0.12.7
+
+### Patch Changes
+
+- df82465: chore(deps): update pnpm to v12
+- 3e19767: fix(deps): update dependency @politty/zod to ^0.2.0
+
 ## 0.12.6
 
 ### Patch Changes
