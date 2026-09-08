@@ -12,5 +12,7 @@ allowBuilds:
 
 minimumReleaseAge: 4320
 
+enableGlobalVirtualStore: true
+
 overrides:
   serialize-javascript: '>=7.1.1'
