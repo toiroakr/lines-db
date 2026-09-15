@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { JsonlReader } from '../../lib/dist/index.mjs';
+import { JsonlReader, unwrap } from '../../lib/dist/index.mjs';
 
 export interface MigrationSessionInfo {
   migrationFilePath: string;
@@ -69,7 +69,7 @@ export class MigrationSessionManager {
 
     try {
       // Read JSONL data directly so we can proceed even when validation fails
-      const rows = await JsonlReader.read(originalFilePath);
+      const rows = unwrap(await JsonlReader.read(originalFilePath));
 
       if (rows.length > 0) {
         const sample = rows[0];

@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import type { JsonObject } from './types.js';
 import { JsonlReader } from './jsonl-reader.js';
 import { LinesDB } from './database.js';
+import { unwrap } from './result.js';
 
 export interface TableValidationOptions {
   dataDir: string;
@@ -21,7 +22,7 @@ export async function ensureTableRowsValid(options: TableValidationOptions): Pro
     const db = LinesDB.create({ dataDir: options.dataDir });
     try {
       // Initialize only the target table
-      const result = await db.initialize({ tableName: options.tableName });
+      const result = unwrap(await db.initialize({ tableName: options.tableName }));
 
       // If validation failed, throw an error with details
       if (!result.valid) {

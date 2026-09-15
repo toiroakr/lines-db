@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { LinesDB } from '../../lib/src/database.js';
+import { unwrap } from '../../lib/src/result.js';
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,7 +54,7 @@ export const schema = defineSchema(
 
   it('should handle undefined values in schema inference', async () => {
     const db = LinesDB.create({ dataDir: testDir });
-    await db.initialize();
+    unwrap(await db.initialize());
 
     const schema = db.getSchema('TestTable');
     expect(schema).toBeDefined();
@@ -69,9 +70,9 @@ export const schema = defineSchema(
 
   it('should successfully insert and query data with undefined fields', async () => {
     const db = LinesDB.create({ dataDir: testDir });
-    await db.initialize();
+    unwrap(await db.initialize());
 
-    const rows = db.find('TestTable');
+    const rows = unwrap(db.find('TestTable'));
     expect(rows).toHaveLength(2);
 
     // All rows should have name, age, and optionalField

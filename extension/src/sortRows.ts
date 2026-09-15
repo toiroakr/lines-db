@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { getAllColumns } from './sortColumns';
+import { unwrapLinesDbResult } from './linesDbResult.js';
 
 export interface SortKey {
   column: string;
@@ -180,7 +181,7 @@ async function sortRowsBySortKeys(filePath: string, sortKeys: SortKey[]): Promis
     throw new Error('LinesDB module not available');
   }
 
-  const records = await global.__linesDbModule.JsonlReader.read(filePath);
+  const records = unwrapLinesDbResult(await global.__linesDbModule.JsonlReader.read(filePath));
   if (!records || records.length === 0) {
     throw new Error('No records found in file');
   }

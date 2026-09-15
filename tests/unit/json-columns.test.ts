@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, afterEach, expect } from 'vitest';
-import { LinesDB, TypeGenerator, type DatabaseConfig, type TableDefs } from '@toiroakr/lines-db';
+import { LinesDB, TypeGenerator, unwrap, type DatabaseConfig, type TableDefs } from '@toiroakr/lines-db';
 import { join } from 'node:path';
 import { mkdir, rm, cp } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -49,7 +49,7 @@ describe('LinesDB JSON Columns', () => {
     };
 
     db = createDb();
-    await db.initialize();
+    unwrap(await db.initialize());
   });
 
   afterEach(async () => {
@@ -76,7 +76,7 @@ describe('LinesDB JSON Columns', () => {
 
   describe('data loading', () => {
     it('should load and deserialize JSON columns', () => {
-      const orders = db.find('orders') as unknown as Order[];
+      const orders = unwrap(db.find('orders')) as unknown as Order[];
       expect(orders.length).toBe(3);
 
       // Check first order
@@ -93,14 +93,14 @@ describe('LinesDB JSON Columns', () => {
     });
 
     it('should handle empty arrays', () => {
-      const order = db.findOne('orders', { id: 3 }) as unknown as Order | undefined;
+      const order = unwrap(db.findOne('orders', { id: 3 })) as unknown as Order | undefined;
       expect(order).toBeTruthy();
       expect(Array.isArray(order!.items)).toBeTruthy();
       expect(order!.items.length).toBe(0);
     });
 
     it('should handle null JSON values', () => {
-      const order = db.findOne('orders', { id: 3 }) as unknown as Order | undefined;
+      const order = unwrap(db.findOne('orders', { id: 3 })) as unknown as Order | undefined;
       expect(order).toBeTruthy();
       expect(order!.metadata).toBeNull();
     });
@@ -108,16 +108,18 @@ describe('LinesDB JSON Columns', () => {
 
   describe('insert with JSON columns', () => {
     it('should insert data with JSON columns', () => {
-      const result = db.insert('orders', {
-        id: 10,
-        customerId: 200,
-        items: [{ name: 'Monitor', quantity: 1, price: 299.99 }],
-        metadata: { source: 'api', version: '2.0' },
-      });
+      const result = unwrap(
+        db.insert('orders', {
+          id: 10,
+          customerId: 200,
+          items: [{ name: 'Monitor', quantity: 1, price: 299.99 }],
+          metadata: { source: 'api', version: '2.0' },
+        }),
+      );
 
       expect(result.changes).toBe(1);
 
-      const order = db.findOne('orders', { id: 10 }) as unknown as Order | undefined;
+      const order = unwrap(db.findOne('orders', { id: 10 })) as unknown as Order | undefined;
       expect(order).toBeTruthy();
       expect(Array.isArray(order!.items)).toBeTruthy();
       expect(order!.items[0].name).toBe('Monitor');
@@ -125,37 +127,38 @@ describe('LinesDB JSON Columns', () => {
     });
 
     it('should validate nested JSON structure', () => {
-      expect(() => {
-        db.insert('orders', {
-          id: 11,
-          customerId: 201,
-          items: [
-            { name: 'Product', quantity: -1, price: 50 }, // Invalid: negative quantity
-          ],
-          metadata: {},
-        });
-      }).toThrow();
+      const result = db.insert('orders', {
+        id: 11,
+        customerId: 201,
+        items: [
+          { name: 'Product', quantity: -1, price: 50 }, // Invalid: negative quantity
+        ],
+        metadata: {},
+      });
+      expect(result.ok).toBe(false);
     });
 
     it('should allow complex nested structures', () => {
-      const result = db.insert('orders', {
-        id: 12,
-        customerId: 202,
-        items: [
-          { name: 'Product A', quantity: 5, price: 10.99 },
-          { name: 'Product B', quantity: 3, price: 25.5 },
-          { name: 'Product C', quantity: 1, price: 100.0 },
-        ],
-        metadata: {
-          source: 'bulk-order',
-          discount: { type: 'percentage', value: 10 },
-          tags: ['wholesale', 'priority'],
-        },
-      });
+      const result = unwrap(
+        db.insert('orders', {
+          id: 12,
+          customerId: 202,
+          items: [
+            { name: 'Product A', quantity: 5, price: 10.99 },
+            { name: 'Product B', quantity: 3, price: 25.5 },
+            { name: 'Product C', quantity: 1, price: 100.0 },
+          ],
+          metadata: {
+            source: 'bulk-order',
+            discount: { type: 'percentage', value: 10 },
+            tags: ['wholesale', 'priority'],
+          },
+        }),
+      );
 
       expect(result.changes).toBe(1);
 
-      const order = db.findOne('orders', { id: 12 }) as unknown as Order | undefined;
+      const order = unwrap(db.findOne('orders', { id: 12 })) as unknown as Order | undefined;
       expect(order).toBeTruthy();
       expect(order!.items.length).toBe(3);
       expect(order!.metadata).toBeTruthy();
@@ -172,17 +175,19 @@ describe('LinesDB JSON Columns', () => {
 
   describe('update with JSON columns', () => {
     it('should update JSON columns', () => {
-      const result = db.update(
-        'orders',
-        {
-          items: [{ name: 'Updated Product', quantity: 10, price: 50 }],
-        },
-        { id: 1 },
+      const result = unwrap(
+        db.update(
+          'orders',
+          {
+            items: [{ name: 'Updated Product', quantity: 10, price: 50 }],
+          },
+          { id: 1 },
+        ),
       );
 
       expect(result.changes).toBe(1);
 
-      const order = db.findOne('orders', { id: 1 }) as unknown as Order | undefined;
+      const order = unwrap(db.findOne('orders', { id: 1 })) as unknown as Order | undefined;
       expect(order).toBeTruthy();
       expect(order!.items.length).toBe(1);
       expect(order!.items[0].name).toBe('Updated Product');
@@ -193,7 +198,7 @@ describe('LinesDB JSON Columns', () => {
     it('should work with custom SQL queries', () => {
       // Note: JSON columns won't be automatically deserialized with raw queries
       // Users should use selectAll, find, or findOne for automatic deserialization
-      const orders = db.query<Order>('SELECT * FROM orders WHERE id < ?', [3]);
+      const orders = unwrap(db.query<Order>('SELECT * FROM orders WHERE id < ?', [3]));
       expect(orders.length).toBe(2);
     });
   });

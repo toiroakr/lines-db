@@ -4,6 +4,7 @@ import { TypeScriptTypeExtractor, type FieldInfo } from './typeInfoExtractor.js'
 import { getForeignKeys } from './foreignKeyUtils.js';
 import { getCompletions, type CompletionResult, type FieldInfo as CompletionFieldInfo } from './completionLogic.js';
 import { SCHEMA_EXTENSIONS } from './schemaFileUtils.js';
+import { unwrapLinesDbResult } from './linesDbResult.js';
 
 let outputChannel = global.__linesDbOutputChannel;
 
@@ -146,7 +147,7 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
 
         try {
           await vscode.workspace.fs.stat(vscode.Uri.file(referencedFilePath));
-          const records = await global.__linesDbModule.JsonlReader.read(referencedFilePath);
+          const records = unwrapLinesDbResult(await global.__linesDbModule.JsonlReader.read(referencedFilePath));
 
           if (records && records.length > 0) {
             const values: string[] = [];
@@ -457,7 +458,7 @@ export class JsonlCompletionProvider implements vscode.CompletionItemProvider {
       }
 
       // Read records from referenced file
-      const records = await global.__linesDbModule.JsonlReader.read(referencedFilePath);
+      const records = unwrapLinesDbResult(await global.__linesDbModule.JsonlReader.read(referencedFilePath));
       if (!records || records.length === 0) {
         outputChannel.appendLine('[Completion] No records found in referenced file');
         return undefined;

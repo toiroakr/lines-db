@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, afterEach, expect } from 'vitest';
-import { LinesDB, type DatabaseConfig, type TableDefs } from '@toiroakr/lines-db';
+import { LinesDB, unwrap, type DatabaseConfig, type TableDefs } from '@toiroakr/lines-db';
 import { join } from 'node:path';
 import { mkdir, rm, cp, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -30,7 +30,7 @@ describe('Schema Constraints (Primary Keys, Foreign Keys, Indexes)', () => {
     };
 
     db = LinesDB.create(config);
-    await db.initialize();
+    unwrap(await db.initialize());
   });
 
   afterEach(async () => {
@@ -50,13 +50,12 @@ describe('Schema Constraints (Primary Keys, Foreign Keys, Indexes)', () => {
       expect(idColumn?.primaryKey).toBe(true);
 
       // Try to insert duplicate primary key
-      expect(() => {
-        db.execute('INSERT INTO customers (id, name, email) VALUES (?, ?, ?)', [
-          1,
-          'Duplicate',
-          'duplicate@example.com',
-        ]);
-      }).toThrow();
+      const result = db.execute('INSERT INTO customers (id, name, email) VALUES (?, ?, ?)', [
+        1,
+        'Duplicate',
+        'duplicate@example.com',
+      ]);
+      expect(result.ok).toBe(false);
     });
   });
 
@@ -76,26 +75,25 @@ describe('Schema Constraints (Primary Keys, Foreign Keys, Indexes)', () => {
 
     it('should enforce foreign key constraint on insert', () => {
       // Try to insert order with non-existent customer
-      expect(() => {
-        db.execute('INSERT INTO "orders-with-fk" (id, customerId, amount, status) VALUES (?, ?, ?, ?)', [
-          999,
-          999,
-          100,
-          'pending',
-        ]);
-      }).toThrow();
+      const result = db.execute('INSERT INTO "orders-with-fk" (id, customerId, amount, status) VALUES (?, ?, ?, ?)', [
+        999,
+        999,
+        100,
+        'pending',
+      ]);
+      expect(result.ok).toBe(false);
     });
 
     it('should cascade delete when parent is deleted', () => {
       // Get orders for customer 1
-      const ordersBefore = db.query('SELECT * FROM "orders-with-fk" WHERE customerId = ?', [1]);
+      const ordersBefore = unwrap(db.query('SELECT * FROM "orders-with-fk" WHERE customerId = ?', [1]));
       expect(ordersBefore.length).toBe(3);
 
       // Delete customer 1
-      db.execute('DELETE FROM customers WHERE id = ?', [1]);
+      unwrap(db.execute('DELETE FROM customers WHERE id = ?', [1]));
 
       // Orders should be cascaded
-      const ordersAfter = db.query('SELECT * FROM "orders-with-fk" WHERE customerId = ?', [1]);
+      const ordersAfter = unwrap(db.query('SELECT * FROM "orders-with-fk" WHERE customerId = ?', [1]));
       expect(ordersAfter.length).toBe(0);
     });
 
@@ -128,17 +126,16 @@ describe('Schema Constraints (Primary Keys, Foreign Keys, Indexes)', () => {
       expect(emailColumn?.unique).toBe(true);
 
       // Verify data was loaded successfully
-      const children = db.query('SELECT * FROM "child-table"');
+      const children = unwrap(db.query('SELECT * FROM "child-table"'));
       expect(children.length).toBe(3);
 
       // Verify foreign key constraint is enforced
-      expect(() => {
-        db.execute('INSERT INTO "child-table" (id, parentEmail, data) VALUES (?, ?, ?)', [
-          999,
-          'nonexistent@example.com',
-          'test',
-        ]);
-      }).toThrow();
+      const insertResult = db.execute('INSERT INTO "child-table" (id, parentEmail, data) VALUES (?, ?, ?)', [
+        999,
+        'nonexistent@example.com',
+        'test',
+      ]);
+      expect(insertResult.ok).toBe(false);
     });
 
     it('should support _User -> User.email foreign key pattern (sdk/example pattern)', () => {
@@ -166,13 +163,15 @@ describe('Schema Constraints (Primary Keys, Foreign Keys, Indexes)', () => {
       expect(emailColumn?.unique).toBe(true);
 
       // Verify data was loaded successfully (this is where the error would occur)
-      const underscoreUsers = db.query('SELECT * FROM "_User"');
+      const underscoreUsers = unwrap(db.query('SELECT * FROM "_User"'));
       expect(underscoreUsers.length).toBe(2);
 
       // Verify foreign key constraint is enforced
-      expect(() => {
-        db.execute('INSERT INTO "_User" (name, password) VALUES (?, ?)', ['nonexistent@example.com', 'test']);
-      }).toThrow();
+      const insertResult = db.execute('INSERT INTO "_User" (name, password) VALUES (?, ?)', [
+        'nonexistent@example.com',
+        'test',
+      ]);
+      expect(insertResult.ok).toBe(false);
     });
 
     it('should gracefully handle FK when referenced table has validation errors', async () => {
@@ -222,7 +221,7 @@ export default defineSchema(schema, {
         const fkDb = LinesDB.create({ dataDir: fkTestDir });
         try {
           // Should NOT throw "no such table" error
-          const result = await fkDb.initialize({ detailedValidate: true });
+          const result = unwrap(await fkDb.initialize({ detailedValidate: true }));
 
           // Parent should have validation errors
           expect(result.valid).toBe(false);
@@ -268,13 +267,12 @@ export default defineSchema(schema, {
 
     it('should enforce unique index constraint', () => {
       // Try to insert duplicate email
-      expect(() => {
-        db.execute('INSERT INTO customers (id, name, email) VALUES (?, ?, ?)', [
-          99,
-          'Test User',
-          'john@example.com', // Duplicate email
-        ]);
-      }).toThrow();
+      const result = db.execute('INSERT INTO customers (id, name, email) VALUES (?, ?, ?)', [
+        99,
+        'Test User',
+        'john@example.com', // Duplicate email
+      ]);
+      expect(result.ok).toBe(false);
     });
 
     it('should have multiple indexes on orders table', () => {
@@ -294,7 +292,9 @@ export default defineSchema(schema, {
       interface IndexRow {
         name: string;
       }
-      const indexes = db.query<IndexRow>("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='customers'");
+      const indexes = unwrap(
+        db.query<IndexRow>("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='customers'"),
+      );
 
       // Should have at least the email index (plus SQLite auto-created pk index)
       expect(indexes.length).toBeGreaterThan(0);

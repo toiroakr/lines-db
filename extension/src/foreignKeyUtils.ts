@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { unwrapLinesDbResult } from './linesDbResult.js';
 
 export interface ForeignKeyInfo {
   column: string;
@@ -149,7 +150,7 @@ export async function findReferencedRecord(context: ForeignKeyContext): Promise<
     }
 
     // Read records from referenced file
-    const records = await global.__linesDbModule.JsonlReader.read(referencedFilePath);
+    const records = unwrapLinesDbResult(await global.__linesDbModule.JsonlReader.read(referencedFilePath));
     if (!records || records.length === 0) {
       return null;
     }

@@ -13,6 +13,7 @@ import { JsonlDocumentLinkProvider } from './documentLinkProvider';
 import { JsonlCodeActionProvider } from './codeActionProvider';
 import { JsonlCompletionProvider } from './completionProvider';
 import { ForeignKeyHoverProvider } from './foreignKeyHover';
+import { unwrapLinesDbResult } from './linesDbResult.js';
 
 function getTabUri(tab: vscode.Tab): vscode.Uri | undefined {
   const input = tab.input;
@@ -384,10 +385,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
             await global.__linesDbModule.JsonlReader.withOverrides(overrides, async () => {
               outputChannel.appendLine('Calling db.initialize with detailedValidate...');
-              const validationResult = await db.initialize({
-                tableName: session.tableName,
-                detailedValidate: true,
-              });
+              const validationResult = unwrapLinesDbResult(
+                await db.initialize({
+                  tableName: session.tableName,
+                  detailedValidate: true,
+                }),
+              );
 
               outputChannel.appendLine(
                 `Validation result: valid=${validationResult.valid}, errors=${validationResult.errors.length}`,

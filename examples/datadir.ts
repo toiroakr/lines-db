@@ -1,4 +1,4 @@
-import { LinesDB } from '../lib/dist/index.mjs';
+import { LinesDB, unwrap } from '../lib/dist/index.mjs';
 import { config } from './fixtures/db.js';
 
 async function main() {
@@ -7,8 +7,10 @@ async function main() {
   // Simple configuration - just specify the directory!
   const db = LinesDB.create(config);
 
-  // Initialize - all JSONL files in the directory will be auto-discovered
-  await db.initialize();
+  // Initialize - all JSONL files in the directory will be auto-discovered.
+  // Most LinesDB methods return a Result instead of throwing; unwrap() reads the value or
+  // throws the error, which main().catch() below handles.
+  unwrap(await db.initialize());
 
   console.log('✅ Database initialized with auto-discovery\n');
 
@@ -32,15 +34,15 @@ async function main() {
     email: string;
   }
 
-  const users = db.find('users');
+  const users = unwrap(db.find('users'));
   console.table(users);
 
   console.log('\n🛍️  Products table:');
-  const products = db.find('products');
+  const products = unwrap(db.find('products'));
   console.table(products);
 
   console.log('\n📦 Orders table (with JSON columns):');
-  const orders = db.find('orders');
+  const orders = unwrap(db.find('orders'));
   orders.forEach((order) => {
     console.log(`   Order #${order.id}:`);
     console.log(`     Customer: ${order.customerId}`);
@@ -48,49 +50,47 @@ async function main() {
     console.log(`     Metadata:`, order.metadata);
   });
 
-  // Validation schemas are also auto-loaded!
+  // Validation schemas are also auto-loaded! insert()/update()/delete() return a Result rather
+  // than throwing, so an expected validation failure is handled by checking `.ok` instead of
+  // catching an exception.
   console.log('\n\n✅ Inserting valid data (with auto-loaded schema validation):');
-  try {
-    db.insert('users', {
-      id: 500,
-      name: 'Auto User',
-      age: 35,
-      email: 'auto@example.com',
-    });
+  const validInsert = db.insert('users', {
+    id: 500,
+    name: 'Auto User',
+    age: 35,
+    email: 'auto@example.com',
+  });
+  if (validInsert.ok) {
     console.log('   Insert successful!');
-  } catch (error) {
-    if (error instanceof Error) {
-      console.log('   Insert failed:', error.message);
-    }
+  } else {
+    console.log('   Insert failed:', validInsert.error.message);
   }
 
   console.log('\n❌ Attempting invalid insert (schema validation):');
-  try {
-    db.insert('users', {
-      id: 501,
-      name: '',
-      age: -5,
-      email: 'invalid',
-    });
+  const invalidInsert = db.insert('users', {
+    id: 501,
+    name: '',
+    age: -5,
+    email: 'invalid',
+  });
+  if (invalidInsert.ok) {
     console.log('   Insert successful!');
-  } catch (error) {
-    if (error instanceof Error) {
-      console.log('   Insert failed (as expected):', error.name);
-      const validationError = error as Error & { issues?: Array<{ message: string }> };
-      console.log('   Issues:', validationError.issues?.map((i) => i.message).join(', '));
-    }
+  } else {
+    console.log('   Insert failed (as expected):', invalidInsert.error.name);
+    const validationError = invalidInsert.error as Error & { issues?: Array<{ message: string }> };
+    console.log('   Issues:', validationError.issues?.map((i) => i.message).join(', '));
   }
 
   // Summary
   console.log('\n\n📊 Summary:');
   console.log(`   Discovered tables: ${tableNames.length}`);
   tableNames.forEach((name) => {
-    const count = db.query<{ count: number }>(`SELECT COUNT(*) as count FROM ${name}`);
+    const count = unwrap(db.query<{ count: number }>(`SELECT COUNT(*) as count FROM ${name}`));
     console.log(`   - ${name}: ${count[0].count} rows`);
   });
 
   // Clean up
-  db.close();
+  unwrap(await db.close());
   console.log('\n✅ Done!');
 }
 

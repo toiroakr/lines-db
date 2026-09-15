@@ -191,51 +191,90 @@ npx lines-db generate ./data
 **2. Use in TypeScript:**
 
 ```typescript
-import { LinesDB } from '@toiroakr/lines-db';
+import { LinesDB, unwrap } from '@toiroakr/lines-db';
 
 const db = LinesDB.create({ dataDir: './data' });
-await db.initialize();
+unwrap(await db.initialize());
 
 // Find all users
-const users = db.find('users');
+const users = unwrap(db.find('users'));
 console.log(users); // [{ id: 1, name: "Alice", ... }, ...]
 
 // Find a specific user
-const user = db.findOne('users', { id: 1 });
+const user = unwrap(db.findOne('users', { id: 1 }));
 console.log(user); // { id: 1, name: "Alice", age: 30, ... }
 
 // Find with conditions
-const adults = db.find('users', { age: (age) => age >= 30 });
+const adults = unwrap(db.find('users', { age: (age) => age >= 30 }));
 
 await db.close();
 ```
+
+> Most `LinesDB`/`JsonlReader` methods return a `Result<T, Error>` instead of throwing — see
+> [Error Handling](#error-handling) below. `unwrap()` reads the value or throws the error, which is
+> convenient at the top of a script but not the only way to consume a `Result`.
 
 ### Using Generated Types
 
 After running `npx lines-db generate ./data`:
 
 ```typescript
-import { LinesDB } from '@toiroakr/lines-db';
+import { LinesDB, unwrap } from '@toiroakr/lines-db';
 import { config } from './data/db.js';
 
 const db = LinesDB.create(config);
-await db.initialize();
+unwrap(await db.initialize());
 
 // ✨ Type is automatically inferred!
-const users = db.find('users');
+const users = unwrap(db.find('users'));
 
 // ✨ Type-safe operations
-db.insert('users', {
-  id: 10,
-  name: 'Alice',
-  age: 30,
-  email: 'alice@example.com',
-});
+unwrap(
+  db.insert('users', {
+    id: 10,
+    name: 'Alice',
+    age: 30,
+    email: 'alice@example.com',
+  }),
+);
 
 await db.close();
 ```
 
+## Error Handling
+
+`LinesDB` and `JsonlReader` methods that can fail return a `Result<T, Error>` — a discriminated union
+`{ ok: true; value: T } | { ok: false; error: Error }` — instead of throwing. `getSchema`,
+`getTableNames`, and `getDb` can't fail, so they still return their value directly.
+
+```typescript
+const result = db.insert('users', { id: 2, name: '' }); // fails a validation schema
+
+if (result.ok) {
+  console.log(result.value.changes);
+} else {
+  console.log(result.error.message);
+}
+```
+
+`unwrap(result)` reads `result.value`, or throws `result.error` when `result.ok` is `false` — useful
+at the top of a script, or anywhere a failure should propagate like an exception:
+
+```typescript
+import { unwrap } from '@toiroakr/lines-db';
+
+const users = unwrap(db.find('users')); // throws if db.find() returned an error
+```
+
+Inside `db.transaction(async (tx) => { ... })`, `tx` is the same Result-returning API as `db` — a
+failed `tx.insert()`/`tx.update()`/etc. does not throw on its own and therefore does not roll back the
+transaction by itself. Check the Result and `throw result.error` (or call `unwrap`) to abort the
+transaction on such a failure; only a thrown error inside the callback rolls it back.
+
 ### Core API
+
+All operations below return `Result<T, Error>` unless noted otherwise; `getSchema`, `getTableNames`,
+and `getDb` return their value directly since they cannot fail.
 
 **Query Operations:**
 
@@ -259,23 +298,25 @@ await db.close();
 
 - `transaction(fn)` - Execute operations in a transaction
 - `sync(table?, options?)` - Write changes back to the JSONL file(s)
-- `getSchema(table)` - Get table schema
-- `getTableNames()` - Get all table names
+- `getSchema(table)` - Get table schema (returns `TableSchema | undefined`, not a `Result`)
+- `getTableNames()` - Get all table names (returns `string[]`, not a `Result`)
 
 **Where Conditions:**
 
 ```typescript
 // Simple equality
-db.find('users', { age: 30 });
+unwrap(db.find('users', { age: 30 }));
 
 // Multiple conditions (AND)
-db.find('users', { age: 30, name: 'Alice' });
+unwrap(db.find('users', { age: 30, name: 'Alice' }));
 
 // Advanced conditions
-db.find('users', {
-  age: (age) => age > 25,
-  name: (name) => name.startsWith('A'),
-});
+unwrap(
+  db.find('users', {
+    age: (age) => age > 25,
+    name: (name) => name.startsWith('A'),
+  }),
+);
 ```
 
 ### JSON Columns
@@ -283,13 +324,15 @@ db.find('users', {
 Objects and arrays are automatically handled as JSON columns:
 
 ```typescript
-db.insert('orders', {
-  id: 1,
-  items: [{ name: 'Laptop', quantity: 1 }],
-  metadata: { source: 'web' },
-});
+unwrap(
+  db.insert('orders', {
+    id: 1,
+    items: [{ name: 'Laptop', quantity: 1 }],
+    metadata: { source: 'web' },
+  }),
+);
 
-const order = db.findOne('orders', { id: 1 });
+const order = unwrap(db.findOne('orders', { id: 1 }));
 console.log(order.items[0].name); // "Laptop"
 ```
 
@@ -336,7 +379,7 @@ export const schema = defineSchema(eventSchema, (output) => ({
 **In your TypeScript code:**
 
 ```typescript
-const event = db.findOne('events', { id: 1 });
+const event = unwrap(db.findOne('events', { id: 1 }));
 console.log(event.date instanceof Date); // true
 console.log(event.date.getFullYear()); // 2024
 ```
@@ -346,7 +389,7 @@ console.log(event.date.getFullYear()); // 2024
 Operations outside transactions are auto-synced:
 
 ```typescript
-db.insert('users', { id: 10, name: 'Alice', age: 30 });
+unwrap(db.insert('users', { id: 10, name: 'Alice', age: 30 }));
 // ↑ Automatically synced to users.jsonl
 ```
 
@@ -356,12 +399,17 @@ diff stays limited to what actually changed.
 Batch operations with transactions:
 
 ```typescript
-await db.transaction(async (tx) => {
-  tx.insert('users', { id: 10, name: 'Alice', age: 30 });
-  tx.update('users', { age: 31 }, { id: 1 });
-  // All changes synced atomically on commit
-});
+unwrap(
+  await db.transaction(async (tx) => {
+    unwrap(tx.insert('users', { id: 10, name: 'Alice', age: 30 }));
+    unwrap(tx.update('users', { age: 31 }, { id: 1 }));
+    // All changes synced atomically on commit
+  }),
+);
 ```
+
+`unwrap()` inside the callback turns a failed `tx.insert()`/`tx.update()` into a thrown error, which
+`transaction()` catches and rolls back on - see [Error Handling](#error-handling).
 
 ### Writing Back Only Some Fields
 
@@ -371,7 +419,7 @@ line exactly as the file had it:
 
 ```typescript
 // users.jsonl: {"name":"Alice"}
-await db.sync('users', { fields: ['id'] });
+unwrap(await db.sync('users', { fields: ['id'] }));
 // users.jsonl: {"id":"...","name":"Alice"}
 ```
 
@@ -385,8 +433,8 @@ const db = LinesDB.create({ dataDir: './data', writeBackFields: ['id'] });
 Rows are matched to their existing line by primary key, or by position when the file does not carry
 one yet (the case when the primary key itself is being backfilled). Lines keep the order the file
 has them in, and rows the file never had are appended. A field you name is always taken from the
-database - including when it is `null` there - and `sync` throws when rows cannot be matched to
-their lines, rather than guessing.
+database - including when it is `null` there - and `sync` returns an error Result when rows cannot
+be matched to their lines, rather than guessing.
 
 A field a line did not have is inserted where the schema declares it rather than appended, so a
 backfilled `id` lands at the front of the line the way a hand-written row has it. Keys the schema
@@ -408,9 +456,9 @@ when the values come from somewhere other than a query - a hook that fills in id
 file into SQLite would only get in the way:
 
 ```typescript
-import { JsonlReader, JsonlWriter, mergeFields } from '@toiroakr/lines-db';
+import { JsonlReader, JsonlWriter, mergeFields, unwrap } from '@toiroakr/lines-db';
 
-const rows = await JsonlReader.read('./data/users.jsonl');
+const rows = unwrap(await JsonlReader.read('./data/users.jsonl'));
 const filled = rows.map((row) => mergeFields(row, fillIds(row), { fields: ['id'] }));
 await JsonlWriter.write('./data/users.jsonl', filled);
 

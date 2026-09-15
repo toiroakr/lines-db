@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { normalize } from 'node:path';
 import type { JsonObject, ColumnDefinition, TableSchema, JsonlParseError } from './types.js';
+import { type Result, ok, err, toError } from './result.js';
 
 export class JsonlReader {
   private static overrides: Map<string, JsonObject[]> | null = null;
@@ -28,15 +29,21 @@ export class JsonlReader {
   /**
    * Read JSONL file and parse each line as JSON
    */
-  static async read(filePath: string): Promise<JsonObject[]> {
+  static async read(filePath: string): Promise<Result<JsonObject[], JsonlParseError | Error>> {
     const overrideRows = this.overrides?.get(normalize(filePath));
     if (overrideRows) {
       // Return clones to avoid accidental mutations from consumers
-      return overrideRows.map((row) => JSON.parse(JSON.stringify(row)) as JsonObject);
+      return ok(overrideRows.map((row) => JSON.parse(JSON.stringify(row)) as JsonObject));
     }
 
-    const content = await readFile(filePath, 'utf-8');
-    const rawLines = (content.startsWith('﻿') ? content.slice(1) : content).split('\n');
+    let content: string;
+    try {
+      content = await readFile(filePath, 'utf-8');
+    } catch (error) {
+      return err(toError(error));
+    }
+
+    const rawLines = (content.startsWith('\u{feff}') ? content.slice(1) : content).split('\n');
 
     const rows: JsonObject[] = [];
     for (let i = 0; i < rawLines.length; i++) {
@@ -50,19 +57,19 @@ export class JsonlReader {
         parseError.name = 'JsonlParseError';
         parseError.file = filePath;
         parseError.line = i + 1;
-        throw parseError;
+        return err(parseError);
       }
     }
 
-    return rows;
+    return ok(rows);
   }
 
   /**
    * Infer schema from JSONL data
    */
-  static inferSchema(tableName: string, data: JsonObject[]): TableSchema {
+  static inferSchema(tableName: string, data: JsonObject[]): Result<TableSchema, Error> {
     if (data.length === 0) {
-      throw new Error('Cannot infer schema from empty data');
+      return err(new Error('Cannot infer schema from empty data'));
     }
 
     const columnTypes = new Map<string, Set<string>>();
@@ -121,10 +128,10 @@ export class JsonlReader {
       idColumn.primaryKey = true;
     }
 
-    return {
+    return ok({
       name: tableName,
       columns,
-    };
+    });
   }
 
   private static inferType(value: unknown): string {

@@ -7,6 +7,7 @@ register('amaro/transform', import.meta.url);
 import { TypeGenerator } from './type-generator.js';
 import { LinesDB } from './database.js';
 import { ErrorFormatter } from './error-formatter.js';
+import { unwrap } from './result.js';
 import type { ValidationError, JsonObject, TableDefs } from './types.js';
 import { z } from 'zod';
 import { arg, defineCommand, runMain } from '@politty/zod';
@@ -102,7 +103,7 @@ const validateCommand = defineCommand({
       const db = LinesDB.create({ dataDir });
       let result;
       try {
-        result = await db.initialize({ tableName, detailedValidate: true });
+        result = unwrap(await db.initialize({ tableName, detailedValidate: true }));
       } finally {
         await db.close();
       }
@@ -361,7 +362,7 @@ async function migrateDirectory(
   console.log(`Found ${jsonlFiles.length} JSONL file(s) in directory`);
 
   const db = LinesDB.create({ dataDir: dirPath, writeBackFields: options.writeBackFields });
-  const initResult = await db.initialize({ detailedValidate: true });
+  const initResult = unwrap(await db.initialize({ detailedValidate: true }));
 
   if (initResult.warnings.length > 0) {
     for (const warning of initResult.warnings) {
@@ -423,7 +424,9 @@ async function migrateDirectory(
       try {
         console.log(`Processing table '${tableName}'...`);
 
-        const rowsToMigrate = filter ? db.find(tableName, filter as Parameters<typeof db.find>[1]) : db.find(tableName);
+        const rowsToMigrate = unwrap(
+          filter ? db.find(tableName, filter as Parameters<typeof db.find>[1]) : db.find(tableName),
+        );
 
         if (rowsToMigrate.length === 0) {
           console.log(`  No rows to migrate`);
@@ -434,11 +437,15 @@ async function migrateDirectory(
 
         const transformedRows = rowsToMigrate.map((row) => transform(row as JsonObject));
 
-        await db.transaction(async () => {
-          db.batchUpdate(tableName, transformedRows as Parameters<typeof db.batchUpdate>[1], {
-            validate: true,
-          });
-        });
+        unwrap(
+          await db.transaction(async () => {
+            unwrap(
+              db.batchUpdate(tableName, transformedRows as Parameters<typeof db.batchUpdate>[1], {
+                validate: true,
+              }),
+            );
+          }),
+        );
 
         console.log(`  ✓ ${rowsToMigrate.length} row(s) updated\n`);
         totalRowsMigrated += rowsToMigrate.length;
@@ -461,9 +468,9 @@ async function migrateDirectory(
           if (validationError.validationErrors) {
             console.error(`  Found ${validationError.validationErrors.length} validation error(s):\n`);
 
-            const rowsToMigrate = filter
-              ? db.find(tableName, filter as Parameters<typeof db.find>[1])
-              : db.find(tableName);
+            const rowsToMigrate = unwrap(
+              filter ? db.find(tableName, filter as Parameters<typeof db.find>[1]) : db.find(tableName),
+            );
 
             const errorInfos = validationError.validationErrors.map(({ rowIndex, rowData, error: rowError }) => ({
               file: join(dirPath, `${tableName}.jsonl`),
@@ -533,7 +540,7 @@ async function migrateFile(
   }
 
   const db = LinesDB.create({ dataDir, writeBackFields: options.writeBackFields });
-  const initResult = await db.initialize({ tableName, transform, detailedValidate: true });
+  const initResult = unwrap(await db.initialize({ tableName, transform, detailedValidate: true }));
 
   if (initResult.warnings.length > 0) {
     for (const warning of initResult.warnings) {
@@ -574,7 +581,7 @@ async function migrateFile(
     if (filter) {
       let rowsToMigrate;
       try {
-        rowsToMigrate = db.find(tableName, filter as Parameters<typeof db.find>[1]);
+        rowsToMigrate = unwrap(db.find(tableName, filter as Parameters<typeof db.find>[1]));
       } catch (error) {
         console.error(`Error: Failed to access table '${tableName}'`);
         console.error(`  ${error instanceof Error ? error.message : String(error)}`);
@@ -595,11 +602,15 @@ async function migrateFile(
       const transformedRows = rowsToMigrate.map((row) => transform(row as JsonObject));
 
       try {
-        await db.transaction(async () => {
-          db.batchUpdate(tableName, transformedRows as Parameters<typeof db.batchUpdate>[1], {
-            validate: true,
-          });
-        });
+        unwrap(
+          await db.transaction(async () => {
+            unwrap(
+              db.batchUpdate(tableName, transformedRows as Parameters<typeof db.batchUpdate>[1], {
+                validate: true,
+              }),
+            );
+          }),
+        );
 
         await db.close();
 
@@ -692,10 +703,10 @@ async function migrateFile(
       }
     } else {
       try {
-        const allRows = db.find(tableName);
+        const allRows = unwrap(db.find(tableName));
         console.log(`Migrated ${allRows.length} row(s) in table '${tableName}'`);
 
-        await db.sync(tableName);
+        unwrap(await db.sync(tableName));
         await db.close();
 
         console.log(`\nMigration completed successfully:`);

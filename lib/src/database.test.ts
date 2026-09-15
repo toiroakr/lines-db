@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { LinesDB } from './database.js';
+import { unwrap } from './result.js';
 import type { DatabaseConfig, JsonlParseError } from './types.js';
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -39,7 +40,7 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
       const tables = db.getTableNames();
       expect(tables).toContain('users');
@@ -53,7 +54,7 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
       const tables = db.getTableNames();
       expect(tables).toContain('users');
@@ -67,7 +68,7 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
       const tables = db.getTableNames();
       expect(tables).toContain('users');
@@ -86,7 +87,7 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
       const tableNames = db.getTableNames();
       expect(tableNames).toHaveLength(2);
@@ -105,7 +106,7 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
       const schema = db.getSchema('users');
       expect(schema).toBeDefined();
@@ -121,11 +122,11 @@ export const schema = defineSchema(rawSchema);
       const config: DatabaseConfig = { dataDir: testDir };
       const db = LinesDB.create(config);
 
-      expect.assertions(3);
-      try {
-        await db.initialize();
-      } catch (error) {
-        const parseError = error as JsonlParseError;
+      const result = await db.initialize();
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        const parseError = result.error as JsonlParseError;
         expect(parseError.name).toBe('JsonlParseError');
         expect(parseError.file).toBe(join(testDir, 'users.jsonl'));
         expect(parseError.line).toBe(2);
@@ -143,9 +144,9 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const users = db.find('users');
+      const users = unwrap(db.find('users'));
       expect(users).toHaveLength(2);
       expect(users[0]).toEqual({ id: 1, name: 'Alice' });
       expect(users[1]).toEqual({ id: 2, name: 'Bob' });
@@ -162,9 +163,9 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const alices = db.find('users', { name: 'Alice' });
+      const alices = unwrap(db.find('users', { name: 'Alice' }));
       expect(alices).toHaveLength(2);
       expect(alices[0].id).toBe(1);
       expect(alices[1].id).toBe(3);
@@ -181,9 +182,9 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const user = db.findOne('users', { id: 2 });
+      const user = unwrap(db.findOne('users', { id: 2 }));
       expect(user).toEqual({ id: 2, name: 'Bob' });
 
       await db.close();
@@ -198,9 +199,9 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const user = db.findOne('users', { id: 999 });
+      const user = unwrap(db.findOne('users', { id: 999 }));
       expect(user).toBeNull();
 
       await db.close();
@@ -217,18 +218,18 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const result = db.insert('users', { id: 2, name: 'Bob' });
+      const result = unwrap(db.insert('users', { id: 2, name: 'Bob' }));
       expect(result.changes).toBe(1);
 
-      const users = db.find('users');
+      const users = unwrap(db.find('users'));
       expect(users).toHaveLength(2);
 
       await db.close();
     });
 
-    it('should validate on insert when schema exists', async () => {
+    it('should return an error on insert when validation fails', async () => {
       await writeFile(join(testDir, 'users.jsonl'), '{"id":1,"name":"Alice"}\n');
       await writeFile(
         join(testDir, 'users.schema.ts'),
@@ -255,11 +256,14 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      expect(() => {
-        db.insert('users', { id: 2, name: '' });
-      }).toThrow(/Validation/);
+      const result = db.insert('users', { id: 2, name: '' });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toMatch(/Validation/);
+      }
 
       await db.close();
     });
@@ -273,16 +277,18 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const result = db.batchInsert('users', [
-        { id: 2, name: 'Bob' },
-        { id: 3, name: 'Carol' },
-      ]);
+      const result = unwrap(
+        db.batchInsert('users', [
+          { id: 2, name: 'Bob' },
+          { id: 3, name: 'Carol' },
+        ]),
+      );
 
       expect(result.changes).toBe(2n);
 
-      const users = db.find('users');
+      const users = unwrap(db.find('users'));
       expect(users).toHaveLength(3);
       expect(users.map((u) => u.name).sort()).toEqual(['Alice', 'Bob', 'Carol']);
 
@@ -300,12 +306,12 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const result = db.update('users', { age: 31 }, { id: 1 });
+      const result = unwrap(db.update('users', { age: 31 }, { id: 1 }));
       expect(result.changes).toBe(1);
 
-      const user = db.findOne('users', { id: 1 });
+      const user = unwrap(db.findOne('users', { id: 1 }));
       expect(user?.age).toBe(31);
 
       await db.close();
@@ -320,9 +326,9 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const result = db.update('users', { active: false }, { active: true });
+      const result = unwrap(db.update('users', { active: false }, { active: true }));
       expect(result.changes).toBe(2);
 
       await db.close();
@@ -337,15 +343,17 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const result = db.batchUpdate('users', [
-        { id: 1, age: 31 },
-        { id: 2, age: 27 },
-      ]);
+      const result = unwrap(
+        db.batchUpdate('users', [
+          { id: 1, age: 31 },
+          { id: 2, age: 27 },
+        ]),
+      );
       expect(result.changes).toBe(2n);
 
-      const users = db.find('users');
+      const users = unwrap(db.find('users'));
       const alice = users.find((u) => u.id === 1);
       const bob = users.find((u) => u.id === 2);
       expect(alice?.age).toBe(31);
@@ -365,12 +373,12 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const result = db.delete('users', { id: 1 });
+      const result = unwrap(db.delete('users', { id: 1 }));
       expect(result.changes).toBe(1);
 
-      const users = db.find('users');
+      const users = unwrap(db.find('users'));
       expect(users).toHaveLength(1);
       expect(users[0].id).toBe(2);
 
@@ -386,12 +394,12 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const result = db.delete('users', { name: 'Alice' });
+      const result = unwrap(db.delete('users', { name: 'Alice' }));
       expect(result.changes).toBe(2);
 
-      const users = db.find('users');
+      const users = unwrap(db.find('users'));
       expect(users).toHaveLength(1);
 
       await db.close();
@@ -406,12 +414,12 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const result = db.batchDelete('users', [{ id: 1 }, { id: 3 }]);
+      const result = unwrap(db.batchDelete('users', [{ id: 1 }, { id: 3 }]));
       expect(result.changes).toBe(2n);
 
-      const users = db.find('users');
+      const users = unwrap(db.find('users'));
       expect(users).toHaveLength(1);
       expect(users[0].id).toBe(2);
 
@@ -429,9 +437,9 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const records = db.find('records');
+      const records = unwrap(db.find('records'));
       expect(records[0].data).toEqual({ key: 'value' });
 
       await db.close();
@@ -446,9 +454,9 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const records = db.find('records');
+      const records = unwrap(db.find('records'));
       expect(records[0].tags).toEqual(['a', 'b', 'c']);
 
       await db.close();
@@ -463,11 +471,11 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      db.insert('records', { id: 2, data: { key: 'new value' } });
+      unwrap(db.insert('records', { id: 2, data: { key: 'new value' } }));
 
-      const record = db.findOne('records', { id: 2 });
+      const record = unwrap(db.findOne('records', { id: 2 }));
       expect(record?.data).toEqual({ key: 'new value' });
 
       await db.close();
@@ -484,9 +492,9 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const result = db.query<{ id: number; name: string }>('SELECT * FROM users WHERE id > ?', [1]);
+      const result = unwrap(db.query<{ id: number; name: string }>('SELECT * FROM users WHERE id > ?', [1]));
 
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('Bob');
@@ -503,9 +511,9 @@ export const schema = defineSchema(rawSchema);
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      await db.initialize();
+      unwrap(await db.initialize());
 
-      const result = db.queryOne<{ name: string }>('SELECT name FROM users WHERE id = ?', [1]);
+      const result = unwrap(db.queryOne<{ name: string }>('SELECT name FROM users WHERE id = ?', [1]));
 
       expect(result?.name).toBe('Alice');
 
@@ -576,7 +584,7 @@ export const schema = Object.assign(Object.create(baseSchema), {
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      const result = await db.initialize({ detailedValidate: true });
+      const result = unwrap(await db.initialize({ detailedValidate: true }));
 
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
@@ -611,7 +619,7 @@ export const schema = Object.assign(Object.create(baseSchema), {
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      const result = await db.initialize({ detailedValidate: true });
+      const result = unwrap(await db.initialize({ detailedValidate: true }));
 
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(1);
@@ -652,7 +660,7 @@ export const schema = Object.assign(Object.create(baseSchema), {
 
       const config: DatabaseConfig<Tables> = { dataDir: testDir };
       const db = LinesDB.create(config);
-      const result = await db.initialize({ detailedValidate: true });
+      const result = unwrap(await db.initialize({ detailedValidate: true }));
 
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(1);

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { SCHEMA_EXTENSIONS } from './schemaFileUtils.js';
+import { unwrapLinesDbResult } from './linesDbResult.js';
 
 export interface ColumnSortResult {
   sortedRows: string[];
@@ -16,7 +17,7 @@ export async function getAllColumns(filePath: string): Promise<string[]> {
       return [];
     }
 
-    const records = await global.__linesDbModule.JsonlReader.read(filePath);
+    const records = unwrapLinesDbResult(await global.__linesDbModule.JsonlReader.read(filePath));
     if (!records || records.length === 0) {
       return [];
     }
@@ -89,7 +90,7 @@ export async function getSchemaColumnOrder(jsonlFilePath: string): Promise<strin
     }
 
     // Read first record from JSONL file
-    const records = await global.__linesDbModule.JsonlReader.read(jsonlFilePath);
+    const records = unwrapLinesDbResult(await global.__linesDbModule.JsonlReader.read(jsonlFilePath));
     if (!records || records.length === 0) {
       if (outputChannel) {
         outputChannel.appendLine(`[SortColumns] No records found in JSONL file`);
@@ -173,7 +174,7 @@ export async function sortColumnsByOrder(filePath: string, columnOrder: string[]
       throw new Error('LinesDB module not available');
     }
 
-    const records = await global.__linesDbModule.JsonlReader.read(filePath);
+    const records = unwrapLinesDbResult(await global.__linesDbModule.JsonlReader.read(filePath));
     if (!records || records.length === 0) {
       throw new Error('No records found in file');
     }

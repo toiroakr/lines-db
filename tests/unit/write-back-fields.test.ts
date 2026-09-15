@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { LinesDB } from '../../lib/src/database.js';
+import { unwrap } from '../../lib/src/result.js';
 import { writeFile, mkdir, rm, readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -85,8 +86,8 @@ describe('write-back fields', () => {
     await writeFile(dataPath, `{"name":"John"}\n{"name":"Jane"}\n`);
 
     const db = LinesDB.create({ dataDir: testDir });
-    await db.initialize();
-    await db.sync('User');
+    unwrap(await db.initialize());
+    unwrap(await db.sync('User'));
     await db.close();
 
     const rows = await readJsonl(dataPath);
@@ -103,9 +104,9 @@ describe('write-back fields', () => {
     await writeFile(dataPath, `{"name":"John"}\n{"name":"Jane"}\n`);
 
     const db = LinesDB.create({ dataDir: testDir });
-    await db.initialize();
-    await db.sync('User', { fields: ['id'] });
-    const ids = db.find('User').map((row) => (row as { id: string }).id);
+    unwrap(await db.initialize());
+    unwrap(await db.sync('User', { fields: ['id'] }));
+    const ids = unwrap(db.find('User')).map((row) => (row as { id: string }).id);
     await db.close();
 
     const rows = await readJsonl(dataPath);
@@ -120,8 +121,8 @@ describe('write-back fields', () => {
     await writeFile(dataPath, `{"name":"John","note":"kept"}\n{"name":"Jane","id":"u2","note":"kept too"}\n`);
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['id'] });
-    await db.initialize();
-    await db.sync('User');
+    unwrap(await db.initialize());
+    unwrap(await db.sync('User'));
     await db.close();
 
     const rows = await readJsonl(dataPath);
@@ -135,8 +136,8 @@ describe('write-back fields', () => {
     await writeFile(dataPath, `{"name":"John"}\n`);
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['id'] });
-    await db.initialize();
-    await db.sync('User');
+    unwrap(await db.initialize());
+    unwrap(await db.sync('User'));
     await db.close();
 
     const rows = await readJsonl(dataPath);
@@ -147,8 +148,8 @@ describe('write-back fields', () => {
     await writeFile(dataPath, `{"name":"John"}\n`);
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['id'] });
-    await db.initialize();
-    await db.sync('User', { fields: ['computed'] });
+    unwrap(await db.initialize());
+    unwrap(await db.sync('User', { fields: ['computed'] }));
     await db.close();
 
     const rows = await readJsonl(dataPath);
@@ -162,11 +163,11 @@ describe('write-back fields', () => {
     );
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['nickname'] });
-    await db.initialize();
+    unwrap(await db.initialize());
     // Deleting a row must not shift which line the remaining rows are merged into
-    db.delete('User', { id: 'u1' });
-    db.update('User', { nickname: 'Ju' }, { id: 'u3' });
-    await db.sync('User');
+    unwrap(db.delete('User', { id: 'u1' }));
+    unwrap(db.update('User', { nickname: 'Ju' }, { id: 'u3' }));
+    unwrap(await db.sync('User'));
     await db.close();
 
     const rows = await readJsonl(dataPath);
@@ -180,9 +181,9 @@ describe('write-back fields', () => {
     await writeFile(dataPath, `{"id":"u1","name":"John"}\n`);
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['nickname'] });
-    await db.initialize();
-    db.insert('User', { id: 'u2', name: 'Jane', nickname: 'J', computed: 'computed-Jane' });
-    await db.sync('User');
+    unwrap(await db.initialize());
+    unwrap(db.insert('User', { id: 'u2', name: 'Jane', nickname: 'J', computed: 'computed-Jane' }));
+    unwrap(await db.sync('User'));
     await db.close();
 
     const rows = await readJsonl(dataPath);
@@ -198,10 +199,10 @@ describe('write-back fields', () => {
     await writeFile(dataPath, `{"id":"u1","name":"John"}\n{"id":"u2","name":"Jane"}\n`);
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['nickname'] });
-    await db.initialize();
+    unwrap(await db.initialize());
     // Overlapping auto-syncs, with no explicit sync to wait on
-    db.update('User', { nickname: 'J' }, { id: 'u1' });
-    db.update('User', { nickname: 'Ja' }, { id: 'u2' });
+    unwrap(db.update('User', { nickname: 'J' }, { id: 'u1' }));
+    unwrap(db.update('User', { nickname: 'Ja' }, { id: 'u2' }));
     await db.close();
 
     const rows = await readJsonl(dataPath);
@@ -215,8 +216,8 @@ describe('write-back fields', () => {
     await writeFile(dataPath, `{"name":"John"}\n{"id":"u2","name":"Jane","nickname":"J"}\n{"name":"Judy"}\n`);
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['id'] });
-    await db.initialize();
-    await db.sync('User');
+    unwrap(await db.initialize());
+    unwrap(await db.sync('User'));
     await db.close();
 
     const rows = await readJsonl(dataPath);
@@ -231,8 +232,8 @@ describe('write-back fields', () => {
     await writeFile(dataPath, `{"name":"John"}\n`);
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: [] });
-    await db.initialize();
-    await db.sync('User');
+    unwrap(await db.initialize());
+    unwrap(await db.sync('User'));
     await db.close();
 
     // An empty list must not fall back to writing the whole row
@@ -263,8 +264,8 @@ export const schema = defineSchema(
     );
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['note'] });
-    await db.initialize({ tableName: 'Event' });
-    await db.sync('Event');
+    unwrap(await db.initialize({ tableName: 'Event' }));
+    unwrap(await db.sync('Event'));
     await db.close();
 
     expect(await readJsonl(join(testDir, 'Event.jsonl'))).toEqual([
@@ -287,13 +288,13 @@ export const schema = defineSchema({
     );
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['msg'] });
-    await db.initialize({ tableName: 'Log' });
-    db.delete('Log', { msg: 'a' });
-    await db.sync('Log');
+    unwrap(await db.initialize({ tableName: 'Log' }));
+    unwrap(db.delete('Log', { msg: 'a' }));
+    unwrap(await db.sync('Log'));
     // The file holds no lines at all now
-    db.insert('Log', { msg: 'b' });
-    db.insert('Log', { msg: 'c' });
-    await db.sync('Log');
+    unwrap(db.insert('Log', { msg: 'b' }));
+    unwrap(db.insert('Log', { msg: 'c' }));
+    unwrap(await db.sync('Log'));
     await db.close();
 
     // Nothing is left to preserve, so the rows are written rather than refused as unmatchable
@@ -305,10 +306,10 @@ export const schema = defineSchema({
     await writeFile(join(testDir, 'Item.schema.ts'), ITEM_SCHEMA);
 
     const db = LinesDB.create({ dataDir: testDir });
-    await db.initialize({ tableName: 'Item' });
-    db.update('Item', { name: 'A' }, { id: 1 });
-    db.insert('Item', { id: 4, name: 'd', computed: 'derived' });
-    await db.sync('Item');
+    unwrap(await db.initialize({ tableName: 'Item' }));
+    unwrap(db.update('Item', { name: 'A' }, { id: 1 }));
+    unwrap(db.insert('Item', { id: 4, name: 'd', computed: 'derived' }));
+    unwrap(await db.sync('Item'));
     await db.close();
 
     expect(await readJsonl(join(testDir, 'Item.jsonl'))).toEqual([
@@ -334,9 +335,9 @@ export const schema = defineSchema({
     );
 
     const db = LinesDB.create({ dataDir: testDir });
-    await db.initialize({ tableName: 'Log' });
-    db.insert('Log', { msg: 'c' });
-    await db.sync('Log');
+    unwrap(await db.initialize({ tableName: 'Log' }));
+    unwrap(db.insert('Log', { msg: 'c' }));
+    unwrap(await db.sync('Log'));
     await db.close();
 
     expect(await readJsonl(join(testDir, 'Log.jsonl'))).toEqual([{ msg: 'a' }, { msg: 'b' }, { msg: 'c' }]);
@@ -348,9 +349,9 @@ export const schema = defineSchema({
     await writeFile(join(testDir, 'Item.schema.ts'), ITEM_SCHEMA);
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['name'] });
-    await db.initialize({ tableName: 'Item' });
-    db.update('Item', { name: 'A' }, { id: 1 });
-    await db.sync('Item');
+    unwrap(await db.initialize({ tableName: 'Item' }));
+    unwrap(db.update('Item', { name: 'A' }, { id: 1 }));
+    unwrap(await db.sync('Item'));
     await db.close();
 
     expect(await readJsonl(join(testDir, 'Item.jsonl'))).toEqual([
@@ -364,11 +365,13 @@ export const schema = defineSchema({
     await writeFile(dataPath, `{"name":"John"}\n`);
 
     const db = LinesDB.create({ dataDir: testDir });
-    await db.initialize();
+    unwrap(await db.initialize());
 
-    await expect(db.sync('User', { fields: ['nickname', 'typo'] })).rejects.toThrow(
-      /Cannot write back field\(s\) \[typo\] for table 'User'/,
-    );
+    const syncResult = await db.sync('User', { fields: ['nickname', 'typo'] });
+    expect(syncResult.ok).toBe(false);
+    if (!syncResult.ok) {
+      expect(syncResult.error.message).toMatch(/Cannot write back field\(s\) \[typo\] for table 'User'/);
+    }
 
     await db.close();
     // The file must be left alone when the write-back is rejected
@@ -379,13 +382,17 @@ export const schema = defineSchema({
     await writeFile(dataPath, `{"name":"John"}\n{"name":"Jane"}\n`);
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['id'] });
-    await db.initialize();
+    unwrap(await db.initialize());
     // The file has no ids to match on, and the row count no longer lines up
-    db.insert('User', { id: 'u3', name: 'Judy', nickname: null, computed: 'computed-Judy' });
+    unwrap(db.insert('User', { id: 'u3', name: 'Judy', nickname: null, computed: 'computed-Judy' }));
 
-    await expect(db.sync('User')).rejects.toThrow(
-      /the file has 2 row\(s\) but the table has 3.*cannot be matched to their existing lines/s,
-    );
+    const syncResult = await db.sync('User');
+    expect(syncResult.ok).toBe(false);
+    if (!syncResult.ok) {
+      expect(syncResult.error.message).toMatch(
+        /the file has 2 row\(s\) but the table has 3.*cannot be matched to their existing lines/s,
+      );
+    }
 
     await db.close();
     expect(await readJsonl(dataPath)).toEqual([{ name: 'John' }, { name: 'Jane' }]);
@@ -416,8 +423,8 @@ export const schema = defineSchema(
     );
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['seq'] });
-    await db.initialize({ tableName: 'Event' });
-    await db.sync('Event');
+    unwrap(await db.initialize({ tableName: 'Event' }));
+    unwrap(await db.sync('Event'));
     await db.close();
 
     const rows = await readJsonl(join(testDir, 'Event.jsonl'));
