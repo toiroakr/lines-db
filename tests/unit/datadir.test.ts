@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, afterEach, expect } from 'vitest';
-import { LinesDB, TypeGenerator } from '@toiroakr/lines-db';
+import { LinesDB, TypeGenerator, unwrap } from '@toiroakr/lines-db';
 import type { DatabaseConfig, TableDefs } from '@toiroakr/lines-db';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -53,7 +53,7 @@ describe('LinesDB dataDir auto-discovery', () => {
       };
 
       db = createDb();
-      await db.initialize();
+      unwrap(await db.initialize());
     });
 
     it('should auto-discover all JSONL files in dataDir', () => {
@@ -73,9 +73,9 @@ describe('LinesDB dataDir auto-discovery', () => {
     });
 
     it('should load data from all discovered tables', () => {
-      const users = db.find('users');
-      const products = db.find('products');
-      const orders = db.find('orders');
+      const users = unwrap(db.find('users'));
+      const products = unwrap(db.find('products'));
+      const orders = unwrap(db.find('orders'));
 
       expect(users.length).toBe(3);
       expect(products.length).toBe(3);
@@ -85,35 +85,40 @@ describe('LinesDB dataDir auto-discovery', () => {
     it('should auto-load validation schemas from dataDir', () => {
       // Validation schema should be automatically loaded
       // Valid insert should succeed
-      const result = db.insert('users', {
-        id: 100,
-        name: 'Test User',
-        age: 25,
-        email: 'test@example.com',
-      });
+      const result = unwrap(
+        db.insert('users', {
+          id: 100,
+          name: 'Test User',
+          age: 25,
+          email: 'test@example.com',
+        }),
+      );
       expect(result.changes).toBe(1);
 
-      // Invalid insert should throw
-      expect(() => {
-        db.insert('users', {
-          id: 101,
-          name: '',
-          age: 30,
-          email: 'invalid-email',
-        });
-      }).toThrow();
+      // Invalid insert should return an error
+      const invalidResult = db.insert('users', {
+        id: 101,
+        name: '',
+        age: 30,
+        email: 'invalid-email',
+      });
+      expect(invalidResult.ok).toBe(false);
     });
   });
 
   describe('error handling', () => {
-    it('should throw error when dataDir does not exist', async () => {
+    it('should return an error when dataDir does not exist', async () => {
       const invalidConfig: DatabaseConfig = {
         dataDir: join(__dirname, 'nonexistent'),
       };
 
       const testDb = LinesDB.create(invalidConfig);
 
-      await expect(testDb.initialize()).rejects.toThrow('Failed to scan directory');
+      const result = await testDb.initialize();
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('Failed to scan directory');
+      }
     });
   });
 });

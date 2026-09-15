@@ -1,6 +1,8 @@
 export { LinesDB } from './database.js';
 export type { SyncOptions } from './database.js';
 export { JsonlReader } from './jsonl-reader.js';
+export { ok, err, unwrap } from './result.js';
+export type { Result } from './result.js';
 export { JsonlWriter } from './jsonl-writer.js';
 export { mergeFields } from './merge-fields.js';
 export type { MergeFieldsOptions } from './merge-fields.js';
@@ -36,6 +38,7 @@ export type {
   StandardSchemaResult,
   StandardSchemaIssue,
   ValidationError,
+  JsonlParseError,
   ValidationResult,
   TableValidationResult,
   ValidationErrorDetail,

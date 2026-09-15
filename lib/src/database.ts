@@ -23,6 +23,7 @@ import type {
   ForeignKeyDefinition,
 } from './types.js';
 import type { BiDirectionalSchema } from './schema.js';
+import { type Result, ok, err, toError, unwrap } from './result.js';
 
 /**
  * Options for {@link LinesDB.sync}
@@ -72,9 +73,21 @@ export class LinesDB<Tables extends TableDefs> {
    * @param options.tableName Optional table name to initialize. If not provided, initializes all tables
    * @param options.detailedValidate If true, performs detailed validation by inserting rows one by one to catch constraint violations
    * @param options.transform Optional transform function to apply to rows before validation (only applied to the specified tableName)
-   * @returns ValidationResult containing validation status, errors, and warnings
+   * @returns Result wrapping a ValidationResult with validation status, errors, and warnings
    */
   async initialize(options?: {
+    tableName?: string;
+    detailedValidate?: boolean;
+    transform?: (row: JsonObject) => JsonObject;
+  }): Promise<Result<ValidationResult, Error>> {
+    try {
+      return ok(await this.initializeInternal(options));
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private async initializeInternal(options?: {
     tableName?: string;
     detailedValidate?: boolean;
     transform?: (row: JsonObject) => JsonObject;
@@ -358,7 +371,11 @@ export class LinesDB<Tables extends TableDefs> {
     failedDependencies?: Set<string>,
   ): Promise<{ loaded: boolean; rowCount: number; errors: ValidationErrorDetail[] }> {
     // Read JSONL file
-    let data = await JsonlReader.read(config.jsonlPath);
+    const readResult = await JsonlReader.read(config.jsonlPath);
+    if (!readResult.ok) {
+      throw readResult.error;
+    }
+    let data = readResult.value;
 
     // Apply transform if provided (before validation)
     if (transform) {
@@ -484,7 +501,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Always infer schema from validated data to capture valueType information (e.g., boolean)
     if (validatedData.length > 0) {
-      inferredSchema = JsonlReader.inferSchema(tableName, validatedData);
+      inferredSchema = unwrap(JsonlReader.inferSchema(tableName, validatedData));
     }
 
     if (config.schema) {
@@ -760,7 +777,7 @@ export class LinesDB<Tables extends TableDefs> {
 
         // Check if referenced value exists
         try {
-          const result = this.query(
+          const result = this.queryInternal(
             `SELECT COUNT(*) as count FROM ${this.quoteIdentifier(fk.references.table)} WHERE ${this.quoteIdentifier(fk.references.column)} = ?`,
             [this.normalizeValue(fkValue)],
           );
@@ -819,7 +836,7 @@ export class LinesDB<Tables extends TableDefs> {
     const sql = `SELECT rowid - 1 as idx, ${quotedColumn} as val FROM ${quotedTable} WHERE ${quotedColumn} IS NOT NULL AND ${quotedColumn} NOT IN (SELECT ${quotedRefColumn} FROM ${quotedRefTable})`;
 
     try {
-      const rows = this.query<{ idx: number; val: string | number }>(sql);
+      const rows = this.queryInternal<{ idx: number; val: string | number }>(sql);
       for (const row of rows) {
         errors.push({
           file: filePath,
@@ -845,7 +862,15 @@ export class LinesDB<Tables extends TableDefs> {
   /**
    * Execute a raw SQL query
    */
-  query<T = unknown>(sql: string, params: (string | number | bigint | null | Uint8Array)[] = []): T[] {
+  query<T = unknown>(sql: string, params: (string | number | bigint | null | Uint8Array)[] = []): Result<T[], Error> {
+    try {
+      return ok(this.queryInternal<T>(sql, params));
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private queryInternal<T = unknown>(sql: string, params: (string | number | bigint | null | Uint8Array)[] = []): T[] {
     const stmt = this.db.prepare(sql);
     return stmt.all(...params) as T[];
   }
@@ -853,7 +878,21 @@ export class LinesDB<Tables extends TableDefs> {
   /**
    * Execute a SQL query that returns a single row
    */
-  queryOne<T = unknown>(sql: string, params: (string | number | bigint | null | Uint8Array)[] = []): T | null {
+  queryOne<T = unknown>(
+    sql: string,
+    params: (string | number | bigint | null | Uint8Array)[] = [],
+  ): Result<T | null, Error> {
+    try {
+      return ok(this.queryOneInternal<T>(sql, params));
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private queryOneInternal<T = unknown>(
+    sql: string,
+    params: (string | number | bigint | null | Uint8Array)[] = [],
+  ): T | null {
     const stmt = this.db.prepare(sql);
     const result = stmt.get(...params);
     return result === undefined ? null : (result as T);
@@ -865,6 +904,17 @@ export class LinesDB<Tables extends TableDefs> {
   execute(
     sql: string,
     params: (string | number | bigint | null | Uint8Array)[] = [],
+  ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
+    try {
+      return ok(this.executeInternal(sql, params));
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private executeInternal(
+    sql: string,
+    params: (string | number | bigint | null | Uint8Array)[] = [],
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
     const stmt = this.db.prepare(sql);
     return stmt.run(...params);
@@ -874,10 +924,18 @@ export class LinesDB<Tables extends TableDefs> {
    * Find rows by condition (supports OR/AND with arrays and function filters)
    * If where is not provided, returns all rows
    */
-  find<K extends keyof Tables & string>(tableName: K, where?: WhereCondition<Tables[K]>) {
+  find<K extends keyof Tables & string>(tableName: K, where?: WhereCondition<Tables[K]>): Result<Tables[K][], Error> {
+    try {
+      return ok(this.findInternal(tableName, where));
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private findInternal<K extends keyof Tables & string>(tableName: K, where?: WhereCondition<Tables[K]>): Tables[K][] {
     // If no where condition, return all rows
     if (where === undefined) {
-      const rows = this.query(`SELECT * FROM ${this.quoteTableName(tableName)}`);
+      const rows = this.queryInternal(`SELECT * FROM ${this.quoteTableName(tableName)}`);
       return rows.map((row) => this.deserializeRow(tableName, row)) as Tables[K][];
     }
 
@@ -892,18 +950,18 @@ export class LinesDB<Tables extends TableDefs> {
 
     // If OR condition has function filters, get all rows and evaluate in JS
     if (hasOrWithFunctionFilters) {
-      const rawRows = this.query(`SELECT * FROM ${this.quoteTableName(tableName)}`);
+      const rawRows = this.queryInternal(`SELECT * FROM ${this.quoteTableName(tableName)}`);
       rows = rawRows.map((row) => this.deserializeRow(tableName, row)) as Tables[K][];
       return this.applyOrConditionWithFilters(rows, where as WhereCondition<Tables[K]>);
     }
 
     // Normal case: use SQL WHERE clause
     if (sql) {
-      const rawRows = this.query(`SELECT * FROM ${this.quoteTableName(tableName)} WHERE ${sql}`, values);
+      const rawRows = this.queryInternal(`SELECT * FROM ${this.quoteTableName(tableName)} WHERE ${sql}`, values);
       rows = rawRows.map((row) => this.deserializeRow(tableName, row)) as Tables[K][];
     } else {
       // If only function filters (AND case), get all rows
-      const rawRows = this.query(`SELECT * FROM ${this.quoteTableName(tableName)}`);
+      const rawRows = this.queryInternal(`SELECT * FROM ${this.quoteTableName(tableName)}`);
       rows = rawRows.map((row) => this.deserializeRow(tableName, row)) as Tables[K][];
     }
 
@@ -914,16 +972,30 @@ export class LinesDB<Tables extends TableDefs> {
   /**
    * Find a single row by condition (supports OR/AND with arrays and function filters)
    */
-  findOne<K extends keyof Tables & string>(tableName: K, where: WhereCondition<Tables[K]>) {
+  findOne<K extends keyof Tables & string>(
+    tableName: K,
+    where: WhereCondition<Tables[K]>,
+  ): Result<Tables[K] | null, Error> {
+    try {
+      return ok(this.findOneInternal(tableName, where));
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private findOneInternal<K extends keyof Tables & string>(
+    tableName: K,
+    where: WhereCondition<Tables[K]>,
+  ): Tables[K] | null {
     const { sql, values, functionFilters } = this.buildWhereClause(where);
 
     let rows: Tables[K][];
     if (sql) {
-      const rawRows = this.query(`SELECT * FROM ${this.quoteTableName(tableName)} WHERE ${sql}`, values);
+      const rawRows = this.queryInternal(`SELECT * FROM ${this.quoteTableName(tableName)} WHERE ${sql}`, values);
       rows = rawRows.map((row) => this.deserializeRow(tableName, row)) as Tables[K][];
     } else {
       // If only function filters, get all rows
-      const rawRows = this.query(`SELECT * FROM ${this.quoteTableName(tableName)}`);
+      const rawRows = this.queryInternal(`SELECT * FROM ${this.quoteTableName(tableName)}`);
       rows = rawRows.map((row) => this.deserializeRow(tableName, row)) as Tables[K][];
     }
 
@@ -1057,6 +1129,17 @@ export class LinesDB<Tables extends TableDefs> {
   insert<K extends keyof Tables & string>(
     tableName: K,
     data: Tables[K],
+  ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
+    try {
+      return ok(this.insertInternal(tableName, data));
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private insertInternal<K extends keyof Tables & string>(
+    tableName: K,
+    data: Tables[K],
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
     // Validate if schema exists
     this.validateData(tableName, data);
@@ -1072,7 +1155,7 @@ export class LinesDB<Tables extends TableDefs> {
     const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
 
     const values = Object.values(data).map((v) => this.normalizeValue(v));
-    const result = this.execute(sql, values);
+    const result = this.executeInternal(sql, values);
 
     // Auto-sync if not in transaction
     if (!this.inTransaction) {
@@ -1088,6 +1171,17 @@ export class LinesDB<Tables extends TableDefs> {
    * Batch insert rows with validation per record.
    */
   batchInsert<K extends keyof Tables & string>(
+    tableName: K,
+    records: Tables[K][],
+  ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
+    try {
+      return ok(this.batchInsertInternal(tableName, records));
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private batchInsertInternal<K extends keyof Tables & string>(
     tableName: K,
     records: Tables[K][],
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
@@ -1113,7 +1207,7 @@ export class LinesDB<Tables extends TableDefs> {
 
       const values = columnNames.map((col) => this.normalizeValue(record[col as keyof Tables[K]]));
 
-      const result = this.execute(sql, values);
+      const result = this.executeInternal(sql, values);
       totalChanges += BigInt(result.changes);
       lastRowid = BigInt(result.lastInsertRowid);
     }
@@ -1141,6 +1235,19 @@ export class LinesDB<Tables extends TableDefs> {
     data: Partial<Tables[K]>,
     where: WhereCondition<Tables[K]>,
     options?: { validate?: boolean },
+  ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
+    try {
+      return ok(this.updateInternal(tableName, data, where, options));
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private updateInternal<K extends keyof Tables & string>(
+    tableName: K,
+    data: Partial<Tables[K]>,
+    where: WhereCondition<Tables[K]>,
+    options?: { validate?: boolean },
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
     const schema = this.schemas.get(tableName);
     if (!schema) {
@@ -1153,7 +1260,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     if (shouldValidate && hasValidationSchema) {
       // Get existing rows to merge with partial data
-      const existingRows = this.find(tableName, where);
+      const existingRows = this.findInternal(tableName, where);
 
       // Validate each merged row
       for (const existingRow of existingRows) {
@@ -1175,7 +1282,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     const values = [...Object.values(data).map((v) => this.normalizeValue(v)), ...whereValues];
 
-    const result = this.execute(sql, values);
+    const result = this.executeInternal(sql, values);
 
     // Auto-sync if not in transaction
     if (!this.inTransaction) {
@@ -1193,6 +1300,18 @@ export class LinesDB<Tables extends TableDefs> {
    * Validation runs once per merged record unless explicitly disabled.
    */
   batchUpdate<K extends keyof Tables & string>(
+    tableName: K,
+    records: Array<Partial<Tables[K]> & Record<string, unknown>>,
+    options?: { validate?: boolean },
+  ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
+    try {
+      return ok(this.batchUpdateInternal(tableName, records, options));
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private batchUpdateInternal<K extends keyof Tables & string>(
     tableName: K,
     records: Array<Partial<Tables[K]> & Record<string, unknown>>,
     options?: { validate?: boolean },
@@ -1235,7 +1354,7 @@ export class LinesDB<Tables extends TableDefs> {
       })) as WhereCondition<Tables[K]>;
 
       // Fetch all existing rows in one query
-      const existingRows = this.find(tableName, orCondition);
+      const existingRows = this.findInternal(tableName, orCondition);
 
       // Create a map for fast lookup: pkValue -> existingRow
       const existingRowsMap = new Map<unknown, Tables[K]>();
@@ -1302,7 +1421,7 @@ export class LinesDB<Tables extends TableDefs> {
       const where = { [pkName]: pkValue } as WhereCondition<Tables[K]>;
 
       // Call update without validation (already validated above)
-      const result = this.update(tableName, record as Partial<Tables[K]>, where, {
+      const result = this.updateInternal(tableName, record as Partial<Tables[K]>, where, {
         validate: false,
       });
 
@@ -1323,6 +1442,17 @@ export class LinesDB<Tables extends TableDefs> {
   delete<K extends keyof Tables & string>(
     tableName: K,
     where: WhereCondition<Tables[K]>,
+  ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
+    try {
+      return ok(this.deleteInternal(tableName, where));
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private deleteInternal<K extends keyof Tables & string>(
+    tableName: K,
+    where: WhereCondition<Tables[K]>,
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
     const schema = this.schemas.get(tableName);
     if (!schema) {
@@ -1336,7 +1466,7 @@ export class LinesDB<Tables extends TableDefs> {
     }
 
     const sql = `DELETE FROM ${this.quoteTableName(tableName)} WHERE ${whereSql}`;
-    const result = this.execute(sql, values);
+    const result = this.executeInternal(sql, values);
 
     // Auto-sync if not in transaction
     if (!this.inTransaction) {
@@ -1352,6 +1482,17 @@ export class LinesDB<Tables extends TableDefs> {
    * Batch delete rows by primary key.
    */
   batchDelete<K extends keyof Tables & string>(
+    tableName: K,
+    records: Array<Partial<Tables[K]> & Record<string, unknown>>,
+  ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
+    try {
+      return ok(this.batchDeleteInternal(tableName, records));
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private batchDeleteInternal<K extends keyof Tables & string>(
     tableName: K,
     records: Array<Partial<Tables[K]> & Record<string, unknown>>,
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
@@ -1382,7 +1523,7 @@ export class LinesDB<Tables extends TableDefs> {
     const sql = `DELETE FROM ${this.quoteTableName(tableName)} WHERE ${this.quoteIdentifier(pkName)} IN (${placeholders})`;
     const values = pkValues.map((value) => this.normalizeValue(value));
 
-    const result = this.execute(sql, values);
+    const result = this.executeInternal(sql, values);
 
     if (!this.inTransaction) {
       this.syncTable(tableName).catch((err) => {
@@ -1552,7 +1693,7 @@ export class LinesDB<Tables extends TableDefs> {
     // Get all rows from the table. Order by rowid so the rows arrive in insertion order:
     // without it SQLite may return them in any order, and matching rows to their existing
     // line by position depends on that order being the one the file was read in.
-    const rows = this.query<JsonObject>(`SELECT * FROM ${this.quoteTableName(tableName)} ORDER BY rowid`);
+    const rows = this.queryInternal<JsonObject>(`SELECT * FROM ${this.quoteTableName(tableName)} ORDER BY rowid`);
 
     // Deserialize JSON columns
     const deserializedRows = rows.map((row) => this.deserializeRow(tableName, row));
@@ -1695,14 +1836,14 @@ export class LinesDB<Tables extends TableDefs> {
    * Read the rows a JSONL file currently holds, treating a missing file as empty
    */
   private async readExistingRows(jsonlPath: string): Promise<JsonObject[]> {
-    try {
-      return await JsonlReader.read(jsonlPath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return [];
-      }
-      throw error;
+    const result = await JsonlReader.read(jsonlPath);
+    if (result.ok) {
+      return result.value;
     }
+    if ((result.error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+    throw result.error;
   }
 
   /**
@@ -1711,7 +1852,16 @@ export class LinesDB<Tables extends TableDefs> {
    * @param tableName Optional table name to sync. If not provided, syncs all loaded tables
    * @param options Optional sync options, e.g. the fields to write back
    */
-  async sync(tableName?: string, options?: SyncOptions): Promise<void> {
+  async sync(tableName?: string, options?: SyncOptions): Promise<Result<void, Error>> {
+    try {
+      await this.syncInternal(tableName, options);
+      return ok(undefined);
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private async syncInternal(tableName?: string, options?: SyncOptions): Promise<void> {
     if (tableName) {
       // Sync only the specified table
       if (!this.schemas.has(tableName)) {
@@ -1729,31 +1879,40 @@ export class LinesDB<Tables extends TableDefs> {
 
   /**
    * Execute a function within a transaction
-   * Automatically commits on success or rolls back on error
+   * Automatically commits on success or rolls back on error.
+   *
+   * Note: `tx` (the argument `fn` receives) is the same Result-returning API as `this` - a failed
+   * `tx.insert()`/`tx.update()`/etc. inside `fn` does not throw and therefore does not roll back the
+   * transaction on its own. To abort on such a failure, check the Result and `throw result.error`
+   * (or any error) from `fn`; only a thrown error rolls the transaction back.
    */
-  async transaction<T>(fn: (tx: LinesDB<Tables>) => Promise<T> | T): Promise<T> {
+  async transaction<T>(fn: (tx: LinesDB<Tables>) => Promise<T> | T): Promise<Result<T, Error>> {
     if (this.inTransaction) {
-      throw new Error('Nested transactions are not supported');
+      return err(new Error('Nested transactions are not supported'));
     }
 
-    this.db.exec('BEGIN TRANSACTION');
-    this.inTransaction = true;
-
     try {
+      this.db.exec('BEGIN TRANSACTION');
+      this.inTransaction = true;
+
       const result = await fn(this);
       this.db.exec('COMMIT');
       this.inTransaction = false;
 
       // Sync all tables after successful commit
-      await this.sync();
+      await this.syncInternal();
 
-      return result;
+      return ok(result);
     } catch (error) {
       if (this.inTransaction) {
-        this.db.exec('ROLLBACK');
+        try {
+          this.db.exec('ROLLBACK');
+        } catch (_rollbackError) {
+          // Report the original error rather than a failure to roll back
+        }
       }
       this.inTransaction = false;
-      throw error;
+      return err(toError(error));
     }
   }
 
@@ -1777,13 +1936,17 @@ export class LinesDB<Tables extends TableDefs> {
   /**
    * Close the database connection
    */
-  async close(): Promise<void> {
-    await this.waitForPendingSyncs();
-
+  async close(): Promise<Result<void, Error>> {
     try {
-      this.db.close();
-    } catch (_error) {
-      // Ignore errors if database is already closed
+      await this.waitForPendingSyncs();
+      try {
+        this.db.close();
+      } catch (_error) {
+        // Ignore errors if database is already closed
+      }
+      return ok(undefined);
+    } catch (error) {
+      return err(toError(error));
     }
   }
 

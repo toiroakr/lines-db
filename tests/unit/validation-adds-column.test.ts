@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { LinesDB } from '../../lib/src/database.js';
+import { unwrap } from '../../lib/src/result.js';
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,7 +55,7 @@ export const schema = defineSchema(
 
   it('should infer schema from validated data with added columns', async () => {
     const db = LinesDB.create({ dataDir: testDir });
-    await db.initialize();
+    unwrap(await db.initialize());
 
     const schema = db.getSchema('User');
     expect(schema).toBeDefined();
@@ -71,9 +72,9 @@ export const schema = defineSchema(
 
   it('should insert data with auto-generated id', async () => {
     const db = LinesDB.create({ dataDir: testDir });
-    await db.initialize();
+    unwrap(await db.initialize());
 
-    const users = db.find('User');
+    const users = unwrap(db.find('User'));
     expect(users).toHaveLength(2);
 
     // All users should have an id
@@ -88,9 +89,9 @@ export const schema = defineSchema(
 
   it('should allow batchUpdate with primary key', async () => {
     const db = LinesDB.create({ dataDir: testDir });
-    await db.initialize();
+    unwrap(await db.initialize());
 
-    const users = db.find('User');
+    const users = unwrap(db.find('User'));
     expect(users).toHaveLength(2);
 
     // Update all users
@@ -99,11 +100,11 @@ export const schema = defineSchema(
       name: `${user.name} Updated`,
     }));
 
-    const result = db.batchUpdate('User', updates);
+    const result = unwrap(db.batchUpdate('User', updates));
     expect(Number(result.changes)).toBe(2);
 
     // Verify updates
-    const updatedUsers = db.find('User');
+    const updatedUsers = unwrap(db.find('User'));
     for (const user of updatedUsers) {
       expect(user.name).toContain('Updated');
     }

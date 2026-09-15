@@ -1,4 +1,4 @@
-import { LinesDB } from '../lib/dist/index.mjs';
+import { LinesDB, unwrap } from '../lib/dist/index.mjs';
 import { config } from './fixtures/db.js';
 
 async function main() {
@@ -7,8 +7,9 @@ async function main() {
   // Configure database with orders table
   const db = LinesDB.create(config);
 
-  // Initialize and load data
-  await db.initialize();
+  // Initialize and load data. Most LinesDB methods return a Result instead of throwing;
+  // unwrap() reads the value or throws the error, which main().catch() below handles.
+  unwrap(await db.initialize());
 
   console.log('✅ Database initialized\n');
 
@@ -22,7 +23,7 @@ async function main() {
 
   // Display all orders with JSON columns
   console.log('📊 All orders:');
-  const orders = db.find('orders');
+  const orders = unwrap(db.find('orders'));
   for (const order of orders) {
     console.log(`\n   Order #${order.id} (Customer: ${order.customerId})`);
     console.log(`   Items (${order.items.length}):`);
@@ -34,33 +35,35 @@ async function main() {
 
   // Insert new order with complex JSON
   console.log('\n\n➕ Inserting new order with complex JSON structure...');
-  db.insert('orders', {
-    id: 100,
-    customerId: 500,
-    items: [
-      { name: 'Monitor 4K', quantity: 2, price: 399.99 },
-      { name: 'USB-C Cable', quantity: 3, price: 19.99 },
-      { name: 'Laptop Stand', quantity: 1, price: 89.99 },
-    ],
-    metadata: {
-      source: 'api',
-      campaign: 'spring2024',
-      discount: {
-        type: 'percentage',
-        value: 15,
+  unwrap(
+    db.insert('orders', {
+      id: 100,
+      customerId: 500,
+      items: [
+        { name: 'Monitor 4K', quantity: 2, price: 399.99 },
+        { name: 'USB-C Cable', quantity: 3, price: 19.99 },
+        { name: 'Laptop Stand', quantity: 1, price: 89.99 },
+      ],
+      metadata: {
+        source: 'api',
+        campaign: 'spring2024',
+        discount: {
+          type: 'percentage',
+          value: 15,
+        },
+        tags: ['bulk', 'priority', 'enterprise'],
+        shippingAddress: {
+          country: 'USA',
+          state: 'CA',
+          zip: '94102',
+        },
       },
-      tags: ['bulk', 'priority', 'enterprise'],
-      shippingAddress: {
-        country: 'USA',
-        state: 'CA',
-        zip: '94102',
-      },
-    },
-  });
+    }),
+  );
 
   // Retrieve and display the new order
   console.log('\n📦 New order details:');
-  const newOrder = db.findOne('orders', { id: 100 });
+  const newOrder = unwrap(db.findOne('orders', { id: 100 }));
   if (newOrder) {
     console.log(`   Order #${newOrder.id}`);
     console.log(`   Total items: ${newOrder.items.length}`);
@@ -88,22 +91,24 @@ async function main() {
 
   // Update order metadata
   console.log('\n\n✏️  Updating order metadata...');
-  db.update(
-    'orders',
-    {
-      metadata: {
-        source: 'api',
-        campaign: 'spring2024',
-        status: 'shipped',
-        trackingNumber: 'TRK123456789',
-        discount: { type: 'percentage', value: 15 },
-        tags: ['bulk', 'priority', 'enterprise', 'shipped'],
+  unwrap(
+    db.update(
+      'orders',
+      {
+        metadata: {
+          source: 'api',
+          campaign: 'spring2024',
+          status: 'shipped',
+          trackingNumber: 'TRK123456789',
+          discount: { type: 'percentage', value: 15 },
+          tags: ['bulk', 'priority', 'enterprise', 'shipped'],
+        },
       },
-    },
-    { id: 100 },
+      { id: 100 },
+    ),
   );
 
-  const updatedOrder = db.findOne('orders', { id: 100 });
+  const updatedOrder = unwrap(db.findOne('orders', { id: 100 }));
   console.log(`   Status: ${updatedOrder?.metadata?.status}`);
   console.log(`   Tracking: ${updatedOrder?.metadata?.trackingNumber}`);
 
@@ -113,7 +118,7 @@ async function main() {
   console.log(`   Found ${ordersWithItems.length} orders`);
 
   // Clean up
-  db.close();
+  unwrap(await db.close());
   console.log('\n✅ Done!');
 }
 

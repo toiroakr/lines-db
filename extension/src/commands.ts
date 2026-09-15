@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import type { MigrationRow } from './migrationValidator.js';
+import { unwrapLinesDbResult } from './linesDbResult.js';
 
 function getTabUri(tab: vscode.Tab): vscode.Uri | undefined {
   const input = tab.input;
@@ -63,7 +64,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
         const db = global.__linesDbModule.LinesDB.create({ dataDir: validationPath });
         let result;
         try {
-          result = await db.initialize({ detailedValidate: true });
+          result = unwrapLinesDbResult(await db.initialize({ detailedValidate: true }));
         } finally {
           await db.close();
         }
@@ -224,7 +225,9 @@ export function registerCommands(context: vscode.ExtensionContext) {
         return;
       }
 
-      const allRows = (await global.__linesDbModule.JsonlReader.read(session.originalFilePath)) as MigrationRow[];
+      const allRows = unwrapLinesDbResult(
+        await global.__linesDbModule.JsonlReader.read(session.originalFilePath),
+      ) as MigrationRow[];
       const plan = MigrationValidator.createMigrationPlan(allRows, transform, filter);
 
       if (plan.transformedRows.length === 0) {

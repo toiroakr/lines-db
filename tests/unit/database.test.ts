@@ -1,5 +1,12 @@
 import { describe, it, beforeEach, afterEach, expect } from 'vitest';
-import { LinesDB, TypeGenerator, type DatabaseConfig, type ColumnDefinition, type TableDefs } from '@toiroakr/lines-db';
+import {
+  LinesDB,
+  TypeGenerator,
+  unwrap,
+  type DatabaseConfig,
+  type ColumnDefinition,
+  type TableDefs,
+} from '@toiroakr/lines-db';
 import { join } from 'node:path';
 import { mkdir, rm, cp } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -49,7 +56,7 @@ describe('LinesDB', () => {
     };
 
     db = createDb();
-    await db.initialize();
+    unwrap(await db.initialize());
   });
 
   afterEach(async () => {
@@ -82,12 +89,12 @@ describe('LinesDB', () => {
 
   describe('find without where', () => {
     it('should return all rows from a table', () => {
-      const users = db.find('users');
+      const users = unwrap(db.find('users'));
       expect(users.length).toBe(3);
     });
 
     it('should return correct data', () => {
-      const users = db.find('users');
+      const users = unwrap(db.find('users'));
       // Type inference test skipped when using LinesDB<any>
       // expectTypeOf(users).toEqualTypeOf<User[]>();
       expect(users[0].id).toBe(1);
@@ -99,7 +106,7 @@ describe('LinesDB', () => {
 
   describe('find', () => {
     it('should find rows by single condition', () => {
-      const result = db.find('users', { name: 'Bob' });
+      const result = unwrap(db.find('users', { name: 'Bob' }));
       // Type inference test skipped when using LinesDB<any>
       // expectTypeOf(result).toEqualTypeOf<User[]>();
       expect(result.length).toBe(1);
@@ -108,20 +115,20 @@ describe('LinesDB', () => {
     });
 
     it('should find rows by multiple conditions', () => {
-      const result = db.find('users', { name: 'Alice', age: 30 });
+      const result = unwrap(db.find('users', { name: 'Alice', age: 30 }));
       expect(result.length).toBe(1);
       expect(result[0].email).toBe('alice@example.com');
     });
 
     it('should return empty array when no match', () => {
-      const result = db.find('users', { name: 'NonExistent' });
+      const result = unwrap(db.find('users', { name: 'NonExistent' }));
       expect(result.length).toBe(0);
     });
   });
 
   describe('findOne', () => {
     it('should find a single row', () => {
-      const result = db.findOne('users', { id: 2 });
+      const result = unwrap(db.findOne('users', { id: 2 }));
       // Type inference test skipped when using LinesDB<any>
       // expectTypeOf(result).toEqualTypeOf<User | null>();
       expect(result).toBeTruthy();
@@ -129,21 +136,21 @@ describe('LinesDB', () => {
     });
 
     it('should return null when no match', () => {
-      const result = db.findOne('users', { id: 999 });
+      const result = unwrap(db.findOne('users', { id: 999 }));
       expect(result).toBeNull();
     });
   });
 
   describe('query', () => {
     it('should execute custom SQL queries', () => {
-      const result = db.query<User>('SELECT * FROM users WHERE age > ?', [25]);
+      const result = unwrap(db.query<User>('SELECT * FROM users WHERE age > ?', [25]));
       expect(result.length).toBe(2);
       expect(result.map((u: User) => u.name).includes('Alice')).toBeTruthy();
       expect(result.map((u: User) => u.name).includes('Charlie')).toBeTruthy();
     });
 
     it('should handle COUNT queries', () => {
-      const result = db.query<{ count: number }>('SELECT COUNT(*) as count FROM users');
+      const result = unwrap(db.query<{ count: number }>('SELECT COUNT(*) as count FROM users'));
       expect(result[0].count).toBe(3);
     });
   });
@@ -154,49 +161,51 @@ describe('LinesDB', () => {
         count: number;
       }
 
-      const result = db.queryOne<CountResult>('SELECT COUNT(*) as count FROM users');
+      const result = unwrap(db.queryOne<CountResult>('SELECT COUNT(*) as count FROM users'));
       expect(result?.count).toBe(3);
     });
   });
 
   describe('execute', () => {
     it('should execute INSERT statements', () => {
-      const result = db.execute('INSERT INTO users (id, name, age, email) VALUES (?, ?, ?, ?)', [
-        4,
-        'David',
-        40,
-        'david@example.com',
-      ]);
+      const result = unwrap(
+        db.execute('INSERT INTO users (id, name, age, email) VALUES (?, ?, ?, ?)', [
+          4,
+          'David',
+          40,
+          'david@example.com',
+        ]),
+      );
 
       expect(result.changes).toBe(1);
       expect(result.lastInsertRowid).toBe(4);
 
-      const users = db.find('users');
+      const users = unwrap(db.find('users'));
       expect(users.length).toBe(4);
     });
 
     it('should execute UPDATE statements', () => {
-      const result = db.execute('UPDATE users SET age = ? WHERE name = ?', [31, 'Alice']);
+      const result = unwrap(db.execute('UPDATE users SET age = ? WHERE name = ?', [31, 'Alice']));
 
       expect(result.changes).toBe(1);
 
-      const alice = db.findOne('users', { name: 'Alice' });
+      const alice = unwrap(db.findOne('users', { name: 'Alice' }));
       expect(alice?.age).toBe(31);
     });
 
     it('should execute DELETE statements', () => {
-      const result = db.execute('DELETE FROM users WHERE id = ?', [3]);
+      const result = unwrap(db.execute('DELETE FROM users WHERE id = ?', [3]));
 
       expect(result.changes).toBe(1);
 
-      const users = db.find('users');
+      const users = unwrap(db.find('users'));
       expect(users.length).toBe(2);
     });
   });
 
   describe('boolean handling', () => {
     it('should handle boolean values correctly', () => {
-      const products = db.find('products');
+      const products = unwrap(db.find('products'));
       // Schema transforms 0/1 to boolean, so expect boolean values
       expect(products[0].inStock).toBe(true);
       expect(products[2].inStock).toBe(false);

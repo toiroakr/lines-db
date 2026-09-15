@@ -190,51 +190,91 @@ npx lines-db generate ./data
 **2. TypeScriptで使用：**
 
 ```typescript
-import { LinesDB } from '@toiroakr/lines-db';
+import { LinesDB, unwrap } from '@toiroakr/lines-db';
 
 const db = LinesDB.create({ dataDir: './data' });
-await db.initialize();
+unwrap(await db.initialize());
 
 // 全てのユーザーを検索
-const users = db.find('users');
+const users = unwrap(db.find('users'));
 console.log(users); // [{ id: 1, name: "Alice", ... }, ...]
 
 // 特定のユーザーを検索
-const user = db.findOne('users', { id: 1 });
+const user = unwrap(db.findOne('users', { id: 1 }));
 console.log(user); // { id: 1, name: "Alice", age: 30, ... }
 
 // 条件付きで検索
-const adults = db.find('users', { age: (age) => age >= 30 });
+const adults = unwrap(db.find('users', { age: (age) => age >= 30 }));
 
-await db.close();
+unwrap(await db.close());
 ```
+
+> `LinesDB`/`JsonlReader` のほとんどのメソッドは例外を投げる代わりに `Result<T, Error>` を返します。
+> 詳細は後述の[エラーハンドリング](#エラーハンドリング)を参照してください。`unwrap()` は値を取り出すか、
+> エラーがあれば投げ直すユーティリティで、スクリプトの冒頭など投げ直して構わない場面で便利ですが、
+> `Result` を扱う唯一の方法ではありません。
 
 ### 生成された型の使用
 
 `npx lines-db generate ./data` を実行後：
 
 ```typescript
-import { LinesDB } from '@toiroakr/lines-db';
+import { LinesDB, unwrap } from '@toiroakr/lines-db';
 import { config } from './data/db.js';
 
 const db = LinesDB.create(config);
-await db.initialize();
+unwrap(await db.initialize());
 
 // ✨ 型は自動的に推論されます！
-const users = db.find('users');
+const users = unwrap(db.find('users'));
 
 // ✨ 型安全な操作
-db.insert('users', {
-  id: 10,
-  name: 'Alice',
-  age: 30,
-  email: 'alice@example.com',
-});
+unwrap(
+  db.insert('users', {
+    id: 10,
+    name: 'Alice',
+    age: 30,
+    email: 'alice@example.com',
+  }),
+);
 
-await db.close();
+unwrap(await db.close());
 ```
 
+## エラーハンドリング
+
+`LinesDB` と `JsonlReader` の、失敗しうるメソッドは例外を投げる代わりに `Result<T, Error>`
+（`{ ok: true; value: T } | { ok: false; error: Error }` という判別共用体）を返します。
+`getSchema`・`getTableNames`・`getDb` は失敗しないため、これらは従来通り値をそのまま返します。
+
+```typescript
+const result = db.insert('users', { id: 2, name: '' }); // バリデーションスキーマに違反
+
+if (result.ok) {
+  console.log(result.value.changes);
+} else {
+  console.log(result.error.message);
+}
+```
+
+`unwrap(result)` は `result.value` を返すか、`result.ok` が `false` のとき `result.error` を投げます。
+スクリプトの冒頭や、失敗を例外のように伝播させたい場面で使うと便利です：
+
+```typescript
+import { unwrap } from '@toiroakr/lines-db';
+
+const users = unwrap(db.find('users')); // db.find() がエラーを返した場合は投げる
+```
+
+`db.transaction(async (tx) => { ... })` の中では、`tx` は `db` と同じくResultを返すAPIです。
+`tx.insert()`/`tx.update()` 等が失敗しても、それ自体では例外を投げないためトランザクションは
+自動的にロールバックされません。ロールバックさせたい場合はResultを確認して `throw result.error`
+するか、`unwrap` を呼んでください。コールバック内で例外が投げられたときだけロールバックされます。
+
 ### コア API
+
+以下の操作は特に断りがない限り `Result<T, Error>` を返します。`getSchema`・`getTableNames`・`getDb`
+は失敗しないため、値をそのまま返します。
 
 **クエリ操作：**
 
@@ -258,23 +298,25 @@ await db.close();
 
 - `transaction(fn)` - トランザクション内で操作を実行
 - `sync(table?, options?)` - 変更を JSONL ファイルに書き戻す
-- `getSchema(table)` - テーブルスキーマを取得
-- `getTableNames()` - 全てのテーブル名を取得
+- `getSchema(table)` - テーブルスキーマを取得（`TableSchema | undefined` を返す。`Result` ではない）
+- `getTableNames()` - 全てのテーブル名を取得（`string[]` を返す。`Result` ではない）
 
 **WHERE条件：**
 
 ```typescript
 // シンプルな等価条件
-db.find('users', { age: 30 });
+unwrap(db.find('users', { age: 30 }));
 
 // 複数条件（AND）
-db.find('users', { age: 30, name: 'Alice' });
+unwrap(db.find('users', { age: 30, name: 'Alice' }));
 
 // 高度な条件
-db.find('users', {
-  age: (age) => age > 25,
-  name: (name) => name.startsWith('A'),
-});
+unwrap(
+  db.find('users', {
+    age: (age) => age > 25,
+    name: (name) => name.startsWith('A'),
+  }),
+);
 ```
 
 ### JSON型カラム
@@ -282,13 +324,15 @@ db.find('users', {
 オブジェクトと配列は自動的にJSON型カラムとして処理されます：
 
 ```typescript
-db.insert('orders', {
-  id: 1,
-  items: [{ name: 'Laptop', quantity: 1 }],
-  metadata: { source: 'web' },
-});
+unwrap(
+  db.insert('orders', {
+    id: 1,
+    items: [{ name: 'Laptop', quantity: 1 }],
+    metadata: { source: 'web' },
+  }),
+);
 
-const order = db.findOne('orders', { id: 1 });
+const order = unwrap(db.findOne('orders', { id: 1 }));
 console.log(order.items[0].name); // "Laptop"
 ```
 
@@ -335,7 +379,7 @@ export const schema = defineSchema(eventSchema, (output) => ({
 **TypeScriptコード内：**
 
 ```typescript
-const event = db.findOne('events', { id: 1 });
+const event = unwrap(db.findOne('events', { id: 1 }));
 console.log(event.date instanceof Date); // true
 console.log(event.date.getFullYear()); // 2024
 ```
@@ -345,7 +389,7 @@ console.log(event.date.getFullYear()); // 2024
 トランザクション外の操作は自動的に同期されます：
 
 ```typescript
-db.insert('users', { id: 10, name: 'Alice', age: 30 });
+unwrap(db.insert('users', { id: 10, name: 'Alice', age: 30 }));
 // ↑ 自動的に users.jsonl に同期
 ```
 
@@ -355,12 +399,17 @@ db.insert('users', { id: 10, name: 'Alice', age: 30 });
 トランザクションでのバッチ操作：
 
 ```typescript
-await db.transaction(async (tx) => {
-  tx.insert('users', { id: 10, name: 'Alice', age: 30 });
-  tx.update('users', { age: 31 }, { id: 1 });
-  // コミット時に全ての変更がアトミックに同期
-});
+unwrap(
+  await db.transaction(async (tx) => {
+    unwrap(tx.insert('users', { id: 10, name: 'Alice', age: 30 }));
+    unwrap(tx.update('users', { age: 31 }, { id: 1 }));
+    // コミット時に全ての変更がアトミックに同期
+  }),
+);
 ```
+
+コールバック内で `unwrap()` を使うと、`tx.insert()`/`tx.update()` の失敗が例外として投げられ、
+`transaction()` がそれを捕捉してロールバックします（[エラーハンドリング](#エラーハンドリング)参照）。
 
 ### 一部のフィールドだけを書き戻す
 
@@ -370,7 +419,7 @@ await db.transaction(async (tx) => {
 
 ```typescript
 // users.jsonl: {"name":"Alice"}
-await db.sync('users', { fields: ['id'] });
+unwrap(await db.sync('users', { fields: ['id'] }));
 // users.jsonl: {"id":"...","name":"Alice"}
 ```
 
@@ -384,7 +433,7 @@ const db = LinesDB.create({ dataDir: './data', writeBackFields: ['id'] });
 行と元の行との対応付けは主キーで行い、ファイルにまだ主キーが無い場合（主キー自体を後入れする
 ケース）は行の位置で対応付けます。行の並び順はファイルのものが保たれ、ファイルに存在しなかった行は
 末尾に追加されます。指定したフィールドは常にデータベースの値が使われ（データベース側が `null` の
-場合も含む）、行を対応付けられない場合は推測せずに `sync` がエラーになります。
+場合も含む）、行を対応付けられない場合は推測せずに `sync` がエラーのResultを返します。
 
 行が持っていなかったフィールドは末尾に追加されるのではなく、スキーマがそれを宣言している位置に
 挿入されます。後入れした `id` は、手で書いた行と同じように行の先頭に来ます。スキーマが宣言していない
@@ -405,9 +454,9 @@ const db = LinesDB.create({ dataDir: './data', writeBackFields: ['id'] });
 （id を埋める hook など）に、ファイルを SQLite に載せる意味がないときに使います：
 
 ```typescript
-import { JsonlReader, JsonlWriter, mergeFields } from '@toiroakr/lines-db';
+import { JsonlReader, JsonlWriter, mergeFields, unwrap } from '@toiroakr/lines-db';
 
-const rows = await JsonlReader.read('./data/users.jsonl');
+const rows = unwrap(await JsonlReader.read('./data/users.jsonl'));
 const filled = rows.map((row) => mergeFields(row, fillIds(row), { fields: ['id'] }));
 await JsonlWriter.write('./data/users.jsonl', filled);
 

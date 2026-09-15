@@ -10,27 +10,29 @@ declare global {
     | {
         LinesDB: {
           create: (config: { dataDir: string }) => {
-            initialize: (options?: { tableName?: string; detailedValidate?: boolean }) => Promise<{
-              valid: boolean;
-              errors: Array<{
-                file: string;
-                tableName: string;
-                rowIndex: number;
-                type?: string;
-                issues: Array<{ message: string; path?: unknown[] }>;
-                foreignKeyError?: {
-                  column: string;
-                  value: unknown;
-                  referencedTable: string;
-                  referencedColumn: string;
-                };
-              }>;
-            }>;
-            close: () => Promise<void>;
+            initialize: (options?: { tableName?: string; detailedValidate?: boolean }) => Promise<
+              LinesDbResult<{
+                valid: boolean;
+                errors: Array<{
+                  file: string;
+                  tableName: string;
+                  rowIndex: number;
+                  type?: string;
+                  issues: Array<{ message: string; path?: unknown[] }>;
+                  foreignKeyError?: {
+                    column: string;
+                    value: unknown;
+                    referencedTable: string;
+                    referencedColumn: string;
+                  };
+                }>;
+              }>
+            >;
+            close: () => Promise<LinesDbResult<void>>;
           };
         };
         JsonlReader: {
-          read: (path: string) => Promise<unknown[]>;
+          read: (path: string) => Promise<LinesDbResult<unknown[]>>;
           withOverrides: <T>(overrides: Map<string, unknown[]>, callback: () => Promise<T>) => Promise<T>;
         };
         SchemaLoader: {
@@ -40,6 +42,8 @@ declare global {
         ensureTableRowsValid: (options: { dataDir: string; tableName: string; rows: unknown[] }) => Promise<void>;
       }
     | undefined;
+
+  type LinesDbResult<T> = { ok: true; value: T } | { ok: false; error: Error };
 }
 
 export {};

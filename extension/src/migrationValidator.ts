@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import { MigrationSessionManager } from './migrationSession.js';
 import { parseMigrationSource, type MigrationRow } from './migration-parser.js';
+import { unwrapLinesDbResult } from './linesDbResult.js';
 
 export type { MigrationRow } from './migration-parser.js';
 
@@ -37,7 +38,9 @@ export class MigrationValidator {
         };
       }
 
-      const allRows = (await global.__linesDbModule.JsonlReader.read(session.originalFilePath)) as MigrationRow[];
+      const allRows = unwrapLinesDbResult(
+        await global.__linesDbModule.JsonlReader.read(session.originalFilePath),
+      ) as MigrationRow[];
       const plan = this.createMigrationPlan(allRows, transform, filter);
 
       if (plan.transformedRows.length === 0) {

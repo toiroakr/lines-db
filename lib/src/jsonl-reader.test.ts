@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { JsonlReader } from './jsonl-reader.js';
+import { unwrap } from './result.js';
+import type { JsonlParseError } from './types.js';
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -23,7 +25,7 @@ describe('JsonlReader', () => {
       const content = '{"id": 1, "name": "Alice"}\n{"id": 2, "name": "Bob"}\n';
       await writeFile(testFilePath, content);
 
-      const result = await JsonlReader.read(testFilePath);
+      const result = unwrap(await JsonlReader.read(testFilePath));
 
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({ id: 1, name: 'Alice' });
@@ -34,7 +36,7 @@ describe('JsonlReader', () => {
       const content = '{"id": 1}\n\n{"id": 2}\n';
       await writeFile(testFilePath, content);
 
-      const result = await JsonlReader.read(testFilePath);
+      const result = unwrap(await JsonlReader.read(testFilePath));
 
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({ id: 1 });
@@ -45,16 +47,81 @@ describe('JsonlReader', () => {
       const content = '{"id": 1}\n{"id": 2}\n\n\n';
       await writeFile(testFilePath, content);
 
-      const result = await JsonlReader.read(testFilePath);
+      const result = unwrap(await JsonlReader.read(testFilePath));
 
       expect(result).toHaveLength(2);
     });
 
-    it('should throw error for invalid JSON', async () => {
+    it('should return an error for invalid JSON', async () => {
       const content = '{"id": 1}\n{invalid json}\n';
       await writeFile(testFilePath, content);
 
-      await expect(JsonlReader.read(testFilePath)).rejects.toThrow('Failed to parse JSON line');
+      const result = await JsonlReader.read(testFilePath);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('Failed to parse JSON line');
+      }
+    });
+
+    it('should include structured file and line metadata for malformed JSON', async () => {
+      const content = '{"id": 1}\n{invalid json}\n';
+      await writeFile(testFilePath, content);
+
+      const result = await JsonlReader.read(testFilePath);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        const parseError = result.error as JsonlParseError;
+        expect(parseError.name).toBe('JsonlParseError');
+        expect(parseError.file).toBe(testFilePath);
+        expect(parseError.line).toBe(2);
+      }
+    });
+
+    it('should count leading blank lines toward the physical line number', async () => {
+      const content = '\n\n{invalid json}\n';
+      await writeFile(testFilePath, content);
+
+      const result = await JsonlReader.read(testFilePath);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect((result.error as JsonlParseError).line).toBe(3);
+      }
+    });
+
+    it('should count interior blank lines toward the physical line number', async () => {
+      const content = '{"id": 1}\n\n\n{invalid json}\n';
+      await writeFile(testFilePath, content);
+
+      const result = await JsonlReader.read(testFilePath);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect((result.error as JsonlParseError).line).toBe(4);
+      }
+    });
+
+    it('should report the same physical line an editor displays for CRLF files', async () => {
+      const content = '{"id": 1}\r\n{invalid json}\r\n';
+      await writeFile(testFilePath, content);
+
+      const result = await JsonlReader.read(testFilePath);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect((result.error as JsonlParseError).line).toBe(2);
+      }
+    });
+
+    it('should strip a leading UTF-8 BOM before parsing the first line', async () => {
+      const content = '\u{feff}{"id": 1}\n{"id": 2}\n';
+      await writeFile(testFilePath, content);
+
+      const result = unwrap(await JsonlReader.read(testFilePath));
+
+      expect(result).toEqual([{ id: 1 }, { id: 2 }]);
     });
   });
 
@@ -65,7 +132,7 @@ describe('JsonlReader', () => {
         { id: 2, name: 'Bob', age: 25, active: false },
       ];
 
-      const schema = JsonlReader.inferSchema('users', data);
+      const schema = unwrap(JsonlReader.inferSchema('users', data));
 
       expect(schema.name).toBe('users');
       expect(schema.columns).toHaveLength(4);
@@ -92,7 +159,7 @@ describe('JsonlReader', () => {
       const data1 = { id: 1, metadata: { key: 'value' } };
       const data2 = { id: 2, metadata: { foo: 'bar' } };
 
-      const schema = JsonlReader.inferSchema('records', [data1, data2]);
+      const schema = unwrap(JsonlReader.inferSchema('records', [data1, data2]));
 
       const metadataColumn = schema.columns.find((col) => col.name === 'metadata');
       expect(metadataColumn?.type).toBe('JSON');
@@ -104,7 +171,7 @@ describe('JsonlReader', () => {
         { id: 2, tags: ['x', 'y'] },
       ];
 
-      const schema = JsonlReader.inferSchema('records', data);
+      const schema = unwrap(JsonlReader.inferSchema('records', data));
 
       const tagsColumn = schema.columns.find((col) => col.name === 'tags');
       expect(tagsColumn?.type).toBe('JSON');
@@ -116,7 +183,7 @@ describe('JsonlReader', () => {
         { id: 2, name: 'Bob', email: 'bob@example.com' },
       ];
 
-      const schema = JsonlReader.inferSchema('users', data);
+      const schema = unwrap(JsonlReader.inferSchema('users', data));
 
       const emailColumn = schema.columns.find((col) => col.name === 'email');
       expect(emailColumn?.type).toBe('TEXT');
@@ -129,7 +196,7 @@ describe('JsonlReader', () => {
         { id: 2, value: 10.5 },
       ];
 
-      const schema = JsonlReader.inferSchema('records', data);
+      const schema = unwrap(JsonlReader.inferSchema('records', data));
 
       const valueColumn = schema.columns.find((col) => col.name === 'value');
       expect(valueColumn?.type).toBe('REAL');
@@ -141,14 +208,19 @@ describe('JsonlReader', () => {
         { id: 2, mixed: 123 },
       ];
 
-      const schema = JsonlReader.inferSchema('records', data);
+      const schema = unwrap(JsonlReader.inferSchema('records', data));
 
       const mixedColumn = schema.columns.find((col) => col.name === 'mixed');
       expect(mixedColumn?.type).toBe('TEXT');
     });
 
-    it('should throw error for empty data', () => {
-      expect(() => JsonlReader.inferSchema('empty', [])).toThrow('Cannot infer schema from empty data');
+    it('should return an error for empty data', () => {
+      const result = JsonlReader.inferSchema('empty', []);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toBe('Cannot infer schema from empty data');
+      }
     });
 
     it('should handle REAL numbers', () => {
@@ -157,7 +229,7 @@ describe('JsonlReader', () => {
         { id: 2, price: 149.5 },
       ];
 
-      const schema = JsonlReader.inferSchema('products', data);
+      const schema = unwrap(JsonlReader.inferSchema('products', data));
 
       const priceColumn = schema.columns.find((col) => col.name === 'price');
       expect(priceColumn?.type).toBe('REAL');

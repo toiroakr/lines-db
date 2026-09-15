@@ -115,6 +115,12 @@ export interface ValidationError extends Error {
   issues: ReadonlyArray<StandardSchemaIssue>;
 }
 
+export interface JsonlParseError extends Error {
+  name: 'JsonlParseError';
+  file: string;
+  line: number; // 1-based physical line, including blank lines
+}
+
 export type JsonValue = string | number | boolean | null | JsonObject | JsonArray;
 export interface JsonObject {
   [key: string]: JsonValue;

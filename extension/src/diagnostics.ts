@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { TempFileManager } from './tempFileManager.js';
 import { isSchemaFile, extractTableNameFromSchema } from './schemaFileUtils.js';
+import { unwrapLinesDbResult } from './linesDbResult.js';
 
 function getSchemaLoader() {
   return global.__linesDbModule?.SchemaLoader;
@@ -115,7 +116,7 @@ export class DiagnosticsProvider {
       const db = LinesDB.create({ dataDir: dirPath });
       let result;
       try {
-        result = await db.initialize({ tableName, detailedValidate: true });
+        result = unwrapLinesDbResult(await db.initialize({ tableName, detailedValidate: true }));
       } finally {
         await db.close();
       }
