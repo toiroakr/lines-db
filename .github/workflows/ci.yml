@@ -46,12 +46,15 @@ jobs:
           - os: ubuntu-latest
             shell: bash
             name: Linux (bash)
+            pnpm-cache: 'pnpm'
           - os: windows-latest
             shell: pwsh
             name: Windows (PowerShell)
+            pnpm-cache: ''
           - os: windows-latest
             shell: cmd
             name: Windows (CMD)
+            pnpm-cache: ''
     runs-on: ${{ matrix.os }}
     name: Test - ${{ matrix.name }}
     defaults:
@@ -72,7 +75,7 @@ jobs:
           # junctions/hardlinks that don't round-trip through tar on Windows, corrupting the cache
           # archive on save and causing every restore to fail installing with
           # ERR_PNPM_PACKAGE_MANAGER_INSPECT_OPTIONAL_DEPENDENCY. Skip caching on Windows only.
-          cache: ${{ matrix.os == 'windows-latest' && '' || 'pnpm' }}
+          cache: ${{ matrix.pnpm-cache }}
 
       - name: Install dependencies
         shell: bash
