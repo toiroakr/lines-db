@@ -70,7 +70,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24.20.0'
+          node-version: '24.21.0'
           # pnpm's global virtual store (pnpm-workspace.yaml: enableGlobalVirtualStore) uses NTFS
           # junctions/hardlinks that don't round-trip through tar on Windows, corrupting the cache
           # archive on save and causing every restore to fail installing with
