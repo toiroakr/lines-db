@@ -207,7 +207,7 @@ console.log(user); // { id: 1, name: "Alice", age: 30, ... }
 // Find with conditions
 const adults = unwrap(db.find('users', { age: (age) => age >= 30 }));
 
-await db.close();
+unwrap(await db.close());
 ```
 
 > Most `LinesDB`/`JsonlReader` methods return a `Result<T, Error>` instead of throwing — see
@@ -238,7 +238,7 @@ unwrap(
   }),
 );
 
-await db.close();
+unwrap(await db.close());
 ```
 
 ## Error Handling

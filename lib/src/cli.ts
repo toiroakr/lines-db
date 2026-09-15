@@ -491,7 +491,7 @@ async function migrateDirectory(
       }
     }
 
-    await db.close();
+    unwrap(await db.close());
 
     if (hasErrors) {
       console.error(styleText('red', `\n✗ Migration completed with errors for some tables`));
@@ -595,7 +595,7 @@ async function migrateFile(
 
       if (rowsToMigrate.length === 0) {
         console.log('No rows to migrate. Exiting.');
-        await db.close();
+        unwrap(await db.close());
         process.exit(0);
       }
 
@@ -612,7 +612,7 @@ async function migrateFile(
           }),
         );
 
-        await db.close();
+        unwrap(await db.close());
 
         console.log(`\nMigration completed successfully:`);
         console.log(`  ✓ ${rowsToMigrate.length} row(s) updated`);
@@ -707,7 +707,7 @@ async function migrateFile(
         console.log(`Migrated ${allRows.length} row(s) in table '${tableName}'`);
 
         unwrap(await db.sync(tableName));
-        await db.close();
+        unwrap(await db.close());
 
         console.log(`\nMigration completed successfully:`);
         console.log(`  ✓ ${allRows.length} row(s) updated`);

@@ -206,7 +206,7 @@ console.log(user); // { id: 1, name: "Alice", age: 30, ... }
 // 条件付きで検索
 const adults = unwrap(db.find('users', { age: (age) => age >= 30 }));
 
-await db.close();
+unwrap(await db.close());
 ```
 
 > `LinesDB`/`JsonlReader` のほとんどのメソッドは例外を投げる代わりに `Result<T, Error>` を返します。
@@ -238,7 +238,7 @@ unwrap(
   }),
 );
 
-await db.close();
+unwrap(await db.close());
 ```
 
 ## エラーハンドリング

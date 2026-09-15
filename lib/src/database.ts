@@ -1891,10 +1891,10 @@ export class LinesDB<Tables extends TableDefs> {
       return err(new Error('Nested transactions are not supported'));
     }
 
-    this.db.exec('BEGIN TRANSACTION');
-    this.inTransaction = true;
-
     try {
+      this.db.exec('BEGIN TRANSACTION');
+      this.inTransaction = true;
+
       const result = await fn(this);
       this.db.exec('COMMIT');
       this.inTransaction = false;
@@ -1905,7 +1905,11 @@ export class LinesDB<Tables extends TableDefs> {
       return ok(result);
     } catch (error) {
       if (this.inTransaction) {
-        this.db.exec('ROLLBACK');
+        try {
+          this.db.exec('ROLLBACK');
+        } catch (_rollbackError) {
+          // Report the original error rather than a failure to roll back
+        }
       }
       this.inTransaction = false;
       return err(toError(error));
