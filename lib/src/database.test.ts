@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { LinesDB } from './database.js';
-import type { DatabaseConfig } from './types.js';
+import type { DatabaseConfig, JsonlParseError } from './types.js';
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -113,6 +113,23 @@ export const schema = defineSchema(rawSchema);
       expect(schema?.columns).toHaveLength(3);
 
       await db.close();
+    });
+
+    it('should propagate structured file and line metadata when a JSONL file is malformed', async () => {
+      await writeTable('users', '{"id":1}\n{invalid json}\n');
+
+      const config: DatabaseConfig = { dataDir: testDir };
+      const db = LinesDB.create(config);
+
+      expect.assertions(3);
+      try {
+        await db.initialize();
+      } catch (error) {
+        const parseError = error as JsonlParseError;
+        expect(parseError.name).toBe('JsonlParseError');
+        expect(parseError.file).toBe(join(testDir, 'users.jsonl'));
+        expect(parseError.line).toBe(2);
+      }
     });
   });
 

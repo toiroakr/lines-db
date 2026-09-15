@@ -36,6 +36,7 @@ export type {
   StandardSchemaResult,
   StandardSchemaIssue,
   ValidationError,
+  JsonlParseError,
   ValidationResult,
   TableValidationResult,
   ValidationErrorDetail,

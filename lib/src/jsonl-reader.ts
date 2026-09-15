@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { normalize } from 'node:path';
-import type { JsonObject, ColumnDefinition, TableSchema } from './types.js';
+import type { JsonObject, ColumnDefinition, TableSchema, JsonlParseError } from './types.js';
 
 export class JsonlReader {
   private static overrides: Map<string, JsonObject[]> | null = null;
@@ -36,17 +36,25 @@ export class JsonlReader {
     }
 
     const content = await readFile(filePath, 'utf-8');
-    const lines = content.trim().split('\n');
+    const rawLines = (content.startsWith('﻿') ? content.slice(1) : content).split('\n');
 
-    return lines
-      .filter((line) => line.trim().length > 0)
-      .map((line) => {
-        try {
-          return JSON.parse(line) as JsonObject;
-        } catch (error) {
-          throw new Error(`Failed to parse JSON line: ${line}`, { cause: error });
-        }
-      });
+    const rows: JsonObject[] = [];
+    for (let i = 0; i < rawLines.length; i++) {
+      const line = rawLines[i].endsWith('\r') ? rawLines[i].slice(0, -1) : rawLines[i];
+      if (line.trim().length === 0) continue;
+
+      try {
+        rows.push(JSON.parse(line) as JsonObject);
+      } catch (error) {
+        const parseError = new Error(`Failed to parse JSON line: ${line}`, { cause: error }) as JsonlParseError;
+        parseError.name = 'JsonlParseError';
+        parseError.file = filePath;
+        parseError.line = i + 1;
+        throw parseError;
+      }
+    }
+
+    return rows;
   }
 
   /**

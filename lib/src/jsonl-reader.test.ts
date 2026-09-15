@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { JsonlReader } from './jsonl-reader.js';
+import type { JsonlParseError } from './types.js';
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -55,6 +56,66 @@ describe('JsonlReader', () => {
       await writeFile(testFilePath, content);
 
       await expect(JsonlReader.read(testFilePath)).rejects.toThrow('Failed to parse JSON line');
+    });
+
+    it('should include structured file and line metadata for malformed JSON', async () => {
+      const content = '{"id": 1}\n{invalid json}\n';
+      await writeFile(testFilePath, content);
+
+      expect.assertions(3);
+      try {
+        await JsonlReader.read(testFilePath);
+      } catch (error) {
+        const parseError = error as JsonlParseError;
+        expect(parseError.name).toBe('JsonlParseError');
+        expect(parseError.file).toBe(testFilePath);
+        expect(parseError.line).toBe(2);
+      }
+    });
+
+    it('should count leading blank lines toward the physical line number', async () => {
+      const content = '\n\n{invalid json}\n';
+      await writeFile(testFilePath, content);
+
+      expect.assertions(1);
+      try {
+        await JsonlReader.read(testFilePath);
+      } catch (error) {
+        expect((error as JsonlParseError).line).toBe(3);
+      }
+    });
+
+    it('should count interior blank lines toward the physical line number', async () => {
+      const content = '{"id": 1}\n\n\n{invalid json}\n';
+      await writeFile(testFilePath, content);
+
+      expect.assertions(1);
+      try {
+        await JsonlReader.read(testFilePath);
+      } catch (error) {
+        expect((error as JsonlParseError).line).toBe(4);
+      }
+    });
+
+    it('should report the same physical line an editor displays for CRLF files', async () => {
+      const content = '{"id": 1}\r\n{invalid json}\r\n';
+      await writeFile(testFilePath, content);
+
+      expect.assertions(1);
+      try {
+        await JsonlReader.read(testFilePath);
+      } catch (error) {
+        expect((error as JsonlParseError).line).toBe(2);
+      }
+    });
+
+    it('should strip a leading UTF-8 BOM before parsing the first line', async () => {
+      const content = '﻿{"id": 1}\n{"id": 2}\n';
+      await writeFile(testFilePath, content);
+
+      const result = await JsonlReader.read(testFilePath);
+
+      expect(result).toEqual([{ id: 1 }, { id: 2 }]);
     });
   });
 
