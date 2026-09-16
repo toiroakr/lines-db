@@ -16,7 +16,10 @@
       "automerge": true
     },
     {
-      "groupName": "devDependencies (non-major)",
+      "groupName": "{{depName}}",
+      "matchUpdateTypes": ["minor", "patch"]
+    },
+    {
       "matchDepTypes": ["devDependencies"],
       "matchUpdateTypes": ["minor", "patch"],
       "automerge": true
