@@ -77,9 +77,23 @@ jobs:
           # ERR_PNPM_PACKAGE_MANAGER_INSPECT_OPTIONAL_DEPENDENCY. Skip caching on Windows only.
           cache: ${{ matrix.pnpm-cache }}
 
+      # Windows runners intermittently fail this step with
+      # ERR_PNPM_PACKAGE_MANAGER_INSPECT_OPTIONAL_DEPENDENCY (a file-locking race,
+      # e.g. Defender scanning a file in the pnpm store while pnpm reads it), so retry
+      # only that specific error. Other failures (e.g. a real lockfile mismatch) fail fast.
       - name: Install dependencies
         shell: bash
-        run: pnpm install --frozen-lockfile
+        run: |
+          for attempt in 1 2 3; do
+            output=$(pnpm install --frozen-lockfile 2>&1) && { echo "$output"; exit 0; }
+            echo "$output"
+            if ! grep -q ERR_PNPM_PACKAGE_MANAGER_INSPECT_OPTIONAL_DEPENDENCY <<<"$output"; then
+              exit 1
+            fi
+            echo "retrying (attempt $attempt/3)..."
+            sleep $((attempt * 5))
+          done
+          exit 1
 
       - name: Build
         run: pnpm build
