@@ -235,7 +235,7 @@ importers:
     dependencies:
       '@politty/zod':
         specifier: ^0.2.4
-        version: 0.2.4(@clack/prompts@1.7.0)(zod@4.5.4)
+        version: 0.2.4(@clack/prompts@1.7.0)(zod@4.6.4)
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
@@ -243,8 +243,8 @@ importers:
         specifier: ^1.1.11
         version: 1.1.11
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.4
+        version: 4.6.4
     devDependencies:
       '@types/node':
         specifier: ^24.13.4
@@ -2835,9 +2835,6 @@ packages:
   yuku-parser@0.9.3:
     resolution: {integrity: sha512-96wPoHnwaXfkZv7UIOUkDb+s7ZH8lv8Qtg+MxdvHUV1LFa5jV9iKOaams1942YQt+krFQrWiD6lSg2ermv5kHA==}
 
-  zod@4.5.4:
-    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
-
   zod@4.6.4:
     resolution: {integrity: sha512-AXSD6hvGdvRjajG/l1cC+d6IrhH+sjmPKtYeQdJIK8MFJl3LyClzS+o/YsVC+zQZPupAaeH5skwwm8YqYH7BqA==}
 
@@ -3317,10 +3314,10 @@ snapshots:
 
   '@pnpm/deps.graph-sequencer@1100.0.1': {}
 
-  '@politty/zod@0.2.4(@clack/prompts@1.7.0)(zod@4.5.4)':
+  '@politty/zod@0.2.4(@clack/prompts@1.7.0)(zod@4.6.4)':
     dependencies:
       yaml: 2.9.0
-      zod: 4.5.4
+      zod: 4.6.4
     optionalDependencies:
       '@clack/prompts': 1.7.0
 
@@ -5160,7 +5157,5 @@ snapshots:
       '@yuku-parser/binding-linux-x64-musl': 0.9.3
       '@yuku-parser/binding-win32-arm64': 0.9.3
       '@yuku-parser/binding-win32-x64': 0.9.3
-
-  zod@4.5.4: {}
 
   zod@4.6.4: {}
