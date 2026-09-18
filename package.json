@@ -43,6 +43,6 @@
     "@toiroakr/lines-db": "workspace:*",
     "lefthook": "^2.1.14",
     "oxfmt": "^0.68.0",
-    "oxlint": "^1.82.0"
+    "oxlint": "^1.83.0"
   }
 }
