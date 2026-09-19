@@ -195,8 +195,8 @@ importers:
         specifier: ^24.13.5
         version: 24.13.5
       amaro:
-        specifier: ^1.1.11
-        version: 1.1.11
+        specifier: ^1.2.0
+        version: 1.2.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -240,8 +240,8 @@ importers:
         specifier: ^1.1.0
         version: 1.1.0
       amaro:
-        specifier: ^1.1.11
-        version: 1.1.11
+        specifier: ^1.2.0
+        version: 1.2.0
       zod:
         specifier: ^4.6.5
         version: 4.6.5
@@ -1411,8 +1411,8 @@ packages:
   ajv@8.20.0:
     resolution: {integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==}
 
-  amaro@1.1.11:
-    resolution: {integrity: sha512-Tg8KzTpeCUQ23RNSuA2GeVRxHhkHyq8U9jNpKRjiMQKY2C9iJ7pLlGw2iRy4nNMYtB+tkLghk3swCo13O68zDg==}
+  amaro@1.2.0:
+    resolution: {integrity: sha512-O6x8jjXT8dUu3KWBguGclU6QhjDgLHYHhUsWXyDlotYMi3TjNbuMETMKEcHhWXr2dl2lMlIoouxSlP6JI5iFug==}
     engines: {node: '>=22'}
 
   ansi-escapes@7.3.0:
@@ -3746,7 +3746,7 @@ snapshots:
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
-  amaro@1.1.11: {}
+  amaro@1.2.0: {}
 
   ansi-escapes@7.3.0:
     dependencies:
