@@ -11,7 +11,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.13.6",
-    "amaro": "^1.1.11",
+    "amaro": "^1.2.0",
     "typescript": "^6.0.3",
     "valibot": "^1.5.0",
     "zod": "^4.6.5"
