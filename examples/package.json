@@ -10,7 +10,7 @@
     "datadir": "node --import=amaro/transform datadir.ts"
   },
   "devDependencies": {
-    "@types/node": "^24.13.5",
+    "@types/node": "^24.13.6",
     "amaro": "^1.1.11",
     "typescript": "^6.0.3",
     "valibot": "^1.5.0",
