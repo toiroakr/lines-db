@@ -108,7 +108,7 @@
   "devDependencies": {
     "@types/node": "^24.13.6",
     "@types/vscode": "1.118.0",
-    "@vscode/vsce": "^3.9.2",
+    "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.2",
     "prismjs": "^1.30.0",
     "typescript": "^6.0.3",
