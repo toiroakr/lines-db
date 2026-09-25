@@ -195,8 +195,8 @@ importers:
         specifier: ^24.13.6
         version: 24.13.6
       amaro:
-        specifier: ^1.2.0
-        version: 1.2.0
+        specifier: ^1.2.1
+        version: 1.2.1
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -240,8 +240,8 @@ importers:
         specifier: ^1.1.0
         version: 1.1.0
       amaro:
-        specifier: ^1.2.0
-        version: 1.2.0
+        specifier: ^1.2.1
+        version: 1.2.1
       zod:
         specifier: ^4.6.5
         version: 4.6.5
@@ -1424,8 +1424,8 @@ packages:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
 
-  amaro@1.2.0:
-    resolution: {integrity: sha512-O6x8jjXT8dUu3KWBguGclU6QhjDgLHYHhUsWXyDlotYMi3TjNbuMETMKEcHhWXr2dl2lMlIoouxSlP6JI5iFug==}
+  amaro@1.2.1:
+    resolution: {integrity: sha512-RXNB1/mbpbpwr4mVlQgYZVdY4CHl7rFExwov+XOTWfghpsM1s2sD/5u4oTQkKL4Pt0BGNIExSVjRcLMjcytIDQ==}
     engines: {node: '>=22'}
 
   assertion-error@2.0.1:
@@ -3173,7 +3173,7 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  amaro@1.2.0: {}
+  amaro@1.2.1: {}
 
   assertion-error@2.0.1: {}
 
