@@ -234,8 +234,8 @@ importers:
   lib:
     dependencies:
       '@politty/zod':
-        specifier: ^0.3.0
-        version: 0.3.0(@clack/prompts@1.7.0)(zod@4.6.5)
+        specifier: ^0.3.1
+        version: 0.3.1(@clack/prompts@1.7.0)(zod@4.6.5)
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
@@ -941,8 +941,8 @@ packages:
     resolution: {integrity: sha512-pOr5+q1fLYKwFN3LAJuGZEnfXDcQ73zqgDHMtGy+K+uIoUqyY+6MeDCWFwfu+4EFuq76I5EPFofoNAI+Bmmq4A==}
     engines: {node: '>=22.13'}
 
-  '@politty/zod@0.3.0':
-    resolution: {integrity: sha512-v01p+p4RtBO1hcc2YC9eJ21tesfnkoTyKUp0VFNy+RalvVW2V9yKC5WkSmFdH/PoEcfHJsxkdk+/6mPzycoV6A==}
+  '@politty/zod@0.3.1':
+    resolution: {integrity: sha512-xDf7ewLfojCbplj3dIyve4B0Bg7RX17XJ0Kstasz8+YljB/LLMtjbZULEiijZPgiRkblFXbS4X422cLceBIGpA==}
     engines: {node: '>=20.12.0 <21.0.0 || >=21.7.0'}
     hasBin: true
     peerDependencies:
@@ -2303,6 +2303,11 @@ packages:
     engines: {node: '>= 14.6'}
     hasBin: true
 
+  yaml@2.9.1:
+    resolution: {integrity: sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
+
   yauzl@3.4.0:
     resolution: {integrity: sha512-jIH9yLR9wqr0wOS0TpBvo/g/2UgZH5qePVbjgRliiF0BYvOZyaBknKsF+x9Iht0O6sqgnB93rCICdOZFecJuDw==}
     engines: {node: '>=12'}
@@ -2823,9 +2828,9 @@ snapshots:
 
   '@pnpm/deps.graph-sequencer@1100.0.1': {}
 
-  '@politty/zod@0.3.0(@clack/prompts@1.7.0)(zod@4.6.5)':
+  '@politty/zod@0.3.1(@clack/prompts@1.7.0)(zod@4.6.5)':
     dependencies:
-      yaml: 2.9.0
+      yaml: 2.9.1
       zod: 4.6.5
     optionalDependencies:
       '@clack/prompts': 1.7.0
@@ -3930,6 +3935,8 @@ snapshots:
   yallist@4.0.0: {}
 
   yaml@2.9.0: {}
+
+  yaml@2.9.1: {}
 
   yauzl@3.4.0:
     dependencies:
