@@ -46,6 +46,12 @@ export interface SyncOptions {
  */
 type InternalSyncOptions = SyncOptions & { strictFields?: boolean };
 
+/** The JSONL file a row was read from, and its index among that file's rows */
+interface RowOrigin {
+  file: string;
+  rowIndex: number;
+}
+
 export class LinesDB<Tables extends TableDefs> {
   private db: SQLiteDatabase;
   private config: DatabaseConfig<Tables>;
@@ -56,8 +62,8 @@ export class LinesDB<Tables extends TableDefs> {
   private syncQueue: Map<string, Promise<void>> = new Map();
   /** The order a table's schema declares its fields in, as the rows it computes list them */
   private keyOrders: Map<string, Set<string>> = new Map();
-  /** The row index each rowid was inserted from, per table loaded with detailed validation */
-  private rowIndexesByRowid: Map<string, Map<string, number>> = new Map();
+  /** The row each rowid was inserted from, per table loaded with detailed validation */
+  private rowOriginsByRowid: Map<string, Map<string, RowOrigin>> = new Map();
 
   private constructor(config: DatabaseConfig<Tables>, dbPath?: string) {
     this.config = config;
@@ -110,7 +116,8 @@ export class LinesDB<Tables extends TableDefs> {
     // Validate that all requested tables exist BEFORE starting to load
     for (const tableNameToLoad of tablesToLoad) {
       if (!this.tables.has(tableNameToLoad)) {
-        throw new Error(`Table '${tableNameToLoad}' not found in directory '${this.config.dataDir}'`);
+        const dataDirs = [this.config.dataDir].flat().map((dir) => `'${dir}'`);
+        throw new Error(`Table '${tableNameToLoad}' not found in directory ${dataDirs.join(', ')}`);
       }
     }
 
@@ -362,7 +369,16 @@ export class LinesDB<Tables extends TableDefs> {
    * Find the schema file of a table in schemaDir, or next to the table's JSONL file when unset
    */
   private async findTableSchemaFile(tableName: string, config: TableConfig): Promise<string | undefined> {
-    return findSchemaFile(this.config.schemaDir ?? dirname(config.jsonlPath), tableName);
+    const dirs = this.config.schemaDir
+      ? [this.config.schemaDir]
+      : new Set((config.jsonlPaths ?? [config.jsonlPath]).map((jsonlPath) => dirname(jsonlPath)));
+    for (const dir of dirs) {
+      const schemaPath = await findSchemaFile(dir, tableName);
+      if (schemaPath) {
+        return schemaPath;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -376,12 +392,19 @@ export class LinesDB<Tables extends TableDefs> {
     transform?: (row: JsonObject) => JsonObject,
     failedDependencies?: Set<string>,
   ): Promise<{ loaded: boolean; rowCount: number; errors: ValidationErrorDetail[] }> {
-    // Read JSONL file
-    const readResult = await JsonlReader.read(config.jsonlPath);
-    if (!readResult.ok) {
-      throw readResult.error;
+    // Read every JSONL file of the table, remembering where each row came from
+    let data: JsonObject[] = [];
+    const origins: RowOrigin[] = [];
+    for (const jsonlPath of config.jsonlPaths ?? [config.jsonlPath]) {
+      const readResult = await JsonlReader.read(jsonlPath);
+      if (!readResult.ok) {
+        throw readResult.error;
+      }
+      readResult.value.forEach((row, rowIndex) => {
+        data.push(row);
+        origins.push({ file: jsonlPath, rowIndex });
+      });
     }
-    let data = readResult.value;
 
     // Apply transform if provided (before validation)
     if (transform) {
@@ -489,9 +512,8 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Convert validation errors to ValidationErrorDetail format
     const validationErrorDetails: ValidationErrorDetail[] = validationErrors.map((ve) => ({
-      file: config.jsonlPath,
+      ...origins[ve.rowIndex],
       tableName,
-      rowIndex: ve.rowIndex,
       issues: ve.error.issues,
       type: 'schema' as const,
     }));
@@ -582,7 +604,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Insert validated data (with detailed validation if requested)
     if (detailedValidate) {
-      const insertErrors = this.insertDataWithDetailedValidation(tableName, schema, validatedData, config.jsonlPath);
+      const insertErrors = this.insertDataWithDetailedValidation(tableName, schema, validatedData, origins);
       if (insertErrors.length > 0) {
         return { loaded: false, rowCount: data.length, errors: insertErrors };
       }
@@ -727,7 +749,7 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: string,
     schema: TableSchema,
     data: JsonObject[],
-    filePath: string,
+    origins: RowOrigin[],
   ): ValidationErrorDetail[] {
     const errors: ValidationErrorDetail[] = [];
     const columnNames = schema.columns.map((col) => col.name);
@@ -736,22 +758,22 @@ export class LinesDB<Tables extends TableDefs> {
     const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
 
     const stmt = this.db.prepare(sql);
-    const rowIndexes = new Map<string, number>();
-    this.rowIndexesByRowid.set(tableName, rowIndexes);
+    const rowOrigins = new Map<string, RowOrigin>();
+    this.rowOriginsByRowid.set(tableName, rowOrigins);
 
     for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
       const row = data[rowIndex];
       try {
         const values = columnNames.map((col) => this.normalizeValue(row[col]));
         const { lastInsertRowid } = stmt.run(...values);
-        rowIndexes.set(String(lastInsertRowid), rowIndex);
+        rowOrigins.set(String(lastInsertRowid), origins[rowIndex]);
       } catch (error) {
         // Constraint violation occurred - analyze and record details
         const constraintError = this.analyzeConstraintError(
           error,
-          filePath,
+          origins[rowIndex].file,
           tableName,
-          rowIndex,
+          origins[rowIndex].rowIndex,
           row,
           schema.foreignKeys || [],
         );
@@ -846,12 +868,11 @@ export class LinesDB<Tables extends TableDefs> {
 
     try {
       const rows = this.queryInternal<{ rid: number | bigint; val: string | number }>(sql);
-      const rowIndexes = this.rowIndexesByRowid.get(tableName);
+      const rowOrigins = this.rowOriginsByRowid.get(tableName);
       for (const row of rows) {
         errors.push({
-          file: filePath,
+          ...(rowOrigins?.get(String(row.rid)) ?? { file: filePath, rowIndex: Number(row.rid) - 1 }),
           tableName,
-          rowIndex: rowIndexes?.get(String(row.rid)) ?? Number(row.rid) - 1,
           issues: [],
           type: 'foreignKey',
           foreignKeyError: {

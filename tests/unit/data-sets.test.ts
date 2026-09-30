@@ -92,4 +92,146 @@ describe('data sets', () => {
       expect(result.valid).toBe(true);
     });
   });
+
+  describe('several data directories', () => {
+    beforeEach(async () => {
+      await writeFile(join(rootDir, 'Item.schema.ts'), schemaSource({ requireName: true }));
+      await writeFile(
+        join(rootDir, 'ItemValuation.schema.ts'),
+        schemaSource({ foreignKeys: [{ column: 'itemId', references: { table: 'Item', column: 'id' } }] }),
+      );
+      await writeFile(join(rootDir, 'Item.jsonl'), '{"id":1,"name":"Bolt"}\n{"id":2,"name":"Nut"}\n');
+    });
+
+    it('reads the rows of a same-named table from every directory in order', async () => {
+      // String ids, so the rowid follows insertion order rather than the id
+      await writeFile(join(rootDir, 'Item.jsonl'), '{"id":"b","name":"Bolt"}\n{"id":"n","name":"Nut"}\n');
+      await writeFile(join(cogsDir, 'Item.jsonl'), '{"id":"w","name":"Washer"}\n');
+
+      const db = LinesDB.create({ dataDir: [cogsDir, rootDir], schemaDir: rootDir });
+      unwrap(await db.initialize());
+      const names = unwrap(db.query<{ name: string }>('SELECT name FROM Item ORDER BY rowid')).map((r) => r.name);
+      await db.close();
+
+      expect(names).toEqual(['Washer', 'Bolt', 'Nut']);
+    });
+
+    it('resolves foreign keys against the rows of every directory', async () => {
+      await writeFile(join(cogsDir, 'Item.jsonl'), '{"id":3,"name":"Washer"}\n');
+      await writeFile(join(cogsDir, 'ItemValuation.jsonl'), '{"id":1,"itemId":1}\n{"id":2,"itemId":3}\n');
+
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      const result = unwrap(await db.initialize({ detailedValidate: true }));
+      await db.close();
+
+      expect(result.errors).toEqual([]);
+    });
+
+    it('reports a foreign key error at the line of the file the row came from', async () => {
+      await writeFile(join(cogsDir, 'ItemValuation.jsonl'), '{"id":1,"itemId":1}\n{"id":2,"itemId":99}\n');
+
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      const result = unwrap(await db.initialize({ detailedValidate: true }));
+      await db.close();
+
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toMatchObject({
+        file: join(cogsDir, 'ItemValuation.jsonl'),
+        rowIndex: 1,
+        foreignKeyError: { value: 99 },
+      });
+    });
+
+    it('reports a foreign key checked after a circular dependency at the file the row came from', async () => {
+      await writeFile(
+        join(rootDir, 'Author.schema.ts'),
+        schemaSource({ foreignKeys: [{ column: 'profileId', references: { table: 'Profile', column: 'id' } }] }),
+      );
+      await writeFile(
+        join(rootDir, 'Profile.schema.ts'),
+        schemaSource({ foreignKeys: [{ column: 'authorId', references: { table: 'Author', column: 'id' } }] }),
+      );
+      await writeFile(join(rootDir, 'Author.jsonl'), '{"id":1,"profileId":10}\n');
+      await writeFile(join(rootDir, 'Profile.jsonl'), '{"id":10,"authorId":1}\n');
+      await writeFile(join(cogsDir, 'Profile.jsonl'), '{"id":20,"authorId":1}\n{"id":30,"authorId":99}\n');
+
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      const result = unwrap(await db.initialize({ tableName: 'Author', detailedValidate: true }));
+      await db.close();
+
+      expect(result.errors).toEqual([
+        expect.objectContaining({ file: join(cogsDir, 'Profile.jsonl'), tableName: 'Profile', rowIndex: 1 }),
+      ]);
+    });
+
+    it('reports a schema error at the line of the file the row came from', async () => {
+      await writeFile(join(cogsDir, 'Item.jsonl'), '{"id":3,"name":"Washer"}\n{"id":4}\n');
+
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      const result = unwrap(await db.initialize({ detailedValidate: true }));
+      await db.close();
+
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toMatchObject({ file: join(cogsDir, 'Item.jsonl'), tableName: 'Item', rowIndex: 1 });
+    });
+
+    it('reports an id defined in two directories as a violation at the later file', async () => {
+      await writeFile(join(cogsDir, 'Item.jsonl'), '{"id":3,"name":"Washer"}\n{"id":2,"name":"Nut again"}\n');
+
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      const result = unwrap(await db.initialize({ detailedValidate: true }));
+      await db.close();
+
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toMatchObject({ file: join(cogsDir, 'Item.jsonl'), tableName: 'Item', rowIndex: 1 });
+      expect(result.errors[0].issues[0].message).toMatch(/UNIQUE constraint failed|PRIMARY KEY/);
+    });
+
+    it('reports a JSON parse error with the file and line it occurred in', async () => {
+      await writeFile(join(cogsDir, 'Item.jsonl'), '{"id":3,"name":"Washer"}\n\n{broken\n');
+
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      const result = await db.initialize();
+      await db.close();
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.error).toMatchObject({
+        name: 'JsonlParseError',
+        file: join(cogsDir, 'Item.jsonl'),
+        line: 3,
+      });
+    });
+
+    it('loads a table requested by name from every directory that has it', async () => {
+      await writeFile(join(cogsDir, 'Item.jsonl'), '{"id":3,"name":"Washer"}\n');
+
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      const result = unwrap(await db.initialize({ tableName: 'Item' }));
+      await db.close();
+
+      expect(result.tableResults).toEqual([expect.objectContaining({ tableName: 'Item', rowCount: 3 })]);
+    });
+
+    it('names every data directory when a requested table is in none of them', async () => {
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      const result = await db.initialize({ tableName: 'Missing' });
+      await db.close();
+
+      expect(!result.ok && result.error.message).toBe(
+        `Table 'Missing' not found in directory '${rootDir}', '${cogsDir}'`,
+      );
+    });
+
+    it('looks for a schema next to each of the table files when schemaDir is unset', async () => {
+      await writeFile(join(cogsDir, 'Part.schema.ts'), schemaSource({ requireName: true }));
+      await writeFile(join(rootDir, 'Part.jsonl'), '{"id":1,"name":"Gear"}\n');
+      await writeFile(join(cogsDir, 'Part.jsonl'), '{"id":2}\n');
+
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir] });
+      const result = unwrap(await db.initialize({ tableName: 'Part', detailedValidate: true }));
+      await db.close();
+
+      expect(result.errors).toEqual([expect.objectContaining({ file: join(cogsDir, 'Part.jsonl'), rowIndex: 0 })]);
+    });
+  });
 });

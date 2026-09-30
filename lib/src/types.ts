@@ -80,7 +80,11 @@ export type TableDefs = Record<string, Table>;
 export declare const TABLES_BRAND: unique symbol;
 
 export interface DatabaseConfig<_Tables extends TableDefs = TableDefs> {
-  dataDir: string; // Directory containing JSONL files
+  /**
+   * Directory containing JSONL files, or several directories whose files are read as one set of
+   * tables: a table found in more than one of them has the rows of each file, in this order.
+   */
+  dataDir: string | readonly string[];
   /**
    * Directory the `<Table>.schema.{ts,mts,cts}` files are looked up in, for validation and for
    * discovering foreign keys. Defaults to the directory of each table's JSONL file.
