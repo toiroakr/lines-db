@@ -100,7 +100,7 @@ export class LinesDB<Tables extends TableDefs> {
     detailedValidate?: boolean;
     transform?: (row: JsonObject) => JsonObject;
   }): Promise<ValidationResult> {
-    if (typeof this.config.dataDir !== 'string' && this.config.dataDir.length > 1 && !this.config.schemaDir) {
+    if (this.hasSeveralDataDirs() && !this.config.schemaDir) {
       throw new Error(
         'schemaDir is required when dataDir lists several directories: a data set directory does not hold the schemas of its tables',
       );
@@ -111,7 +111,7 @@ export class LinesDB<Tables extends TableDefs> {
       return await this.loadTables(options);
     } finally {
       // Raw SQL through execute() or query() must not change a database whose changes cannot be written back
-      if (!this.isWritable()) {
+      if (this.hasSeveralDataDirs()) {
         this.db.exec('PRAGMA query_only = ON');
       }
     }
@@ -391,16 +391,7 @@ export class LinesDB<Tables extends TableDefs> {
    * Find the schema file of a table in schemaDir, or next to the table's JSONL file when unset
    */
   private async findTableSchemaFile(tableName: string, config: TableConfig): Promise<string | undefined> {
-    const dirs = this.config.schemaDir
-      ? [this.config.schemaDir]
-      : new Set((config.jsonlPaths ?? [config.jsonlPath]).map((jsonlPath) => dirname(jsonlPath)));
-    for (const dir of dirs) {
-      const schemaPath = await findSchemaFile(dir, tableName);
-      if (schemaPath) {
-        return schemaPath;
-      }
-    }
-    return undefined;
+    return findSchemaFile(this.config.schemaDir ?? dirname(config.jsonlPath), tableName);
   }
 
   /**
@@ -1729,15 +1720,15 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
-   * Whether changes can be written back: the rows of a table composed from several data
-   * directories have no single file to go to
+   * A database composed from several data directories is read-only: the rows of its tables have no
+   * single file to be written back to
    */
-  private isWritable(): boolean {
-    return typeof this.config.dataDir === 'string' || this.config.dataDir.length <= 1;
+  private hasSeveralDataDirs(): boolean {
+    return typeof this.config.dataDir !== 'string' && this.config.dataDir.length > 1;
   }
 
   private assertWritable(tableName: string): void {
-    if (!this.isWritable()) {
+    if (this.hasSeveralDataDirs()) {
       throw new Error(
         `Cannot write to table '${tableName}': dataDir lists several directories, so its rows have no single file to be written back to`,
       );
@@ -1983,7 +1974,7 @@ export class LinesDB<Tables extends TableDefs> {
       this.inTransaction = false;
 
       // Sync all tables after successful commit; a read-only database has no changes to write back
-      if (this.isWritable()) {
+      if (!this.hasSeveralDataDirs()) {
         await this.syncInternal();
       }
 
