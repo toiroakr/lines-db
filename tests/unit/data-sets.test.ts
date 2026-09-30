@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { LinesDB } from '../../lib/src/database.js';
 import { unwrap } from '../../lib/src/result.js';
+import type { TableDefs } from '../../lib/src/types.js';
 import { writeFile, mkdir, rm, readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -222,50 +223,46 @@ describe('data sets', () => {
       );
     });
 
+    const readOnlyMessage =
+      "Cannot write to table 'Item': dataDir lists several directories, so its rows have no single file to be written back to";
+
     it('rejects a sync, since a row has no single file to be written back to', async () => {
       const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
       unwrap(await db.initialize());
       const result = await db.sync('Item');
       await db.close();
 
-      expect(!result.ok && result.error.message).toBe(
-        "Cannot sync table 'Item': writing back is not supported when dataDir lists several directories",
-      );
+      expect(!result.ok && result.error.message).toBe(readOnlyMessage);
     });
 
-    it('leaves the JSONL files untouched when a mutation would sync them', async () => {
-      const errors: unknown[] = [];
-      const originalError = console.error;
-      console.error = (...args: unknown[]) => errors.push(args);
-      try {
-        const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
-        unwrap(await db.initialize());
-        unwrap(db.insert('Item', { id: 5, name: 'Spring' }));
-        await db.close();
-      } finally {
-        console.error = originalError;
-      }
-
-      expect(await readFile(join(rootDir, 'Item.jsonl'), 'utf-8')).toBe(
-        '{"id":1,"name":"Bolt"}\n{"id":2,"name":"Nut"}\n',
-      );
-      expect(errors).toHaveLength(1);
-    });
-
-    it('returns the sync error from a transaction, whose changes stay committed in the database only', async () => {
+    it.each([
+      ['insert', (db: LinesDB<TableDefs>) => db.insert('Item', { id: 5, name: 'Spring' })],
+      ['batchInsert', (db: LinesDB<TableDefs>) => db.batchInsert('Item', [{ id: 5, name: 'Spring' }])],
+      ['update', (db: LinesDB<TableDefs>) => db.update('Item', { name: 'Spring' }, { id: 1 })],
+      ['batchUpdate', (db: LinesDB<TableDefs>) => db.batchUpdate('Item', [{ id: 1, name: 'Spring' }])],
+      ['delete', (db: LinesDB<TableDefs>) => db.delete('Item', { id: 1 })],
+      ['batchDelete', (db: LinesDB<TableDefs>) => db.batchDelete('Item', [{ id: 1 }])],
+    ])('rejects %s without touching the database or the files', async (_, mutate) => {
       const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
       unwrap(await db.initialize());
-      const result = await db.transaction((tx) => {
-        unwrap(tx.insert('Item', { id: 5, name: 'Spring' }));
-      });
-      const spring = unwrap(db.findOne('Item', { id: 5 }));
+      const result = mutate(db);
+      const names = unwrap(db.find('Item')).map((row) => row.name);
       await db.close();
 
-      expect(!result.ok && result.error.message).toMatch(/writing back is not supported/);
-      expect(spring).toMatchObject({ name: 'Spring' });
+      expect(!result.ok && result.error.message).toBe(readOnlyMessage);
+      expect(names).toEqual(['Bolt', 'Nut']);
       expect(await readFile(join(rootDir, 'Item.jsonl'), 'utf-8')).toBe(
         '{"id":1,"name":"Bolt"}\n{"id":2,"name":"Nut"}\n',
       );
+    });
+
+    it('runs a transaction that only reads', async () => {
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      unwrap(await db.initialize());
+      const result = await db.transaction((tx) => unwrap(tx.find('Item')).length);
+      await db.close();
+
+      expect(unwrap(result)).toBe(2);
     });
 
     it('looks for a schema next to each of the table files when schemaDir is unset', async () => {

@@ -1172,6 +1172,8 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     data: Tables[K],
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    this.assertWritable(tableName);
+
     // Validate if schema exists
     this.validateData(tableName, data);
 
@@ -1216,6 +1218,8 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     records: Tables[K][],
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    this.assertWritable(tableName);
+
     const schema = this.schemas.get(tableName);
     if (!schema) {
       throw new Error(`Table ${tableName} does not exist`);
@@ -1280,6 +1284,8 @@ export class LinesDB<Tables extends TableDefs> {
     where: WhereCondition<Tables[K]>,
     options?: { validate?: boolean },
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    this.assertWritable(tableName);
+
     const schema = this.schemas.get(tableName);
     if (!schema) {
       throw new Error(`Table ${tableName} does not exist`);
@@ -1347,6 +1353,8 @@ export class LinesDB<Tables extends TableDefs> {
     records: Array<Partial<Tables[K]> & Record<string, unknown>>,
     options?: { validate?: boolean },
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    this.assertWritable(tableName);
+
     const schema = this.schemas.get(tableName);
     if (!schema) {
       throw new Error(`Table ${tableName} does not exist`);
@@ -1485,6 +1493,8 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     where: WhereCondition<Tables[K]>,
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    this.assertWritable(tableName);
+
     const schema = this.schemas.get(tableName);
     if (!schema) {
       throw new Error(`Table ${tableName} does not exist`);
@@ -1527,6 +1537,8 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     records: Array<Partial<Tables[K]> & Record<string, unknown>>,
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    this.assertWritable(tableName);
+
     const schema = this.schemas.get(tableName);
     if (!schema) {
       throw new Error(`Table ${tableName} does not exist`);
@@ -1695,6 +1707,22 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
+   * Whether changes can be written back: the rows of a table composed from several data
+   * directories have no single file to go to
+   */
+  private isWritable(): boolean {
+    return typeof this.config.dataDir === 'string' || this.config.dataDir.length <= 1;
+  }
+
+  private assertWritable(tableName: string): void {
+    if (!this.isWritable()) {
+      throw new Error(
+        `Cannot write to table '${tableName}': dataDir lists several directories, so its rows have no single file to be written back to`,
+      );
+    }
+  }
+
+  /**
    * Sync a specific table back to its JSONL file
    * Syncs of the same table run one after another: auto-sync is fire-and-forget, and a write-back
    * that reads the file first must never see a file another sync is halfway through writing.
@@ -1716,11 +1744,7 @@ export class LinesDB<Tables extends TableDefs> {
    * Uses backward transformation when available
    */
   private async writeTable(tableName: string, options?: InternalSyncOptions): Promise<void> {
-    if (typeof this.config.dataDir !== 'string' && this.config.dataDir.length > 1) {
-      throw new Error(
-        `Cannot sync table '${tableName}': writing back is not supported when dataDir lists several directories`,
-      );
-    }
+    this.assertWritable(tableName);
 
     const tableConfig = this.tables.get(tableName);
     if (!tableConfig) {
@@ -1936,8 +1960,10 @@ export class LinesDB<Tables extends TableDefs> {
       this.db.exec('COMMIT');
       this.inTransaction = false;
 
-      // Sync all tables after successful commit
-      await this.syncInternal();
+      // Sync all tables after successful commit; a read-only database has no changes to write back
+      if (this.isWritable()) {
+        await this.syncInternal();
+      }
 
       return ok(result);
     } catch (error) {

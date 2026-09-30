@@ -509,10 +509,9 @@ violation. Every error names the file the row came from and its line in that fil
 `schemaDir` also works with a single directory - `{ dataDir: './data/cogs', schemaDir: './data' }` -
 and without it, a table's schema is looked up next to each of its JSONL files.
 
-Rows of a table composed from several files have no single file to be written back to, so `sync()`
-is rejected when `dataDir` lists several directories - the automatic sync after `insert`, `update` or
-`delete` too, which logs the error and leaves the files as they are.
-`transaction()` commits its changes to the database and then returns that error.
+Rows of a table composed from several files have no single file to be written back to, so a database
+whose `dataDir` lists several directories is read-only: `insert`, `update`, `delete`, their `batch*`
+forms and `sync()` return an error without changing the database or the files.
 
 ## Type Mapping
 
