@@ -234,8 +234,8 @@ importers:
   lib:
     dependencies:
       '@politty/zod':
-        specifier: ^0.3.1
-        version: 0.3.1(@clack/prompts@1.7.0)(zod@4.6.5)
+        specifier: ^0.4.0
+        version: 0.4.0(@clack/prompts@1.7.0)(zod@4.6.5)
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
@@ -941,8 +941,8 @@ packages:
     resolution: {integrity: sha512-pOr5+q1fLYKwFN3LAJuGZEnfXDcQ73zqgDHMtGy+K+uIoUqyY+6MeDCWFwfu+4EFuq76I5EPFofoNAI+Bmmq4A==}
     engines: {node: '>=22.13'}
 
-  '@politty/zod@0.3.1':
-    resolution: {integrity: sha512-xDf7ewLfojCbplj3dIyve4B0Bg7RX17XJ0Kstasz8+YljB/LLMtjbZULEiijZPgiRkblFXbS4X422cLceBIGpA==}
+  '@politty/zod@0.4.0':
+    resolution: {integrity: sha512-dDy1seg2t+Q/M4aA1rxT9iT+fTWYCRS1oXhyPnB9DYfUanOuDFijb1yfJk4HnOLZB9Ir6wtTo0tpg2f622aotA==}
     engines: {node: '>=20.12.0 <21.0.0 || >=21.7.0'}
     hasBin: true
     peerDependencies:
@@ -2828,7 +2828,7 @@ snapshots:
 
   '@pnpm/deps.graph-sequencer@1100.0.1': {}
 
-  '@politty/zod@0.3.1(@clack/prompts@1.7.0)(zod@4.6.5)':
+  '@politty/zod@0.4.0(@clack/prompts@1.7.0)(zod@4.6.5)':
     dependencies:
       yaml: 2.9.1
       zod: 4.6.5
