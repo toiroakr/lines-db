@@ -471,12 +471,44 @@ await JsonlWriter.write('./data/users.jsonl', filled);
 
 ```typescript
 interface DatabaseConfig {
-  dataDir: string; // JSONLファイルが含まれるディレクトリ
+  dataDir: string | readonly string[]; // JSONLファイルが含まれるディレクトリ（複数指定可）
+  schemaDir?: string; // スキーマファイルが含まれるディレクトリ（デフォルト：各JSONLファイルと同じディレクトリ）
   writeBackFields?: readonly string[]; // 同期時に書き戻すフィールド（デフォルト：全フィールド）
 }
 
 const db = LinesDB.create({ dataDir: './data' });
 ```
+
+### データセット
+
+シードデータを、どの環境でも必要な `base` セットと、特定のシナリオだけが読み込むセットに分けて、
+組み合わせて検証できます：
+
+```
+data/
+  Item.schema.ts   Item.jsonl              # スキーマ + base セット
+  ItemValuation.schema.ts
+  cogs/
+    Item.jsonl                             # Item の追加行（スキーマは置かない）
+    ItemValuation.jsonl                    # 両方のセットの Item 行を参照する
+```
+
+```typescript
+const db = LinesDB.create({ dataDir: ['./data', './data/cogs'], schemaDir: './data' });
+const result = unwrap(await db.initialize({ detailedValidate: true }));
+```
+
+複数のディレクトリにあるテーブルは、`dataDir` に並べた順に各ファイルの行を連結したものになります。
+バリデーション・ユニークインデックス・外部キーは連結後の行全体に対して行われるため、
+`cogs/ItemValuation.jsonl` から `data/Item.jsonl` の `Item` を参照でき、両方のセットで同じ id を
+定義すると違反として報告されます。エラーはいずれも、その行を読み込んだファイルとそのファイル内の行を指します。
+
+`schemaDir` は単一ディレクトリでも使えます（`{ dataDir: './data/cogs', schemaDir: './data' }`）。
+指定しない場合、テーブルのスキーマは各JSONLファイルと同じディレクトリから探します。
+
+複数のファイルから組み立てたテーブルの行には書き戻し先のファイルが1つに定まらないため、
+`dataDir` に複数のディレクトリを指定した場合 `sync()` はエラーになります。`insert` / `update` / `delete` の後の
+自動同期も同様で、エラーをログに出力してファイルは変更しません。
 
 ## 型マッピング
 

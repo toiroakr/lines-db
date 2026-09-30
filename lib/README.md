@@ -474,12 +474,44 @@ fields in the order the schema declares them.
 
 ```typescript
 interface DatabaseConfig {
-  dataDir: string; // Directory containing JSONL files
+  dataDir: string | readonly string[]; // Directory (or directories) containing JSONL files
+  schemaDir?: string; // Directory containing the schema files (default: next to each JSONL file)
   writeBackFields?: readonly string[]; // Fields written back on sync (default: every field)
 }
 
 const db = LinesDB.create({ dataDir: './data' });
 ```
+
+### Data Sets
+
+Seed data can be split into sets that are validated together - a `base` set every environment needs,
+plus a set that only one scenario loads:
+
+```
+data/
+  Item.schema.ts   Item.jsonl              # schemas + base set
+  ItemValuation.schema.ts
+  cogs/
+    Item.jsonl                             # more Item rows, no schema here
+    ItemValuation.jsonl                    # references Item rows of both sets
+```
+
+```typescript
+const db = LinesDB.create({ dataDir: ['./data', './data/cogs'], schemaDir: './data' });
+const result = unwrap(await db.initialize({ detailedValidate: true }));
+```
+
+A table found in several directories has the rows of each file, in the order `dataDir` lists them.
+Validation, unique indexes and foreign keys run over those rows together, so `cogs/ItemValuation.jsonl`
+can reference an `Item` from `data/Item.jsonl`, and an id defined in both sets is reported as a
+violation. Every error names the file the row came from and its line in that file.
+
+`schemaDir` also works with a single directory - `{ dataDir: './data/cogs', schemaDir: './data' }` -
+and without it, a table's schema is looked up next to each of its JSONL files.
+
+Rows of a table composed from several files have no single file to be written back to, so `sync()`
+is rejected when `dataDir` lists several directories - the automatic sync after `insert`, `update` or
+`delete` too, which logs the error and leaves the files as they are.
 
 ## Type Mapping
 
