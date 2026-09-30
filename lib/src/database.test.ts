@@ -673,5 +673,35 @@ export const schema = Object.assign(Object.create(baseSchema), {
 
       await db.close();
     });
+
+    it('should report the row index of the orphan even when an integer primary key is not numbered from 1', async () => {
+      await writeFile(join(testDir, 'authors.jsonl'), '{"id":"1","name":"Alice","profile_code":10}\n');
+      await writeSchemaWithFK(
+        'authors',
+        'id',
+        [{ column: 'profile_code', references: { table: 'profiles', column: 'code' } }],
+        ['profile_code'],
+      );
+
+      await writeFile(
+        join(testDir, 'profiles.jsonl'),
+        '{"code":10,"author_id":"1","bio":"Author A"}\n{"code":20,"author_id":"999","bio":"Orphan"}\n',
+      );
+      await writeSchemaWithFK('profiles', 'code', [
+        { column: 'author_id', references: { table: 'authors', column: 'id' } },
+      ]);
+
+      const db = LinesDB.create({ dataDir: testDir });
+      const result = unwrap(await db.initialize({ detailedValidate: true }));
+
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toMatchObject({
+        file: join(testDir, 'profiles.jsonl'),
+        tableName: 'profiles',
+        rowIndex: 1,
+      });
+
+      await db.close();
+    });
   });
 });

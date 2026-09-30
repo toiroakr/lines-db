@@ -56,6 +56,8 @@ export class LinesDB<Tables extends TableDefs> {
   private syncQueue: Map<string, Promise<void>> = new Map();
   /** The order a table's schema declares its fields in, as the rows it computes list them */
   private keyOrders: Map<string, Set<string>> = new Map();
+  /** The row index each rowid was inserted from, per table loaded with detailed validation */
+  private rowIndexesByRowid: Map<string, Map<string, number>> = new Map();
 
   private constructor(config: DatabaseConfig<Tables>, dbPath?: string) {
     this.config = config;
@@ -730,12 +732,15 @@ export class LinesDB<Tables extends TableDefs> {
     const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
 
     const stmt = this.db.prepare(sql);
+    const rowIndexes = new Map<string, number>();
+    this.rowIndexesByRowid.set(tableName, rowIndexes);
 
     for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
       const row = data[rowIndex];
       try {
         const values = columnNames.map((col) => this.normalizeValue(row[col]));
-        stmt.run(...values);
+        const { lastInsertRowid } = stmt.run(...values);
+        rowIndexes.set(String(lastInsertRowid), rowIndex);
       } catch (error) {
         // Constraint violation occurred - analyze and record details
         const constraintError = this.analyzeConstraintError(
@@ -833,15 +838,16 @@ export class LinesDB<Tables extends TableDefs> {
     const quotedRefColumn = this.quoteIdentifier(fk.references.column);
 
     // Find rows where the FK value does not exist in the referenced table
-    const sql = `SELECT rowid - 1 as idx, ${quotedColumn} as val FROM ${quotedTable} WHERE ${quotedColumn} IS NOT NULL AND ${quotedColumn} NOT IN (SELECT ${quotedRefColumn} FROM ${quotedRefTable})`;
+    const sql = `SELECT rowid as rid, ${quotedColumn} as val FROM ${quotedTable} WHERE ${quotedColumn} IS NOT NULL AND ${quotedColumn} NOT IN (SELECT ${quotedRefColumn} FROM ${quotedRefTable})`;
 
     try {
-      const rows = this.queryInternal<{ idx: number; val: string | number }>(sql);
+      const rows = this.queryInternal<{ rid: number | bigint; val: string | number }>(sql);
+      const rowIndexes = this.rowIndexesByRowid.get(tableName);
       for (const row of rows) {
         errors.push({
           file: filePath,
           tableName,
-          rowIndex: row.idx,
+          rowIndex: rowIndexes?.get(String(row.rid)) ?? Number(row.rid) - 1,
           issues: [],
           type: 'foreignKey',
           foreignKeyError: {
