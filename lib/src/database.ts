@@ -100,6 +100,12 @@ export class LinesDB<Tables extends TableDefs> {
     detailedValidate?: boolean;
     transform?: (row: JsonObject) => JsonObject;
   }): Promise<ValidationResult> {
+    if (typeof this.config.dataDir !== 'string' && this.config.dataDir.length > 1 && !this.config.schemaDir) {
+      throw new Error(
+        'schemaDir is required when dataDir lists several directories: a data set directory does not hold the schemas of its tables',
+      );
+    }
+
     this.db.exec('PRAGMA query_only = OFF');
     try {
       return await this.loadTables(options);

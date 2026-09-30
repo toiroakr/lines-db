@@ -279,16 +279,14 @@ describe('data sets', () => {
       expect(unwrap(result)).toBe(2);
     });
 
-    it('looks for a schema next to each of the table files when schemaDir is unset', async () => {
-      await writeFile(join(cogsDir, 'Part.schema.ts'), schemaSource({ requireName: true }));
-      await writeFile(join(rootDir, 'Part.jsonl'), '{"id":1,"name":"Gear"}\n');
-      await writeFile(join(cogsDir, 'Part.jsonl'), '{"id":2}\n');
-
+    it('rejects several data directories without a schemaDir, which would leave their tables unvalidated', async () => {
       const db = LinesDB.create({ dataDir: [rootDir, cogsDir] });
-      const result = unwrap(await db.initialize({ tableName: 'Part', detailedValidate: true }));
+      const result = await db.initialize();
       await db.close();
 
-      expect(result.errors).toEqual([expect.objectContaining({ file: join(cogsDir, 'Part.jsonl'), rowIndex: 0 })]);
+      expect(!result.ok && result.error.message).toBe(
+        'schemaDir is required when dataDir lists several directories: a data set directory does not hold the schemas of its tables',
+      );
     });
   });
 });

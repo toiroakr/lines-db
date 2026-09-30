@@ -503,8 +503,10 @@ const result = unwrap(await db.initialize({ detailedValidate: true }));
 `cogs/ItemValuation.jsonl` から `data/Item.jsonl` の `Item` を参照でき、両方のセットで同じ id を
 定義すると違反として報告されます。エラーはいずれも、その行を読み込んだファイルとそのファイル内の行を指します。
 
+`dataDir` に複数のディレクトリを指定する場合、`schemaDir` は必須です。データセットのディレクトリには
+テーブルのスキーマが置かれていないため、指定しないとそれらのテーブルが検証されないまま読み込まれてしまいます。
 `schemaDir` は単一ディレクトリでも使えます（`{ dataDir: './data/cogs', schemaDir: './data' }`）。
-指定しない場合、テーブルのスキーマは各JSONLファイルと同じディレクトリから探します。
+単一ディレクトリで指定しない場合、スキーマはJSONLファイルと同じディレクトリから探します。
 
 複数のファイルから組み立てたテーブルの行には書き戻し先のファイルが1つに定まらないため、
 `dataDir` に複数のディレクトリを指定したデータベースは読み取り専用になります。`insert` / `update` / `delete`、

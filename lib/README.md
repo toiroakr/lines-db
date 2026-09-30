@@ -506,8 +506,10 @@ Validation, unique indexes and foreign keys run over those rows together, so `co
 can reference an `Item` from `data/Item.jsonl`, and an id defined in both sets is reported as a
 violation. Every error names the file the row came from and its line in that file.
 
-`schemaDir` also works with a single directory - `{ dataDir: './data/cogs', schemaDir: './data' }` -
-and without it, a table's schema is looked up next to each of its JSONL files.
+`schemaDir` is required when `dataDir` lists several directories: a data set directory does not hold
+the schemas of its tables, so without it they would be loaded unvalidated. It also works with a single
+directory - `{ dataDir: './data/cogs', schemaDir: './data' }` - and without it a single directory's
+schemas are looked up next to its JSONL files.
 
 Rows of a table composed from several files have no single file to be written back to, so a database
 whose `dataDir` lists several directories is read-only: `insert`, `update`, `delete`, their `batch*`
