@@ -82,6 +82,11 @@ export declare const TABLES_BRAND: unique symbol;
 export interface DatabaseConfig<_Tables extends TableDefs = TableDefs> {
   dataDir: string; // Directory containing JSONL files
   /**
+   * Directory the `<Table>.schema.{ts,mts,cts}` files are looked up in, for validation and for
+   * discovering foreign keys. Defaults to the directory of each table's JSONL file.
+   */
+  schemaDir?: string;
+  /**
    * Fields written back to the JSONL files on sync.
    * When set, only these fields are taken from the database; every other field keeps the value
    * its JSONL line already had, so hook-computed values and omitted optional fields are untouched.

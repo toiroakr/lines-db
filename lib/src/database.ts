@@ -6,7 +6,7 @@ import { DirectoryScanner } from './directory-scanner.js';
 import { hasBackward } from './schema.js';
 import { mergeFields } from './merge-fields.js';
 import { findSchemaFile } from './schema-extensions.js';
-import { dirname, basename } from 'node:path';
+import { dirname } from 'node:path';
 import type {
   DatabaseConfig,
   TableSchema,
@@ -242,10 +242,7 @@ export class LinesDB<Tables extends TableDefs> {
 
       try {
         const { pathToFileURL } = await import('node:url');
-        const schemaPath = await findSchemaFile(
-          dirname(tableConfig.jsonlPath),
-          basename(tableConfig.jsonlPath, '.jsonl'),
-        );
+        const schemaPath = await this.findTableSchemaFile(tableName, tableConfig);
         if (schemaPath) {
           const schemaUrl = pathToFileURL(schemaPath).href;
           const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
@@ -362,6 +359,13 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
+   * Find the schema file of a table in schemaDir, or next to the table's JSONL file when unset
+   */
+  private async findTableSchemaFile(tableName: string, config: TableConfig): Promise<string | undefined> {
+    return findSchemaFile(this.config.schemaDir ?? dirname(config.jsonlPath), tableName);
+  }
+
+  /**
    * Load a single table from JSONL file
    * @returns Object with loaded status and validation errors
    */
@@ -392,9 +396,10 @@ export class LinesDB<Tables extends TableDefs> {
       indexes?: BiDirectionalSchema['indexes'];
     } = {};
 
-    if (!validationSchema) {
+    const schemaPath = config.validationSchema ? undefined : await this.findTableSchemaFile(tableName, config);
+    if (!validationSchema && schemaPath) {
       try {
-        validationSchema = await SchemaLoader.loadSchema(config.jsonlPath);
+        validationSchema = await SchemaLoader.loadSchema(config.jsonlPath, dirname(schemaPath));
       } catch (_error) {
         // Schema file not found or failed to load - this is OK, table can still be used without validation
       }
@@ -406,7 +411,6 @@ export class LinesDB<Tables extends TableDefs> {
       // Only load if not already provided via config
       try {
         const { pathToFileURL } = await import('node:url');
-        const schemaPath = await findSchemaFile(dirname(config.jsonlPath), basename(config.jsonlPath, '.jsonl'));
         if (!schemaPath) throw new Error('Schema file not found');
         const schemaUrl = pathToFileURL(schemaPath).href;
         const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
