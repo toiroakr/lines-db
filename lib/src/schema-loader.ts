@@ -7,8 +7,8 @@ export class SchemaLoader {
   /**
    * Check if a schema file exists for a table
    */
-  static async hasSchema(jsonlPath: string): Promise<boolean> {
-    const dir = dirname(jsonlPath);
+  static async hasSchema(jsonlPath: string, schemaDir?: string): Promise<boolean> {
+    const dir = schemaDir ?? dirname(jsonlPath);
     const tableName = basename(jsonlPath, '.jsonl');
     const schemaPath = await findSchemaFile(dir, tableName);
     return schemaPath !== undefined;
@@ -16,10 +16,10 @@ export class SchemaLoader {
 
   /**
    * Load a validation schema file for a table
-   * Requires ${tableName}.schema.{ts,mts,cts} to exist alongside the JSONL file
+   * Requires ${tableName}.schema.{ts,mts,cts} to exist in schemaDir, or alongside the JSONL file when omitted
    */
-  static async loadSchema(jsonlPath: string): Promise<StandardSchema> {
-    const dir = dirname(jsonlPath);
+  static async loadSchema(jsonlPath: string, schemaDir?: string): Promise<StandardSchema> {
+    const dir = schemaDir ?? dirname(jsonlPath);
     const tableName = basename(jsonlPath, '.jsonl');
     const schemaPath = await findSchemaFile(dir, tableName);
 

@@ -214,5 +214,41 @@ describe('SchemaLoader', () => {
 
       await expect(SchemaLoader.loadSchema(jsonlPath)).rejects.toThrow(/does not export a valid StandardSchema/);
     });
+
+    it('should load the schema from schemaDir instead of the JSONL directory when given', async () => {
+      const dataDir = join(testDir, 'cogs');
+      await mkdir(dataDir);
+      const jsonlPath = join(dataDir, 'users.jsonl');
+      await writeFile(jsonlPath, '{"id":1}\n');
+      await writeFile(
+        join(testDir, 'users.schema.ts'),
+        `
+        export const schema = {
+          '~standard': {
+            version: 1,
+            vendor: 'schema-dir',
+            validate: () => ({ value: {} })
+          }
+        };
+      `,
+      );
+
+      const schema = await SchemaLoader.loadSchema(jsonlPath, testDir);
+
+      expect(schema['~standard'].vendor).toBe('schema-dir');
+    });
+  });
+
+  describe('hasSchema', () => {
+    it('should look for the schema in schemaDir when given', async () => {
+      const dataDir = join(testDir, 'cogs');
+      await mkdir(dataDir);
+      const jsonlPath = join(dataDir, 'users.jsonl');
+      await writeFile(jsonlPath, '{"id":1}\n');
+      await writeFile(join(testDir, 'users.schema.ts'), 'export const schema = {};');
+
+      expect(await SchemaLoader.hasSchema(jsonlPath)).toBe(false);
+      expect(await SchemaLoader.hasSchema(jsonlPath, testDir)).toBe(true);
+    });
   });
 });
