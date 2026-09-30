@@ -908,6 +908,7 @@ export class LinesDB<Tables extends TableDefs> {
    */
   query<T = unknown>(sql: string, params: (string | number | bigint | null | Uint8Array)[] = []): Result<T[], Error> {
     try {
+      this.enforceReadOnlySql();
       return ok(this.queryInternal<T>(sql, params));
     } catch (error) {
       return err(toError(error));
@@ -927,6 +928,7 @@ export class LinesDB<Tables extends TableDefs> {
     params: (string | number | bigint | null | Uint8Array)[] = [],
   ): Result<T | null, Error> {
     try {
+      this.enforceReadOnlySql();
       return ok(this.queryOneInternal<T>(sql, params));
     } catch (error) {
       return err(toError(error));
@@ -950,6 +952,7 @@ export class LinesDB<Tables extends TableDefs> {
     params: (string | number | bigint | null | Uint8Array)[] = [],
   ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
     try {
+      this.enforceReadOnlySql();
       return ok(this.executeInternal(sql, params));
     } catch (error) {
       return err(toError(error));
@@ -1725,6 +1728,16 @@ export class LinesDB<Tables extends TableDefs> {
    */
   private hasSeveralDataDirs(): boolean {
     return typeof this.config.dataDir !== 'string' && this.config.dataDir.length > 1;
+  }
+
+  /**
+   * Turn query_only back on before running a caller's SQL, since an earlier call may have run
+   * `PRAGMA query_only = OFF`
+   */
+  private enforceReadOnlySql(): void {
+    if (this.hasSeveralDataDirs()) {
+      this.db.exec('PRAGMA query_only = ON');
+    }
   }
 
   private assertWritable(tableName?: string): void {

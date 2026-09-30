@@ -280,6 +280,18 @@ describe('data sets', () => {
       expect(count).toBe(2);
     });
 
+    it('rejects a write made after turning query_only off through execute', async () => {
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      unwrap(await db.initialize());
+      unwrap(db.execute('PRAGMA query_only = OFF'));
+      const result = db.execute('DELETE FROM Item');
+      const count = unwrap(db.find('Item')).length;
+      await db.close();
+
+      expect(!result.ok && result.error.message).toMatch(/readonly database/);
+      expect(count).toBe(2);
+    });
+
     it('runs a transaction that only reads', async () => {
       const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
       unwrap(await db.initialize());
