@@ -8,8 +8,8 @@ export class DirectoryScanner {
    * A table found in several directories lists its files in the order the directories are given.
    */
   static async scanDirectory(dataDir: string | readonly string[]): Promise<Map<string, TableConfig>> {
-    const tables = new Map<string, TableConfig>();
     const dataDirs = typeof dataDir === 'string' ? [dataDir] : dataDir;
+    const jsonlPathsByTable = new Map<string, string[]>();
 
     for (const dir of dataDirs) {
       let files: string[];
@@ -22,26 +22,21 @@ export class DirectoryScanner {
       for (const file of files) {
         if (extname(file) === '.jsonl') {
           const tableName = basename(file, '.jsonl');
-          const jsonlPath = join(dir, file);
-          const existing = tables.get(tableName);
-
-          if (existing) {
-            existing.jsonlPaths = [...(existing.jsonlPaths ?? [existing.jsonlPath]), jsonlPath];
-          } else {
-            tables.set(tableName, {
-              jsonlPath,
-              jsonlPaths: [jsonlPath],
-              autoInferSchema: true,
-            });
-          }
+          const jsonlPaths = jsonlPathsByTable.get(tableName) ?? [];
+          jsonlPaths.push(join(dir, file));
+          jsonlPathsByTable.set(tableName, jsonlPaths);
         }
       }
     }
 
-    if (tables.size === 0) {
+    if (jsonlPathsByTable.size === 0) {
       console.warn(`Warning: No JSONL files found in directory: ${dataDirs.join(', ')}`);
     }
 
+    const tables = new Map<string, TableConfig>();
+    for (const [tableName, jsonlPaths] of jsonlPathsByTable) {
+      tables.set(tableName, { jsonlPath: jsonlPaths[0], jsonlPaths, autoInferSchema: true });
+    }
     return tables;
   }
 }
