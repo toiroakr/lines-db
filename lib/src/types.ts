@@ -105,6 +105,11 @@ export type ExtractTables<Config> = Config extends {
 
 export interface TableConfig {
   jsonlPath: string;
+  /**
+   * Every JSONL file the table's rows are read from, concatenated in this order.
+   * Defaults to `[jsonlPath]`.
+   */
+  jsonlPaths?: readonly string[];
   schema?: TableSchema;
   autoInferSchema?: boolean;
   validationSchema?: StandardSchema; // Optional validation schema

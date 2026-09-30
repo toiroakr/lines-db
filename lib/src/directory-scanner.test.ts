@@ -85,5 +85,39 @@ describe('DirectoryScanner', () => {
       expect(tables.size).toBe(1);
       expect(tables.has('test.backup')).toBe(true);
     });
+
+    describe('with several directories', () => {
+      let setDir: string;
+
+      beforeEach(async () => {
+        setDir = join(testDir, 'cogs');
+        await mkdir(setDir);
+      });
+
+      it('should find the union of the tables in every directory', async () => {
+        await writeFile(join(testDir, 'Item.jsonl'), '{"id":1}\n');
+        await writeFile(join(setDir, 'ItemValuation.jsonl'), '{"id":1}\n');
+
+        const tables = await DirectoryScanner.scanDirectory([testDir, setDir]);
+
+        expect([...tables.keys()].sort()).toEqual(['Item', 'ItemValuation']);
+      });
+
+      it('should list every file of a same-named table in directory order', async () => {
+        await writeFile(join(testDir, 'Item.jsonl'), '{"id":1}\n');
+        await writeFile(join(setDir, 'Item.jsonl'), '{"id":2}\n');
+
+        const tables = await DirectoryScanner.scanDirectory([setDir, testDir]);
+
+        expect(tables.get('Item')?.jsonlPaths).toEqual([join(setDir, 'Item.jsonl'), join(testDir, 'Item.jsonl')]);
+        expect(tables.get('Item')?.jsonlPath).toBe(join(setDir, 'Item.jsonl'));
+      });
+
+      it('should throw when one of the directories does not exist', async () => {
+        await expect(DirectoryScanner.scanDirectory([testDir, join(testDir, 'nonexistent')])).rejects.toThrow(
+          'Failed to scan directory',
+        );
+      });
+    });
   });
 });
