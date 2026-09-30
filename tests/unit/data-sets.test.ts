@@ -252,6 +252,22 @@ describe('data sets', () => {
       expect(errors).toHaveLength(1);
     });
 
+    it('returns the sync error from a transaction, whose changes stay committed in the database only', async () => {
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      unwrap(await db.initialize());
+      const result = await db.transaction((tx) => {
+        unwrap(tx.insert('Item', { id: 5, name: 'Spring' }));
+      });
+      const spring = unwrap(db.findOne('Item', { id: 5 }));
+      await db.close();
+
+      expect(!result.ok && result.error.message).toMatch(/writing back is not supported/);
+      expect(spring).toMatchObject({ name: 'Spring' });
+      expect(await readFile(join(rootDir, 'Item.jsonl'), 'utf-8')).toBe(
+        '{"id":1,"name":"Bolt"}\n{"id":2,"name":"Nut"}\n',
+      );
+    });
+
     it('looks for a schema next to each of the table files when schemaDir is unset', async () => {
       await writeFile(join(cogsDir, 'Part.schema.ts'), schemaSource({ requireName: true }));
       await writeFile(join(rootDir, 'Part.jsonl'), '{"id":1,"name":"Gear"}\n');

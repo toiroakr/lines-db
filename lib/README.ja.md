@@ -509,6 +509,7 @@ const result = unwrap(await db.initialize({ detailedValidate: true }));
 複数のファイルから組み立てたテーブルの行には書き戻し先のファイルが1つに定まらないため、
 `dataDir` に複数のディレクトリを指定した場合 `sync()` はエラーになります。`insert` / `update` / `delete` の後の
 自動同期も同様で、エラーをログに出力してファイルは変更しません。
+`transaction()` は変更をデータベースにコミットしたうえで、そのエラーを返します。
 
 ## 型マッピング
 
