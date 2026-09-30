@@ -6,7 +6,7 @@ import { DirectoryScanner } from './directory-scanner.js';
 import { hasBackward } from './schema.js';
 import { mergeFields } from './merge-fields.js';
 import { findSchemaFile } from './schema-extensions.js';
-import { dirname, basename } from 'node:path';
+import { dirname } from 'node:path';
 import type {
   DatabaseConfig,
   TableSchema,
@@ -46,6 +46,12 @@ export interface SyncOptions {
  */
 type InternalSyncOptions = SyncOptions & { strictFields?: boolean };
 
+/** The JSONL file a row was read from, and its index among that file's rows */
+interface RowOrigin {
+  file: string;
+  rowIndex: number;
+}
+
 export class LinesDB<Tables extends TableDefs> {
   private db: SQLiteDatabase;
   private config: DatabaseConfig<Tables>;
@@ -56,6 +62,8 @@ export class LinesDB<Tables extends TableDefs> {
   private syncQueue: Map<string, Promise<void>> = new Map();
   /** The order a table's schema declares its fields in, as the rows it computes list them */
   private keyOrders: Map<string, Set<string>> = new Map();
+  /** The row each rowid was inserted from, per table loaded with detailed validation */
+  private rowOriginsByRowid: Map<string, Map<string, RowOrigin>> = new Map();
 
   private constructor(config: DatabaseConfig<Tables>, dbPath?: string) {
     this.config = config;
@@ -92,6 +100,28 @@ export class LinesDB<Tables extends TableDefs> {
     detailedValidate?: boolean;
     transform?: (row: JsonObject) => JsonObject;
   }): Promise<ValidationResult> {
+    if (this.hasSeveralDataDirs() && !this.config.schemaDir) {
+      throw new Error(
+        'schemaDir is required when dataDir lists several directories: a data set directory does not hold the schemas of its tables',
+      );
+    }
+
+    this.db.exec('PRAGMA query_only = OFF');
+    try {
+      return await this.loadTables(options);
+    } finally {
+      // Raw SQL through execute() or query() must not change a database whose changes cannot be written back
+      if (this.hasSeveralDataDirs()) {
+        this.db.exec('PRAGMA query_only = ON');
+      }
+    }
+  }
+
+  private async loadTables(options?: {
+    tableName?: string;
+    detailedValidate?: boolean;
+    transform?: (row: JsonObject) => JsonObject;
+  }): Promise<ValidationResult> {
     const allErrors: ValidationErrorDetail[] = [];
     const allWarnings: string[] = [];
     const allRowCounts = new Map<string, number>();
@@ -108,7 +138,8 @@ export class LinesDB<Tables extends TableDefs> {
     // Validate that all requested tables exist BEFORE starting to load
     for (const tableNameToLoad of tablesToLoad) {
       if (!this.tables.has(tableNameToLoad)) {
-        throw new Error(`Table '${tableNameToLoad}' not found in directory '${this.config.dataDir}'`);
+        const dataDirs = [this.config.dataDir].flat().map((dir) => `'${dir}'`);
+        throw new Error(`Table '${tableNameToLoad}' not found in directory ${dataDirs.join(', ')}`);
       }
     }
 
@@ -240,10 +271,7 @@ export class LinesDB<Tables extends TableDefs> {
 
       try {
         const { pathToFileURL } = await import('node:url');
-        const schemaPath = await findSchemaFile(
-          dirname(tableConfig.jsonlPath),
-          basename(tableConfig.jsonlPath, '.jsonl'),
-        );
+        const schemaPath = await this.findTableSchemaFile(tableName, tableConfig);
         if (schemaPath) {
           const schemaUrl = pathToFileURL(schemaPath).href;
           const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
@@ -360,6 +388,13 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
+   * Find the schema file of a table in schemaDir, or next to the table's JSONL file when unset
+   */
+  private async findTableSchemaFile(tableName: string, config: TableConfig): Promise<string | undefined> {
+    return findSchemaFile(this.config.schemaDir ?? dirname(config.jsonlPath), tableName);
+  }
+
+  /**
    * Load a single table from JSONL file
    * @returns Object with loaded status and validation errors
    */
@@ -370,12 +405,19 @@ export class LinesDB<Tables extends TableDefs> {
     transform?: (row: JsonObject) => JsonObject,
     failedDependencies?: Set<string>,
   ): Promise<{ loaded: boolean; rowCount: number; errors: ValidationErrorDetail[] }> {
-    // Read JSONL file
-    const readResult = await JsonlReader.read(config.jsonlPath);
-    if (!readResult.ok) {
-      throw readResult.error;
+    // Read every JSONL file of the table, remembering where each row came from
+    let data: JsonObject[] = [];
+    const origins: RowOrigin[] = [];
+    for (const jsonlPath of config.jsonlPaths ?? [config.jsonlPath]) {
+      const readResult = await JsonlReader.read(jsonlPath);
+      if (!readResult.ok) {
+        throw readResult.error;
+      }
+      readResult.value.forEach((row, rowIndex) => {
+        data.push(row);
+        origins.push({ file: jsonlPath, rowIndex });
+      });
     }
-    let data = readResult.value;
 
     // Apply transform if provided (before validation)
     if (transform) {
@@ -390,9 +432,10 @@ export class LinesDB<Tables extends TableDefs> {
       indexes?: BiDirectionalSchema['indexes'];
     } = {};
 
-    if (!validationSchema) {
+    const schemaPath = config.validationSchema ? undefined : await this.findTableSchemaFile(tableName, config);
+    if (!validationSchema && schemaPath) {
       try {
-        validationSchema = await SchemaLoader.loadSchema(config.jsonlPath);
+        validationSchema = await SchemaLoader.loadSchema(config.jsonlPath, dirname(schemaPath));
       } catch (_error) {
         // Schema file not found or failed to load - this is OK, table can still be used without validation
       }
@@ -404,7 +447,6 @@ export class LinesDB<Tables extends TableDefs> {
       // Only load if not already provided via config
       try {
         const { pathToFileURL } = await import('node:url');
-        const schemaPath = await findSchemaFile(dirname(config.jsonlPath), basename(config.jsonlPath, '.jsonl'));
         if (!schemaPath) throw new Error('Schema file not found');
         const schemaUrl = pathToFileURL(schemaPath).href;
         const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
@@ -483,9 +525,8 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Convert validation errors to ValidationErrorDetail format
     const validationErrorDetails: ValidationErrorDetail[] = validationErrors.map((ve) => ({
-      file: config.jsonlPath,
+      ...origins[ve.rowIndex],
       tableName,
-      rowIndex: ve.rowIndex,
       issues: ve.error.issues,
       type: 'schema' as const,
     }));
@@ -576,7 +617,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Insert validated data (with detailed validation if requested)
     if (detailedValidate) {
-      const insertErrors = this.insertDataWithDetailedValidation(tableName, schema, validatedData, config.jsonlPath);
+      const insertErrors = this.insertDataWithDetailedValidation(tableName, schema, validatedData, origins);
       if (insertErrors.length > 0) {
         return { loaded: false, rowCount: data.length, errors: insertErrors };
       }
@@ -721,7 +762,7 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: string,
     schema: TableSchema,
     data: JsonObject[],
-    filePath: string,
+    origins: RowOrigin[],
   ): ValidationErrorDetail[] {
     const errors: ValidationErrorDetail[] = [];
     const columnNames = schema.columns.map((col) => col.name);
@@ -730,19 +771,22 @@ export class LinesDB<Tables extends TableDefs> {
     const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
 
     const stmt = this.db.prepare(sql);
+    const rowOrigins = new Map<string, RowOrigin>();
+    this.rowOriginsByRowid.set(tableName, rowOrigins);
 
     for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
       const row = data[rowIndex];
       try {
         const values = columnNames.map((col) => this.normalizeValue(row[col]));
-        stmt.run(...values);
+        const { lastInsertRowid } = stmt.run(...values);
+        rowOrigins.set(String(lastInsertRowid), origins[rowIndex]);
       } catch (error) {
         // Constraint violation occurred - analyze and record details
         const constraintError = this.analyzeConstraintError(
           error,
-          filePath,
+          origins[rowIndex].file,
           tableName,
-          rowIndex,
+          origins[rowIndex].rowIndex,
           row,
           schema.foreignKeys || [],
         );
@@ -833,15 +877,15 @@ export class LinesDB<Tables extends TableDefs> {
     const quotedRefColumn = this.quoteIdentifier(fk.references.column);
 
     // Find rows where the FK value does not exist in the referenced table
-    const sql = `SELECT rowid - 1 as idx, ${quotedColumn} as val FROM ${quotedTable} WHERE ${quotedColumn} IS NOT NULL AND ${quotedColumn} NOT IN (SELECT ${quotedRefColumn} FROM ${quotedRefTable})`;
+    const sql = `SELECT rowid as rid, ${quotedColumn} as val FROM ${quotedTable} WHERE ${quotedColumn} IS NOT NULL AND ${quotedColumn} NOT IN (SELECT ${quotedRefColumn} FROM ${quotedRefTable})`;
 
     try {
-      const rows = this.queryInternal<{ idx: number; val: string | number }>(sql);
+      const rows = this.queryInternal<{ rid: number | bigint; val: string | number }>(sql);
+      const rowOrigins = this.rowOriginsByRowid.get(tableName);
       for (const row of rows) {
         errors.push({
-          file: filePath,
+          ...(rowOrigins?.get(String(row.rid)) ?? { file: filePath, rowIndex: Number(row.rid) - 1 }),
           tableName,
-          rowIndex: row.idx,
           issues: [],
           type: 'foreignKey',
           foreignKeyError: {
@@ -864,6 +908,7 @@ export class LinesDB<Tables extends TableDefs> {
    */
   query<T = unknown>(sql: string, params: (string | number | bigint | null | Uint8Array)[] = []): Result<T[], Error> {
     try {
+      this.enforceReadOnlySql();
       return ok(this.queryInternal<T>(sql, params));
     } catch (error) {
       return err(toError(error));
@@ -883,6 +928,7 @@ export class LinesDB<Tables extends TableDefs> {
     params: (string | number | bigint | null | Uint8Array)[] = [],
   ): Result<T | null, Error> {
     try {
+      this.enforceReadOnlySql();
       return ok(this.queryOneInternal<T>(sql, params));
     } catch (error) {
       return err(toError(error));
@@ -906,6 +952,7 @@ export class LinesDB<Tables extends TableDefs> {
     params: (string | number | bigint | null | Uint8Array)[] = [],
   ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
     try {
+      this.enforceReadOnlySql();
       return ok(this.executeInternal(sql, params));
     } catch (error) {
       return err(toError(error));
@@ -1141,6 +1188,8 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     data: Tables[K],
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    this.assertWritable(tableName);
+
     // Validate if schema exists
     this.validateData(tableName, data);
 
@@ -1185,6 +1234,8 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     records: Tables[K][],
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    this.assertWritable(tableName);
+
     const schema = this.schemas.get(tableName);
     if (!schema) {
       throw new Error(`Table ${tableName} does not exist`);
@@ -1249,6 +1300,8 @@ export class LinesDB<Tables extends TableDefs> {
     where: WhereCondition<Tables[K]>,
     options?: { validate?: boolean },
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    this.assertWritable(tableName);
+
     const schema = this.schemas.get(tableName);
     if (!schema) {
       throw new Error(`Table ${tableName} does not exist`);
@@ -1316,6 +1369,8 @@ export class LinesDB<Tables extends TableDefs> {
     records: Array<Partial<Tables[K]> & Record<string, unknown>>,
     options?: { validate?: boolean },
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    this.assertWritable(tableName);
+
     const schema = this.schemas.get(tableName);
     if (!schema) {
       throw new Error(`Table ${tableName} does not exist`);
@@ -1454,6 +1509,8 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     where: WhereCondition<Tables[K]>,
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    this.assertWritable(tableName);
+
     const schema = this.schemas.get(tableName);
     if (!schema) {
       throw new Error(`Table ${tableName} does not exist`);
@@ -1496,6 +1553,8 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     records: Array<Partial<Tables[K]> & Record<string, unknown>>,
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    this.assertWritable(tableName);
+
     const schema = this.schemas.get(tableName);
     if (!schema) {
       throw new Error(`Table ${tableName} does not exist`);
@@ -1664,6 +1723,33 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
+   * A database composed from several data directories is read-only: the rows of its tables have no
+   * single file to be written back to
+   */
+  private hasSeveralDataDirs(): boolean {
+    return typeof this.config.dataDir !== 'string' && this.config.dataDir.length > 1;
+  }
+
+  /**
+   * Turn query_only back on before running a caller's SQL, since an earlier call may have run
+   * `PRAGMA query_only = OFF`
+   */
+  private enforceReadOnlySql(): void {
+    if (this.hasSeveralDataDirs()) {
+      this.db.exec('PRAGMA query_only = ON');
+    }
+  }
+
+  private assertWritable(tableName?: string): void {
+    if (this.hasSeveralDataDirs()) {
+      const target = tableName ? `table '${tableName}'` : 'the database';
+      throw new Error(
+        `Cannot write to ${target}: dataDir lists several directories, so its rows have no single file to be written back to`,
+      );
+    }
+  }
+
+  /**
    * Sync a specific table back to its JSONL file
    * Syncs of the same table run one after another: auto-sync is fire-and-forget, and a write-back
    * that reads the file first must never see a file another sync is halfway through writing.
@@ -1685,6 +1771,8 @@ export class LinesDB<Tables extends TableDefs> {
    * Uses backward transformation when available
    */
   private async writeTable(tableName: string, options?: InternalSyncOptions): Promise<void> {
+    this.assertWritable(tableName);
+
     const tableConfig = this.tables.get(tableName);
     if (!tableConfig) {
       throw new Error(`Table ${tableName} not found`);
@@ -1862,6 +1950,8 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   private async syncInternal(tableName?: string, options?: SyncOptions): Promise<void> {
+    this.assertWritable(tableName);
+
     if (tableName) {
       // Sync only the specified table
       if (!this.schemas.has(tableName)) {
@@ -1899,8 +1989,10 @@ export class LinesDB<Tables extends TableDefs> {
       this.db.exec('COMMIT');
       this.inTransaction = false;
 
-      // Sync all tables after successful commit
-      await this.syncInternal();
+      // Sync all tables after successful commit; a read-only database has no changes to write back
+      if (!this.hasSeveralDataDirs()) {
+        await this.syncInternal();
+      }
 
       return ok(result);
     } catch (error) {
