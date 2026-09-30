@@ -235,6 +235,16 @@ describe('data sets', () => {
       expect(!result.ok && result.error.message).toBe(readOnlyMessage);
     });
 
+    it('rejects a sync of every table even when no table is loaded yet', async () => {
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      const result = await db.sync();
+      await db.close();
+
+      expect(!result.ok && result.error.message).toBe(
+        'Cannot write to the database: dataDir lists several directories, so its rows have no single file to be written back to',
+      );
+    });
+
     it.each([
       ['insert', (db: LinesDB<TableDefs>) => db.insert('Item', { id: 5, name: 'Spring' })],
       ['batchInsert', (db: LinesDB<TableDefs>) => db.batchInsert('Item', [{ id: 5, name: 'Spring' }])],

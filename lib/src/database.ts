@@ -1727,10 +1727,11 @@ export class LinesDB<Tables extends TableDefs> {
     return typeof this.config.dataDir !== 'string' && this.config.dataDir.length > 1;
   }
 
-  private assertWritable(tableName: string): void {
+  private assertWritable(tableName?: string): void {
     if (this.hasSeveralDataDirs()) {
+      const target = tableName ? `table '${tableName}'` : 'the database';
       throw new Error(
-        `Cannot write to table '${tableName}': dataDir lists several directories, so its rows have no single file to be written back to`,
+        `Cannot write to ${target}: dataDir lists several directories, so its rows have no single file to be written back to`,
       );
     }
   }
@@ -1936,6 +1937,8 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   private async syncInternal(tableName?: string, options?: SyncOptions): Promise<void> {
+    this.assertWritable(tableName);
+
     if (tableName) {
       // Sync only the specified table
       if (!this.schemas.has(tableName)) {
