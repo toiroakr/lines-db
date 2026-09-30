@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { LinesDB } from '../../lib/src/database.js';
 import { unwrap } from '../../lib/src/result.js';
-import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { writeFile, mkdir, rm, readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -220,6 +220,36 @@ describe('data sets', () => {
       expect(!result.ok && result.error.message).toBe(
         `Table 'Missing' not found in directory '${rootDir}', '${cogsDir}'`,
       );
+    });
+
+    it('rejects a sync, since a row has no single file to be written back to', async () => {
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      unwrap(await db.initialize());
+      const result = await db.sync('Item');
+      await db.close();
+
+      expect(!result.ok && result.error.message).toBe(
+        "Cannot sync table 'Item': writing back is not supported when dataDir lists several directories",
+      );
+    });
+
+    it('leaves the JSONL files untouched when a mutation would sync them', async () => {
+      const errors: unknown[] = [];
+      const originalError = console.error;
+      console.error = (...args: unknown[]) => errors.push(args);
+      try {
+        const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+        unwrap(await db.initialize());
+        unwrap(db.insert('Item', { id: 5, name: 'Spring' }));
+        await db.close();
+      } finally {
+        console.error = originalError;
+      }
+
+      expect(await readFile(join(rootDir, 'Item.jsonl'), 'utf-8')).toBe(
+        '{"id":1,"name":"Bolt"}\n{"id":2,"name":"Nut"}\n',
+      );
+      expect(errors).toHaveLength(1);
     });
 
     it('looks for a schema next to each of the table files when schemaDir is unset', async () => {

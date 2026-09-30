@@ -1716,6 +1716,12 @@ export class LinesDB<Tables extends TableDefs> {
    * Uses backward transformation when available
    */
   private async writeTable(tableName: string, options?: InternalSyncOptions): Promise<void> {
+    if (typeof this.config.dataDir !== 'string' && this.config.dataDir.length > 1) {
+      throw new Error(
+        `Cannot sync table '${tableName}': writing back is not supported when dataDir lists several directories`,
+      );
+    }
+
     const tableConfig = this.tables.get(tableName);
     if (!tableConfig) {
       throw new Error(`Table ${tableName} not found`);
