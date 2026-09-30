@@ -100,6 +100,22 @@ export class LinesDB<Tables extends TableDefs> {
     detailedValidate?: boolean;
     transform?: (row: JsonObject) => JsonObject;
   }): Promise<ValidationResult> {
+    this.db.exec('PRAGMA query_only = OFF');
+    try {
+      return await this.loadTables(options);
+    } finally {
+      // Raw SQL through execute() or query() must not change a database whose changes cannot be written back
+      if (!this.isWritable()) {
+        this.db.exec('PRAGMA query_only = ON');
+      }
+    }
+  }
+
+  private async loadTables(options?: {
+    tableName?: string;
+    detailedValidate?: boolean;
+    transform?: (row: JsonObject) => JsonObject;
+  }): Promise<ValidationResult> {
     const allErrors: ValidationErrorDetail[] = [];
     const allWarnings: string[] = [];
     const allRowCounts = new Map<string, number>();

@@ -508,7 +508,8 @@ const result = unwrap(await db.initialize({ detailedValidate: true }));
 
 複数のファイルから組み立てたテーブルの行には書き戻し先のファイルが1つに定まらないため、
 `dataDir` に複数のディレクトリを指定したデータベースは読み取り専用になります。`insert` / `update` / `delete`、
-それぞれの `batch*` 版、および `sync()` は、データベースもファイルも変更せずにエラーを返します。
+それぞれの `batch*` 版、`sync()`、および `execute()` / `query()` で書き込む SQL は、
+データベースもファイルも変更せずにエラーを返します。
 
 ## 型マッピング
 

@@ -511,7 +511,8 @@ and without it, a table's schema is looked up next to each of its JSONL files.
 
 Rows of a table composed from several files have no single file to be written back to, so a database
 whose `dataDir` lists several directories is read-only: `insert`, `update`, `delete`, their `batch*`
-forms and `sync()` return an error without changing the database or the files.
+forms, `sync()`, and SQL that writes through `execute()` or `query()` return an error without changing
+the database or the files.
 
 ## Type Mapping
 

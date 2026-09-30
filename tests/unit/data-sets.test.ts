@@ -256,6 +256,20 @@ describe('data sets', () => {
       );
     });
 
+    it.each([
+      ['execute', (db: LinesDB<TableDefs>) => db.execute('DELETE FROM Item')],
+      ['query', (db: LinesDB<TableDefs>) => db.query('DELETE FROM Item RETURNING id')],
+    ])('rejects SQL that writes through %s', async (_, write) => {
+      const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
+      unwrap(await db.initialize());
+      const result = write(db);
+      const count = unwrap(db.find('Item')).length;
+      await db.close();
+
+      expect(!result.ok && result.error.message).toMatch(/readonly database/);
+      expect(count).toBe(2);
+    });
+
     it('runs a transaction that only reads', async () => {
       const db = LinesDB.create({ dataDir: [rootDir, cogsDir], schemaDir: rootDir });
       unwrap(await db.initialize());
