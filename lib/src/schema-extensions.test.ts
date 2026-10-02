@@ -7,7 +7,7 @@ import {
   findSchemaFileInEntries,
   SCHEMA_EXTENSIONS,
 } from './schema-extensions.js';
-import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -73,8 +73,7 @@ describe('schema-extensions', () => {
     let testDir: string;
 
     beforeEach(async () => {
-      testDir = join(tmpdir(), `schema-ext-test-${Date.now()}`);
-      await mkdir(testDir, { recursive: true });
+      testDir = await mkdtemp(join(tmpdir(), 'schema-ext-test-'));
     });
 
     afterEach(async () => {

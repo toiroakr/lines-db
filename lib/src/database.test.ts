@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { LinesDB } from './database.js';
 import { unwrap } from './result.js';
 import type { DatabaseConfig, JsonlParseError } from './types.js';
-import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -22,8 +22,7 @@ export const schema = defineSchema(rawSchema);
   };
 
   beforeEach(async () => {
-    testDir = join(tmpdir(), `linesdb-test-${Date.now()}`);
-    await mkdir(testDir, { recursive: true });
+    testDir = await mkdtemp(join(tmpdir(), 'linesdb-test-'));
   });
 
   afterEach(async () => {

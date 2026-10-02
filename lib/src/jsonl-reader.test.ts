@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { JsonlReader } from './jsonl-reader.js';
 import { unwrap } from './result.js';
 import type { JsonlParseError } from './types.js';
-import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -11,8 +11,7 @@ describe('JsonlReader', () => {
   let testFilePath: string;
 
   beforeEach(async () => {
-    testDir = join(tmpdir(), `jsonl-test-${Date.now()}`);
-    await mkdir(testDir, { recursive: true });
+    testDir = await mkdtemp(join(tmpdir(), 'jsonl-test-'));
     testFilePath = join(testDir, 'test.jsonl');
   });
 
