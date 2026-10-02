@@ -112,7 +112,8 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
       const gained = fields.filter((field) => {
         if (isBlank(ownValue(computed, field))) return false;
         produced.add(field);
-        return isBlank(ownValue(line.row!, field));
+        // Not judged by isBlank: a value the line holds, even {}, is one the file already has
+        return ownValue(line.row!, field) === undefined || ownValue(line.row!, field) === null;
       });
       if (gained.length === 0) return;
       for (const field of gained) {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -147,6 +147,25 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
     await write((tx) => unwrap(tx.update('renamed', { fullName: 'Alicia' }, { id: 1 })));
 
     expect(await readFile(join(dataDir, 'renamed.jsonl'), 'utf-8')).toBe('{"id":1,"full_name":"Alicia"}\n');
+  });
+
+  it('keeps writing the fields a migration transform set after a transaction that wrote them failed', async () => {
+    await writeFile(peoplePath(), '{"id":"a","name":"Alice"}\n');
+    await writeFile(join(dataDir, 'people.schema.ts'), DEFAULTS_SCHEMA);
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize({ tableName: 'people', transform: (row) => ({ ...row, nickname: 'Ali' }) }));
+    const exec = db.getDb().exec.bind(db.getDb());
+    const spy = vi.spyOn(db.getDb(), 'exec').mockImplementation((sql: string) => {
+      if (sql === 'COMMIT') throw new Error('COMMIT failed');
+      return exec(sql);
+    });
+    const failed = await db.transaction((tx) => unwrap(tx.update('people', { name: 'Alicia' }, { id: 'a' })));
+    spy.mockRestore();
+    expect(failed.ok).toBe(false);
+
+    unwrap(await db.sync('people'));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice","nickname":"Ali"}\n');
   });
 
   it('writes the fields a migration transform set while loading', async () => {

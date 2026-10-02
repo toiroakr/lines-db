@@ -2148,8 +2148,9 @@ export class LinesDB<Tables extends TableDefs> {
     const written: PreparedWriteBack[] = [];
     try {
       for (const table of prepared) {
-        await this.writePrepared(table);
+        // Counted as written before the write: a write that fails can still have truncated the file
         written.push(table);
+        await this.writePrepared(table);
       }
     } catch (error) {
       await this.restoreAll(written);
@@ -2394,6 +2395,11 @@ export class LinesDB<Tables extends TableDefs> {
 
   private async syncInternal(tableName?: string, options?: SyncOptions): Promise<void> {
     this.assertWritable(tableName);
+    if (this.inTransaction) {
+      throw new Error(
+        'sync() is not supported inside a transaction: the transaction writes back the tables it changed once it commits, and a file written earlier would keep rows it rolls back',
+      );
+    }
 
     if (tableName) {
       // Sync only the specified table
@@ -2425,11 +2431,15 @@ export class LinesDB<Tables extends TableDefs> {
     }
 
     let fieldChangesBefore: Map<string, Map<string, FieldChanges>> | undefined;
+    let transformedFieldsBefore: Map<string, Set<string>> | undefined;
     let written: PreparedWriteBack[] = [];
     try {
       // Not beginning first: a pending auto-sync would then read, and write out, rows still uncommitted
       await this.waitForPendingSyncs();
       fieldChangesBefore = cloneFieldChanges(this.fieldChanges);
+      transformedFieldsBefore = new Map(
+        Array.from(this.transformedFields, ([name, fields]) => [name, new Set(fields)]),
+      );
       this.db.exec('BEGIN TRANSACTION');
       this.inTransaction = true;
       this.transactionChanges = new Set();
@@ -2450,6 +2460,7 @@ export class LinesDB<Tables extends TableDefs> {
     } catch (error) {
       this.transactionChanges = undefined;
       if (fieldChangesBefore) this.fieldChanges = fieldChangesBefore;
+      if (transformedFieldsBefore) this.transformedFields = transformedFieldsBefore;
       // Not only when writing a file fails: a COMMIT failing after the writes leaves files holding rolled-back rows
       await this.restoreAll(written);
       if (this.inTransaction) {

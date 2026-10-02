@@ -484,7 +484,9 @@ Once the callback is done, `transaction()` writes back the tables it changed thr
 checked before the first one is written, and a write-back that fails rolls the transaction back and
 puts the files it already wrote back to what they held, so the database keeps matching its files.
 Putting a file back is a write too; when that write fails as well, the file keeps the change. Tables the transaction did not change are left as they are; raw
-SQL through `tx.execute()` writes back every table, since the tables it changed are unknown.
+SQL through `tx.execute()` or `tx.query()` that changes rows writes back every table, since the
+tables it changed are unknown. `sync()` inside the callback fails: the transaction writes the files
+itself once the callback is done.
 
 ### Files Changed After Loading
 

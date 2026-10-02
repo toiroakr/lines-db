@@ -180,6 +180,22 @@ describe('fillFields', () => {
     expect(await readFile(widgetPath, 'utf-8')).toBe('{"name":"widget"}\n');
   });
 
+  it('leaves an empty object the line holds as it is, as it is a value the file already has', async () => {
+    const jsonlPath = await writeTable('Widget', ['{"id":"kept","profile":{}}']);
+    const before = await readFile(jsonlPath, 'utf-8');
+
+    const result = unwrap(
+      await fillFields({
+        path: dataDir,
+        fields: ['profile'],
+        loadFiller: () => (row) => ({ ...row, profile: { nickname: 'n' } }),
+      }),
+    );
+
+    expect(result.filled).toEqual([]);
+    expect(await readFile(jsonlPath, 'utf-8')).toBe(before);
+  });
+
   it('does not write an empty object for a nested field the row never had', async () => {
     const jsonlPath = await writeTable('Widget', ['{"name":"first"}']);
 

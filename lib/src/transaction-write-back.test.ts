@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { LinesDB } from './database.js';
+import { JsonlWriter } from './jsonl-writer.js';
 import { unwrap } from './result.js';
 import type { TableDefs } from './types.js';
 
@@ -140,5 +141,35 @@ describe('LinesDB.transaction write-back', () => {
 
     expect(result.ok).toBe(false);
     expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"a","tagId":1}\n');
+  });
+
+  it('puts back the file whose write failed partway, as a write can truncate it before failing', async () => {
+    const write = JsonlWriter.write.bind(JsonlWriter);
+    const spy = vi.spyOn(JsonlWriter, 'write').mockImplementation(async (path, rows) => {
+      if (path !== tagsPath()) return write(path, rows);
+      await writeFile(path, '{"id":1,"lab');
+      throw new Error('ENOSPC: no space left on device');
+    });
+    try {
+      const result = await db.transaction((tx) => {
+        unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+        unwrap(tx.update('tags', { label: 'X' }, { id: 1 }));
+      });
+
+      expect(result.ok).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await readFile(tagsPath(), 'utf-8')).toBe('{"id":1,"label":"x"}\n');
+  });
+
+  it('refuses a sync inside a transaction, as it would write rows the transaction may roll back', async () => {
+    const result = await db.transaction(async (tx) => {
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      unwrap(await tx.sync('items'));
+    });
+
+    expect(result.ok).toBe(false);
+    expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"a"}\n');
   });
 });
