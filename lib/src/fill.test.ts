@@ -9,13 +9,20 @@ import type { RowFiller } from './fill.js';
 import type { JsonObject } from './types.js';
 
 /** The file a rename onto fails, standing in for a disk that fails partway through the fill */
-const failing = vi.hoisted(() => ({ renameTo: undefined as string | undefined }));
+const failing = vi.hoisted(() => ({
+  renameTo: undefined as string | undefined,
+  writeTo: undefined as string | undefined,
+}));
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
   return {
     ...actual,
     rename: (from: string, to: string) =>
       to === failing.renameTo ? Promise.reject(new Error('EIO: i/o error')) : actual.rename(from, to),
+    writeFile: ((path: string, ...rest: unknown[]) =>
+      path === failing.writeTo
+        ? Promise.reject(new Error('EACCES: permission denied'))
+        : (actual.writeFile as (...args: unknown[]) => Promise<void>)(path, ...rest)) as typeof actual.writeFile,
   };
 });
 
@@ -108,6 +115,22 @@ describe('fillFields', () => {
     expect(await readLines(first)).toEqual(['{"name":"a"}', '']);
     expect(await readLines(second)).toEqual(['{"name":"b"}', '']);
     expect((await readdir(dataDir)).filter((entry) => entry.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('names a file it could not put back after a later replacement failed', async () => {
+    const first = await writeTable('Alpha', ['{"name":"a"}']);
+    const second = await writeTable('Beta', ['{"name":"b"}']);
+    failing.renameTo = second;
+    failing.writeTo = first;
+    try {
+      const result = await fillFields({ path: dataDir, loadFiller: useHook });
+
+      expect(!result.ok && result.error.message).toContain(first);
+      expect(!result.ok && (result.error.cause as Error).message).toBe('EIO: i/o error');
+    } finally {
+      failing.renameTo = undefined;
+      failing.writeTo = undefined;
+    }
   });
 
   it('fills the named fields, leaving a value the row already has alone', async () => {

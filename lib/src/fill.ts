@@ -172,9 +172,16 @@ async function replaceAll(writes: Array<{ file: string; read: string; content: s
       replaced.push(write);
     }
   } catch (error) {
-    for (const { file, read } of replaced) await writeFile(file, read, 'utf-8').catch(() => {});
+    const notRestored: string[] = [];
+    for (const { file, read } of replaced) {
+      await writeFile(file, read, 'utf-8').catch(() => notRestored.push(file));
+    }
     await Promise.all(staged.map(({ temporary }) => rm(temporary, { force: true })));
-    throw error;
+    if (notRestored.length === 0) throw error;
+    throw new Error(
+      `${toError(error).message}\nThese files could not be put back and stay filled: ${notRestored.join(', ')}`,
+      { cause: error },
+    );
   }
 }
 
