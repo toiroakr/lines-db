@@ -360,4 +360,70 @@ describe('LinesDB.transaction write-back', () => {
     expect(result.ok).toBe(true);
     expect(await readFile(tagsPath(), 'utf-8')).toBe('{"id":1,"label":"edited-in-editor"}\n');
   });
+  it('refuses a query() that changes rows while a transaction is starting, and still answers one that reads', async () => {
+    const started = db.transaction((tx) => void unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+    const write = db.query("UPDATE tags SET label = 'early' RETURNING id");
+    const writeOne = db.queryOne("UPDATE tags SET label = 'early' RETURNING id");
+    const read = db.query('SELECT label FROM tags');
+    unwrap(await started);
+
+    expect(write.ok).toBe(false);
+    expect(writeOne.ok).toBe(false);
+    expect(unwrap(read)).toEqual([{ label: 'x' }]);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('refuses SQL through getDb() while a transaction is starting, as its write-back would miss it', async () => {
+    const started = db.transaction((tx) => void unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+    const early = () => db.getDb().prepare('UPDATE tags SET label = ?').run('early');
+    expect(early).toThrow();
+    unwrap(await started);
+
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('writes back the records a batchInsert() inserted before a later one failed', async () => {
+    unwrap(
+      await db.transaction((tx) => {
+        // The caller goes on without the failed record, keeping the ones inserted before it
+        tx.batchInsert('tags', [
+          { id: 2, label: 'y' },
+          { id: 3, no_such_column: 1 },
+        ] as never);
+      }),
+    );
+
+    expect(await readFile(tagsPath(), 'utf-8')).toBe('{"id":1,"label":"x"}\n{"id":2,"label":"y"}\n');
+  });
+
+  it('refuses transaction control behind a leading comment', async () => {
+    const result = await db.transaction((tx) => {
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      expect(tx.execute('/* done */ COMMIT').ok).toBe(false);
+      expect(tx.execute('-- done\nCOMMIT').ok).toBe(false);
+    });
+
+    expect(result.ok).toBe(true);
+    expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"A"}\n');
+  });
+
+  it('keeps a field its schema does not know on a row whose deletion was rolled back', async () => {
+    await db.close();
+    await writeFile(itemsPath(), '{"id":1,"name":"a","note":"kept"}\n');
+    await writeFile(
+      join(dataDir, 'items.schema.ts'),
+      "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: { id: data.id, name: data.name } }) } };\n",
+    );
+    db = LinesDB.create<TableDefs>({ dataDir });
+    unwrap(await db.initialize());
+
+    const rolledBack = await db.transaction((tx) => {
+      unwrap(tx.delete('items', { id: 1 }));
+      throw new Error('changed my mind');
+    });
+    unwrap(await db.transaction((tx) => void unwrap(tx.update('items', { name: 'B' }, { id: 1 }))));
+
+    expect(rolledBack.ok).toBe(false);
+    expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"B","note":"kept"}\n');
+  });
 });

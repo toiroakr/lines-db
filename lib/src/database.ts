@@ -1051,7 +1051,7 @@ export class LinesDB<Tables extends TableDefs> {
     try {
       this.enforceReadOnlySql();
       this.refuseTransactionControl(sql);
-      return ok(this.trackRawSql(() => this.queryInternal<T>(sql, params)));
+      return ok(this.trackRawSql(() => this.readOnlyWhileTransactionSettles(() => this.queryInternal<T>(sql, params))));
     } catch (error) {
       return err(toError(error));
     }
@@ -1072,7 +1072,9 @@ export class LinesDB<Tables extends TableDefs> {
     try {
       this.enforceReadOnlySql();
       this.refuseTransactionControl(sql);
-      return ok(this.trackRawSql(() => this.queryOneInternal<T>(sql, params)));
+      return ok(
+        this.trackRawSql(() => this.readOnlyWhileTransactionSettles(() => this.queryOneInternal<T>(sql, params))),
+      );
     } catch (error) {
       return err(toError(error));
     }
@@ -1411,23 +1413,26 @@ export class LinesDB<Tables extends TableDefs> {
     let totalChanges = 0n;
     let lastRowid = 0n;
 
-    for (const record of records) {
-      const row = this.validateAndTransform(tableName, record);
+    // Not only once every record went in: the caller may go on after a failed one, keeping those before it
+    try {
+      for (const record of records) {
+        const row = this.validateAndTransform(tableName, record);
 
-      const columnNames = Object.keys(row);
-      const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
-      const placeholders = columnNames.map(() => '?').join(', ');
-      const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
+        const columnNames = Object.keys(row);
+        const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
+        const placeholders = columnNames.map(() => '?').join(', ');
+        const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
 
-      const values = columnNames.map((col) => this.normalizeValue(row[col]));
+        const values = columnNames.map((col) => this.normalizeValue(row[col]));
 
-      const result = this.executeInternal(sql, values);
-      this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(record), inserted: true });
-      totalChanges += BigInt(result.changes);
-      lastRowid = BigInt(result.lastInsertRowid);
+        const result = this.executeInternal(sql, values);
+        this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(record), inserted: true });
+        totalChanges += BigInt(result.changes);
+        lastRowid = BigInt(result.lastInsertRowid);
+      }
+    } finally {
+      this.afterWrite(tableName, totalChanges);
     }
-
-    this.afterWrite(tableName, totalChanges);
 
     return {
       changes: totalChanges,
@@ -1952,7 +1957,8 @@ export class LinesDB<Tables extends TableDefs> {
    */
   private refuseTransactionControl(sql: string): void {
     if (!this.inTransaction) return;
-    if (/^\s*(BEGIN|COMMIT|END|ROLLBACK(?!\s+(TRANSACTION\s+)?TO\b))\b/i.test(sql)) {
+    const leadingComments = /^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?(?:\*\/|$))*/;
+    if (/^(BEGIN|COMMIT|END|ROLLBACK(?!\s+(TRANSACTION\s+)?TO\b))\b/i.test(sql.replace(leadingComments, ''))) {
       throw new Error(
         `'${sql.trim()}' would end the transaction before its files are written back; return from the callback to commit, or throw to roll back`,
       );
@@ -1984,6 +1990,23 @@ export class LinesDB<Tables extends TableDefs> {
       throw new Error(
         `Cannot ${action} while a transaction writes its files back; ${action.split(' ')[0]} once it has finished`,
       );
+    }
+  }
+
+  /**
+   * Run a query() with the database read-only while a transaction starts or writes its files back.
+   * Not refused outright as execute() is: a query that only reads changes nothing the files would miss
+   */
+  private readOnlyWhileTransactionSettles<T>(run: () => T): T {
+    if (!this.transactionStarting && !this.transactionClosing) return run();
+    this.db.exec('PRAGMA query_only = ON');
+    try {
+      return run();
+    } catch (error) {
+      if (/readonly/i.test(toError(error).message)) this.refuseWhileTransactionSettles('change rows');
+      throw error;
+    } finally {
+      if (!this.hasSeveralDataDirs()) this.db.exec('PRAGMA query_only = OFF');
     }
   }
 
@@ -2635,12 +2658,16 @@ export class LinesDB<Tables extends TableDefs> {
 
     let fieldChangesBefore: Map<string, Map<string, FieldChanges>> | undefined;
     let rawSqlTablesBefore: Set<string> | undefined;
+    let linesWithUnknownFieldsBefore: Map<string, Map<string, JsonObject>> | undefined;
     let written: PreparedWriteBack[] = [];
     try {
       // Not beginning first: a pending auto-sync would then read, and write out, rows still uncommitted
       await this.waitForPendingSyncs();
       fieldChangesBefore = cloneFieldChanges(this.fieldChanges);
       rawSqlTablesBefore = new Set(this.rawSqlTables);
+      linesWithUnknownFieldsBefore = new Map(
+        Array.from(this.linesWithUnknownFields, ([tableName, lines]) => [tableName, new Map(lines)]),
+      );
       this.db.exec('BEGIN TRANSACTION');
       this.inTransaction = true;
       this.transactionStarting = false;
@@ -2667,6 +2694,7 @@ export class LinesDB<Tables extends TableDefs> {
       this.transactionChanges = undefined;
       if (fieldChangesBefore) this.fieldChanges = fieldChangesBefore;
       if (rawSqlTablesBefore) this.rawSqlTables = rawSqlTablesBefore;
+      if (linesWithUnknownFieldsBefore) this.linesWithUnknownFields = linesWithUnknownFieldsBefore;
       // Not only when writing a file fails: a COMMIT failing after the writes leaves files holding rolled-back rows
       const failure = await this.restoreAll(written, error);
       if (this.inTransaction) {
@@ -2721,7 +2749,7 @@ export class LinesDB<Tables extends TableDefs> {
    * Get the underlying SQLite database instance
    */
   getDb(): SQLiteDatabase {
-    if (!this.inTransaction) return this.db;
+    if (!this.inTransaction && !this.transactionStarting) return this.db;
     // Not handed out as is inside a transaction: SQL run on it would go unseen by the write-back, and
     // a COMMIT could end the transaction before the files are written
     const guard = (sql: string) => {
