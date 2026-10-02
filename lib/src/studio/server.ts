@@ -575,7 +575,9 @@ async function shippedUiDir(): Promise<string> {
 
 /** Serve a file of the built page, the page itself carrying the token */
 async function servePage(res: ServerResponse, uiDir: string, pathname: string, token: string): Promise<void> {
-  const file = resolvePath(uiDir, `.${pathname === '/' ? '/index.html' : pathname}`);
+  // Not only `/`: the same page is reachable as /index.html, and must carry the token and stay uncached there too
+  const isPage = pathname === '/' || pathname === '/index.html';
+  const file = resolvePath(uiDir, `.${isPage ? '/index.html' : pathname}`);
   if (relative(uiDir, file).startsWith('..')) {
     sendJson(res, 404, { message: 'Not found' });
     return;
@@ -585,7 +587,7 @@ async function servePage(res: ServerResponse, uiDir: string, pathname: string, t
     throw error;
   });
   if (!content) {
-    if (pathname === '/') {
+    if (isPage) {
       res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('The studio page has not been built. Run `pnpm build` in the lines-db repository.');
       return;
@@ -595,21 +597,20 @@ async function servePage(res: ServerResponse, uiDir: string, pathname: string, t
   }
   // Not 'unsafe-inline' for styles: the editor injects its styles, and a nonce allows only those
   const nonce = randomBytes(18).toString('base64');
-  const body =
-    pathname === '/'
-      ? Buffer.from(
-          content
-            .toString('utf8')
-            .replace(
-              '</head>',
-              `<meta name="csp-nonce" content="${nonce}"><meta name="studio-token" content="${token}"></head>`,
-            ),
-        )
-      : content;
+  const body = isPage
+    ? Buffer.from(
+        content
+          .toString('utf8')
+          .replace(
+            '</head>',
+            `<meta name="csp-nonce" content="${nonce}"><meta name="studio-token" content="${token}"></head>`,
+          ),
+      )
+    : content;
   res.writeHead(200, {
     'Content-Type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream',
     'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
-    'Cache-Control': pathname === '/' ? 'no-store' : 'public, max-age=31536000, immutable',
+    'Cache-Control': isPage ? 'no-store' : 'public, max-age=31536000, immutable',
     'X-Content-Type-Options': 'nosniff',
   });
   res.end(body);

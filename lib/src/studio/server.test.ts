@@ -786,6 +786,13 @@ describe('studio server', () => {
       expect(second).toContain(`<meta name="studio-token" content="${studio.token}">`);
     });
 
+    it('serves /index.html as the page, with the token and not kept in a cache', async () => {
+      const response = await globalThis.fetch(`${studio.url}/index.html`);
+
+      expect(await response.text()).toContain(`<meta name="studio-token" content="${studio.token}">`);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+    });
+
     it('serves the page and its assets without the token, as the page loads before it holds one', async () => {
       const page = await globalThis.fetch(`${studio.url}/`);
       const asset = await globalThis.fetch(`${studio.url}/assets/app.js`);
