@@ -152,13 +152,20 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       // Not listed as loaded when rows failed a constraint on load: its passing rows are in the database,
       // but its rows are fixed in the file, by index
       const loadedTables = snapshot.db.getTableNames().filter((name) => !snapshot.invalid.has(name));
-      const tables = loadedTables.map((name) => {
-        const columns = snapshot.db.getSchema(name)?.columns ?? [];
+      const tables = [];
+      for (const name of loadedTables) {
+        const [sample] = unwrap(await snapshot.db.findWithDefaults(name));
+        const columns = withLeeway(
+          snapshot.db,
+          name,
+          sample?.row as JsonObject | undefined,
+          snapshot.db.getSchema(name)?.columns ?? [],
+        );
         const primaryKey = columns.find((column) => column.primaryKey)?.name ?? null;
         const rowCount =
           unwrap(snapshot.db.queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM "${name.replaceAll('"', '""')}"`))?.n ??
           0;
-        return {
+        tables.push({
           name,
           columns,
           primaryKey,
@@ -171,8 +178,8 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
             table: fk.references.table,
             referencedColumn: fk.references.column,
           })),
-        };
-      });
+        });
+      }
       for (const [name, { file, issues }] of snapshot.invalid) {
         const rows = unwrap(await JsonlReader.read(file));
         const unknown = unknownFields(snapshot.db, name, rows, issues);
@@ -182,10 +189,10 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         const missing = [...new Set([...issues.values()].flat().map(fieldOf))].filter(
           (field): field is string => field !== undefined && !inferred.some((column) => column.name === field),
         );
-        const columns = [
+        const columns = withLeeway(snapshot.db, name, rows.find((_, index) => !issues.has(index)) ?? rows[0], [
           ...inferred,
           ...missing.map((field) => ({ name: field, type: 'JSON' as const, notNull: false, primaryKey: false })),
-        ].map((column) => ({ ...column, primaryKey: false, ...(unknown.has(column.name) ? { unknown: true } : {}) }));
+        ]).map((column) => ({ ...column, primaryKey: false, ...(unknown.has(column.name) ? { unknown: true } : {}) }));
         tables.push({
           name,
           columns,
@@ -474,6 +481,32 @@ async function loadSnapshot(dataDir: string, writeFilledValues: WriteFilledValue
     problems: describeProblems(dataDir, loaded.value.errors),
     invalid: invalidTables(loaded.value.errors),
   };
+}
+
+/**
+ * Each column with whether the schema lets it be null and lets the key be left out. A schema does not
+ * list what it takes, so a row is validated with the field set to null and with the key removed, and
+ * the column counts as taking it when no issue is about that field; an issue about another field is
+ * the row's own and says nothing of this one
+ */
+function withLeeway<Column extends { name: string }>(
+  db: LinesDB<TableDefs>,
+  tableName: string,
+  sample: JsonObject | undefined,
+  columns: Column[],
+): Array<Column & { nullable: boolean; optional: boolean }> {
+  const takes = (row: JsonObject, field: string) => {
+    const result = db.validateRow(tableName, row);
+    return result.ok || !result.error.issues.some((issue) => fieldOf(issue) === field);
+  };
+  return columns.map((column) => {
+    const { [column.name]: _removed, ...without } = sample ?? {};
+    return {
+      ...column,
+      nullable: takes({ ...without, [column.name]: null }, column.name),
+      optional: takes(without, column.name),
+    };
+  });
 }
 
 /** The field of the row an issue is about, if it is about one */

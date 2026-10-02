@@ -9,6 +9,10 @@ export interface Column {
   valueType?: 'boolean';
   /** A field the schema refuses as a key, in a table with failing rows: a fix can only remove it */
   unknown?: boolean;
+  /** Whether the schema lets the field be null; unknown when not given */
+  nullable?: boolean;
+  /** Whether the schema lets the key be left out of a row, its value then left to the schema; unknown when not given */
+  optional?: boolean;
 }
 
 export interface TableInfo {

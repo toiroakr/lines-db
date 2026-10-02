@@ -175,6 +175,14 @@ describe('FormField actions', () => {
     expect(model.onChange).toHaveBeenLastCalledWith(null);
   });
 
+  it('offers null and removing the field only as far as the schema lets the field be null or left out', () => {
+    const model = field({ name: 'name', type: 'TEXT', nullable: false, optional: false }, 'Alice');
+    render(<FormField table="users" model={model} />);
+
+    expect(screen.queryByRole('button', { name: 'Set name to null' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Remove name' })).toBeNull();
+  });
+
   it('reverts a changed field on request', async () => {
     const model = field({ name: 'name', type: 'TEXT' }, 'Alicia', { state: 'changed', canRevert: true });
     render(<FormField table="users" model={model} />);

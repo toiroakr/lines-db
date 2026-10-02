@@ -441,6 +441,31 @@ describe('studio server', () => {
     expect(tables.find((table: { name: string }) => table.name === 'owners').references).toEqual([]);
   });
 
+  it('says of each column whether the schema lets it be null, and whether it lets the key be left out', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'people.jsonl'), '{"id":1,"name":"a","nick":"b","note":"c"}\n');
+    await writeFile(
+      join(dataDir, 'people.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        const issues = [];
+        if (typeof data.name !== 'string') issues.push({ message: 'name', path: ['name'] });
+        if (data.nick !== undefined && typeof data.nick !== 'string') issues.push({ message: 'nick', path: ['nick'] });
+        if (!('note' in data)) issues.push({ message: 'note', path: ['note'] });
+        return issues.length ? { issues } : { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const people = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'people',
+    );
+    const column = (name: string) => people.columns.find((candidate: { name: string }) => candidate.name === name);
+
+    expect(column('name')).toMatchObject({ nullable: false, optional: false });
+    expect(column('nick')).toMatchObject({ nullable: false, optional: true });
+    expect(column('note')).toMatchObject({ nullable: true, optional: false });
+  });
+
   it('lists the schema file of each table, or null for a table without one', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'notes.jsonl'), '{"title":"first"}\n');

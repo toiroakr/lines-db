@@ -2,18 +2,18 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CellEditor } from './cell-editor';
-import type { JsonValue } from '@/lib/types';
+import type { Column, JsonValue } from '@/lib/types';
 
 describe('CellEditor', () => {
   afterEach(() => cleanup());
 
-  const renderEditor = (value: JsonValue | undefined, canUseDefault: boolean) => {
+  const renderEditor = (value: JsonValue | undefined, canUseDefault: boolean, leeway: Partial<Column> = {}) => {
     const onApply = vi.fn();
     const onClose = vi.fn();
     render(
       <CellEditor
         table="users"
-        column={{ name: 'name', type: 'TEXT' }}
+        column={{ name: 'name', type: 'TEXT', ...leeway }}
         value={value}
         preview={() => ({ inserts: [], updates: [], deletes: [] })}
         canUseDefault={canUseDefault}
@@ -26,6 +26,18 @@ describe('CellEditor', () => {
     );
     return { onApply, onClose };
   };
+
+  it('offers null only for a field the schema lets be null', () => {
+    renderEditor('Alice', true, { nullable: false });
+
+    expect(screen.queryByRole('button', { name: /Set null/ })).toBeNull();
+  });
+
+  it('offers to remove the field only when the schema lets the key be left out', () => {
+    renderEditor('Alice', true, { optional: false });
+
+    expect(screen.queryByRole('button', { name: /Remove field/ })).toBeNull();
+  });
 
   it('closes without a change when the value set is the one the file holds', async () => {
     const { onApply, onClose } = renderEditor('Alice', true);

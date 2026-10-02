@@ -132,7 +132,7 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
               <RotateCcw />
             </FieldAction>
           )}
-          {!readOnly && model.canUseDefault && state !== 'reset' && (
+          {!readOnly && model.canUseDefault && (column.unknown || column.optional !== false) && state !== 'reset' && (
             <FieldAction
               label={`Remove ${column.name}`}
               className={cn(column.unknown && 'text-destructive')}
@@ -141,7 +141,7 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
               {column.unknown ? <Trash2 /> : <Eraser />}
             </FieldAction>
           )}
-          {!readOnly && !column.unknown && state !== 'reset' && value !== null && (
+          {!readOnly && !column.unknown && column.nullable !== false && state !== 'reset' && value !== null && (
             <FieldAction
               label={`Set ${column.name} to null`}
               onClick={() => {

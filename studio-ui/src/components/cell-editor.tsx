@@ -90,6 +90,7 @@ export function CellEditor({
     );
   }
 
+  const canRemove = canUseDefault && column.optional !== false;
   // Not closed unchanged for a value the schema filled in: setting it as it is writes it to the file
   const unchanged = (next: JsonValue) =>
     canUseDefault && value !== undefined && JSON.stringify(next) === JSON.stringify(value);
@@ -167,7 +168,7 @@ export function CellEditor({
         <Button size="sm" onClick={apply} disabled={'error' in parsed}>
           <Check /> Set
         </Button>
-        {canUseDefault && (
+        {canRemove && (
           <Button size="sm" variant="outline" onClick={onUseDefault}>
             <Eraser /> Remove field
           </Button>
@@ -177,9 +178,11 @@ export function CellEditor({
             <RotateCcw /> Revert
           </Button>
         )}
-        <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => set(null)}>
-          <X /> Set null
-        </Button>
+        {column.nullable !== false && (
+          <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => set(null)}>
+            <X /> Set null
+          </Button>
+        )}
       </div>
       <p className="text-[11px] text-muted-foreground">
         {json ? '⌘↵' : '↵'} to set · Esc to close · nothing is written until you save
