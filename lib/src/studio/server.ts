@@ -482,7 +482,7 @@ function perKey(issues: readonly StandardSchemaIssue[]): StandardSchemaIssue[] {
   return issues.flatMap((issue) => {
     const { code, keys } = issue as { code?: unknown; keys?: unknown };
     if (code !== 'unrecognized_keys' || issue.path?.length || !Array.isArray(keys)) return [issue];
-    if (!keys.every((key) => typeof key === 'string')) return [issue];
+    if (keys.length === 0 || !keys.every((key) => typeof key === 'string')) return [issue];
     return keys.map((key) => ({ ...issue, keys: [key], path: [{ key }] }));
   });
 }

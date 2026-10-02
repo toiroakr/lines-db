@@ -724,6 +724,28 @@ describe('studio server', () => {
       });
     });
 
+    it('keeps an unrecognized-keys issue naming no key as an issue about the row', async () => {
+      await studio.close();
+      await writeFile(
+        join(dataDir, 'labels.schema.ts'),
+        `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  'extra' in data
+    ? { issues: [{ code: 'unrecognized_keys', keys: [], path: [], message: 'Unrecognized key' }] }
+    : { value: data },
+} };
+`,
+      );
+      await writeFile(
+        join(dataDir, 'labels.jsonl'),
+        '{"id":1,"name":"first"}\n{"id":2,"name":"second","extra":true}\n',
+      );
+      studio = await startStudioServer({ dataDir, port: 0 });
+
+      const rows = await bodyOf(await fetch(`${studio.url}/api/tables/labels/rows`));
+
+      expect(rows.issues).toEqual({ 1: [expect.objectContaining({ message: 'Unrecognized key', path: [] })] });
+    });
+
     it('leaves an issue naming keys under another code about the row, so no field is offered for removal', async () => {
       await studio.close();
       await writeFile(
