@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { request } from 'node:http';
@@ -545,6 +545,18 @@ describe('studio server', () => {
       );
     });
 
+    it.skipIf(process.platform === 'win32')('keeps the permissions of the file it fixes a row in', async () => {
+      await chmod(notesPath(), 0o600);
+
+      await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
+        inserts: [],
+        updates: [{ key: 1, changes: { name: 'second' } }],
+        deletes: [],
+      });
+
+      expect((await stat(notesPath())).mode & 0o777).toBe(0o600);
+    });
+
     it('refuses a change that leaves the row failing, with its issues, and writes nothing', async () => {
       const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
         inserts: [],
@@ -615,6 +627,29 @@ describe('studio server', () => {
       expect(tasks.columns).toEqual([
         expect.objectContaining({ name: 'id' }),
         expect.objectContaining({ name: 'name', type: 'JSON' }),
+      ]);
+    });
+
+    it('says which edited rows still fail once saved, as a foreign key is checked only on load', async () => {
+      await studio.close();
+      await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');
+      await writeFile(join(dataDir, 'pets.jsonl'), '{"id":1,"owner":9,"name":"a"}\n');
+      await writeFile(
+        join(dataDir, 'pets.schema.ts'),
+        "export const foreignKeys = [{ column: 'owner', references: { table: 'owners', column: 'id' } }];\n" +
+          "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+      );
+      studio = await startStudioServer({ dataDir, port: 0 });
+
+      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/pets/changes`, {
+        inserts: [],
+        updates: [{ key: 0, changes: { name: 'b' } }],
+        deletes: [],
+      });
+
+      expect(response.status).toBe(200);
+      expect((await bodyOf(response)).stillFailing).toEqual([
+        { index: 0, issues: [expect.objectContaining({ path: [{ key: 'owner' }] })] },
       ]);
     });
 
