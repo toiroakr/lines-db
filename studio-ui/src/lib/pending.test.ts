@@ -10,6 +10,7 @@ import {
   countChanges,
   toBatch,
   cellChange,
+  previewCell,
 } from './pending';
 
 describe('pending changes', () => {
@@ -72,5 +73,25 @@ describe('pending changes', () => {
     pending = setCell(pending, '1', 'name', 'string one');
 
     expect(toBatch(pending).updates.map(({ key }) => key)).toEqual([1, '1']);
+  });
+});
+
+describe('previewCell', () => {
+  it('checks a cell value together with the other pending changes and resets of its row', () => {
+    let pending = setCell(emptyPending(), 1, 'name', 'Alicia');
+    pending = resetCell(pending, 1, 'age');
+    pending = setCell(pending, 2, 'name', 'Bobby');
+
+    expect(previewCell(pending, 1, 'email', 'a@example.com')).toEqual({
+      inserts: [],
+      updates: [{ key: 1, changes: { name: 'Alicia', email: 'a@example.com' }, resetToDefault: ['age'] }],
+      deletes: [],
+    });
+  });
+
+  it('checks a value given to a field pending a reset instead of the reset', () => {
+    const pending = resetCell(emptyPending(), 1, 'age');
+
+    expect(previewCell(pending, 1, 'age', 30).updates).toEqual([{ key: 1, changes: { age: 30 } }]);
   });
 });

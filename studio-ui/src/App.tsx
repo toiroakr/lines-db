@@ -36,6 +36,7 @@ import {
   setInsertCell,
   toBatch,
   toggleDelete,
+  previewCell,
   type Batch,
   type Pending,
 } from '@/lib/pending';
@@ -128,6 +129,7 @@ export function App() {
       return false;
     }
     setPending(emptyPending());
+    setData(undefined);
     setSelected(new Set());
     setEditing(undefined);
     setFilter('');
@@ -282,6 +284,7 @@ export function App() {
                   size="icon"
                   variant="ghost"
                   className="size-7"
+                  aria-label="Reload from the files"
                   onClick={() => (dirty ? discard() : void load(current))}
                   disabled={saving}
                 >
@@ -523,11 +526,7 @@ function Grid({ table, rows, pending, setPending, selected, setSelected, editing
                       column={column}
                       table={table.name}
                       value={value}
-                      preview={(next) => ({
-                        inserts: [],
-                        updates: [{ key, changes: { [column.name]: next } }],
-                        deletes: [],
-                      })}
+                      preview={(next) => previewCell(pending, key, column.name, next)}
                       state={
                         change?.kind === 'set'
                           ? 'changed'

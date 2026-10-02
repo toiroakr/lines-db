@@ -111,3 +111,13 @@ export function toBatch(pending: Pending): Batch {
     deletes: Object.values(pending.deletes),
   };
 }
+
+/** The change saving would send for a row if one of its cells took a value, with the row's other pending changes */
+export function previewCell(pending: Pending, key: JsonValue, field: string, value: JsonValue): Batch {
+  const { key: rowKey, changes, reset } = editOf(setCell(pending, key, field, value), key);
+  return {
+    inserts: [],
+    updates: [{ key: rowKey, changes, ...(reset.length > 0 ? { resetToDefault: reset } : {}) }],
+    deletes: [],
+  };
+}
