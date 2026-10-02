@@ -85,3 +85,19 @@ export function mergeFields(
   // Not an object literal with assignments: a line holding `__proto__` or `toString` keeps that key
   return Object.fromEntries(entries);
 }
+
+/**
+ * The row with the fields its line holds that the table has no column for - a schema that strips
+ * unknown keys lets them through - kept where the line holds them, so writing back does not drop them
+ */
+export function keepUnknownFields(line: JsonObject, row: JsonObject, columns: ReadonlySet<string>): JsonObject {
+  const unknown = Object.keys(line).filter((key) => !columns.has(key) && !Object.hasOwn(row, key));
+  if (unknown.length === 0) return row;
+  const kept: JsonObject = {};
+  for (const key of Object.keys(line)) {
+    if (Object.hasOwn(row, key)) kept[key] = row[key];
+    else if (unknown.includes(key)) kept[key] = line[key];
+  }
+  for (const key of Object.keys(row)) if (!Object.hasOwn(kept, key)) kept[key] = row[key];
+  return kept;
+}

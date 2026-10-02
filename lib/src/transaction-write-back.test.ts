@@ -225,6 +225,21 @@ describe('LinesDB.transaction write-back', () => {
     write.mockRestore();
   });
 
+  it('keeps a field its schema does not know in a line it writes back, as the database has no column to hold it', async () => {
+    await db.close();
+    await writeFile(itemsPath(), '{"id":1,"name":"a","note":"kept"}\n{"id":2,"name":"b"}\n');
+    await writeFile(
+      join(dataDir, 'items.schema.ts'),
+      "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: { id: data.id, name: data.name } }) } };\n",
+    );
+    db = LinesDB.create<TableDefs>({ dataDir });
+    unwrap(await db.initialize());
+
+    unwrap(await db.transaction((tx) => void unwrap(tx.update('items', { name: 'B' }, { id: 2 }))));
+
+    expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"a","note":"kept"}\n{"id":2,"name":"B"}\n');
+  });
+
   it('refuses a sync inside a transaction, as it would write rows the transaction may roll back', async () => {
     const result = await db.transaction(async (tx) => {
       unwrap(tx.update('items', { name: 'A' }, { id: 1 }));

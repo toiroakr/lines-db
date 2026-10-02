@@ -4,7 +4,7 @@ import { JsonlWriter } from './jsonl-writer.js';
 import { SchemaLoader } from './schema-loader.js';
 import { DirectoryScanner } from './directory-scanner.js';
 import { hasBackward } from './schema.js';
-import { mergeFields } from './merge-fields.js';
+import { keepUnknownFields, mergeFields } from './merge-fields.js';
 import { findSchemaFile } from './schema-extensions.js';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -2320,10 +2320,11 @@ export class LinesDB<Tables extends TableDefs> {
       }
     });
 
+    const columns = new Set(this.schemas.get(tableName)?.columns.map((column) => column.name));
     const writtenRows = existingRows
       .filter((base) => rowByLine.has(base))
       .map((base) => {
-        const row = rowByLine.get(base)!;
+        const row = keepUnknownFields(base, rowByLine.get(base)!, columns);
         // A row missing a named field - a backward transformation can drop it - keeps what the file
         // holds, and a field the line did not have is inserted where the schema declares it
         return tableFields

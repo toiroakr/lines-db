@@ -579,6 +579,11 @@ write (one added with raw SQL), and every row of a table after raw SQL through `
 `query()` changed rows, are written whole, since there is no way to tell which of their fields a user
 wrote. A field a migration `transform` set on a row while loading counts as written on that row.
 
+A field a line holds that the table has no column for - a validation schema that strips unknown
+keys, such as valibot's `v.object()`, lets it through - is kept where the line holds it when the
+table is written back. Use a schema that refuses unknown keys, such as `v.strictObject()`, to have
+such a line reported as failing validation instead.
+
 ### Writing Back Only Some Fields
 
 A sync writes each row back in full by default, which materializes values a validation schema

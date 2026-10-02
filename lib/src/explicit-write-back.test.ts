@@ -218,6 +218,17 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
     expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice","age":31}\n');
   });
 
+  it('keeps a field its schema does not know where its line holds it', async () => {
+    const stripping = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { id: data.id, name: data.name, age: data.age ?? 20 } }) } };
+`;
+    await load('{"id":"a","note":"kept","name":"Alice"}\n', stripping);
+
+    await write((tx) => unwrap(tx.update('people', { name: 'Alicia' }, { id: 'a' })));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","note":"kept","name":"Alicia"}\n');
+  });
+
   it('writes the fields a migration transform set while loading', async () => {
     await writeFile(peoplePath(), '{"id":"a","name":"Alice"}\n');
     await writeFile(join(dataDir, 'people.schema.ts'), DEFAULTS_SCHEMA);
