@@ -10,8 +10,9 @@ function stored(): string {
 }
 
 /**
- * Keep for this tab the token the page was served with. Only the first page the server serves carries
- * one, so a reload, which comes without it, goes on with the token the tab already holds
+ * Keep for this tab the token the page was served with, and take it out of the page. A page served
+ * without one, as by a development server that could not reach the studio, goes on with the token the
+ * tab already holds
  */
 export function adoptToken(): void {
   const meta = document.querySelector<HTMLMetaElement>('meta[name="studio-token"]');
@@ -19,7 +20,6 @@ export function adoptToken(): void {
   try {
     sessionStorage.setItem(KEY, meta.content);
   } catch {
-    // Not kept past this page: a reload then comes without the token
     fallback = meta.content;
   }
   meta.remove();

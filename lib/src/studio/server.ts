@@ -35,7 +35,7 @@ export interface StudioServerOptions {
 
 export interface StudioServer {
   url: string;
-  /** The token every API request presents, generated at start-up and handed to the first page served */
+  /** The token every API request presents, generated at start-up and handed to the page */
   token: string;
   close(): Promise<void>;
 }
@@ -62,7 +62,6 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const host = options.host ?? '127.0.0.1';
   const uiDir = options.uiDir ?? (await shippedUiDir());
   const token = randomBytes(24).toString('base64url');
-  let tokenClaimed = false;
   const writeFilledValues = options.writeFilledValues ?? 'primaryKey';
   const load = () => loadSnapshot(dataDir, writeFilledValues);
   let snapshot = await load();
@@ -124,18 +123,17 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
     const url = new URL(req.url ?? '/', 'http://localhost');
 
-    // Not behind the token: the page has to load before it holds one, and holds no data itself
+    // Not behind the token: the page has to load before it holds one. Another site cannot read the page,
+    // so the token it carries keeps that site's requests out
     if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
-      const served = await servePage(res, uiDir, url.pathname, tokenClaimed ? undefined : token);
-      if (served && url.pathname === '/') tokenClaimed = true;
+      await servePage(res, uiDir, url.pathname, token);
       return;
     }
     // Not taken from the query elsewhere: an event source cannot send headers, but a fetch can
     const presented = bearerToken(req) ?? (url.pathname === '/api/events' ? url.searchParams.get('token') : null) ?? '';
     if (!sameToken(presented, token)) {
       sendJson(res, 401, {
-        message:
-          'lines-db studio is open in another tab, which holds its token. Close it and restart the studio to open it here.',
+        message: 'This page holds no token of this run of lines-db studio. Reload it to get one.',
       });
       return;
     }
@@ -575,17 +573,12 @@ async function shippedUiDir(): Promise<string> {
   return candidates[0];
 }
 
-/** Serve a file of the built page; true when it was served. The page carries the token when one is given */
-async function servePage(
-  res: ServerResponse,
-  uiDir: string,
-  pathname: string,
-  token: string | undefined,
-): Promise<boolean> {
+/** Serve a file of the built page, the page itself carrying the token */
+async function servePage(res: ServerResponse, uiDir: string, pathname: string, token: string): Promise<void> {
   const file = resolvePath(uiDir, `.${pathname === '/' ? '/index.html' : pathname}`);
   if (relative(uiDir, file).startsWith('..')) {
     sendJson(res, 404, { message: 'Not found' });
-    return false;
+    return;
   }
   const content = await readFile(file).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT' || error.code === 'EISDIR') return undefined;
@@ -595,10 +588,10 @@ async function servePage(
     if (pathname === '/') {
       res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('The studio page has not been built. Run `pnpm build` in the lines-db repository.');
-      return false;
+      return;
     }
     sendJson(res, 404, { message: 'Not found' });
-    return false;
+    return;
   }
   // Not 'unsafe-inline' for styles: the editor injects its styles, and a nonce allows only those
   const nonce = randomBytes(18).toString('base64');
@@ -609,7 +602,7 @@ async function servePage(
             .toString('utf8')
             .replace(
               '</head>',
-              `<meta name="csp-nonce" content="${nonce}">${token ? `<meta name="studio-token" content="${token}">` : ''}</head>`,
+              `<meta name="csp-nonce" content="${nonce}"><meta name="studio-token" content="${token}"></head>`,
             ),
         )
       : content;
@@ -620,7 +613,6 @@ async function servePage(
     'X-Content-Type-Options': 'nosniff',
   });
   res.end(body);
-  return true;
 }
 
 function bearerToken(req: IncomingMessage): string | undefined {

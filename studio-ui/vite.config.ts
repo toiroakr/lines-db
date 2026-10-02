@@ -5,10 +5,7 @@ import { defineConfig, type Plugin } from 'vitest/config';
 
 const STUDIO = 'http://127.0.0.1:4848';
 
-/**
- * Hand the dev page the token the studio gives the first page it serves, as that page is this one in
- * development. Not read from the studio's output: the token stays out of the terminal and the URL
- */
+/** Hand the dev page the token the studio gives the page it serves, as that page is this one in development */
 const studioToken = (): Plugin => ({
   name: 'lines-db-studio-token',
   apply: 'serve',

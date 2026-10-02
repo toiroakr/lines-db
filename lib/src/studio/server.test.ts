@@ -778,12 +778,12 @@ describe('studio server', () => {
       await rm(uiDir, { recursive: true, force: true });
     });
 
-    it('hands the token to the first page it serves only, so a page opened after it gets none', async () => {
+    it('hands the token to every page it serves, so each tab opened holds it', async () => {
       const first = await (await globalThis.fetch(`${studio.url}/`)).text();
       const second = await (await globalThis.fetch(`${studio.url}/`)).text();
 
       expect(first).toContain(`<meta name="studio-token" content="${studio.token}">`);
-      expect(second).not.toContain('studio-token');
+      expect(second).toContain(`<meta name="studio-token" content="${studio.token}">`);
     });
 
     it('serves the page and its assets without the token, as the page loads before it holds one', async () => {
