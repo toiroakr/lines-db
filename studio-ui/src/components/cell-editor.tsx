@@ -47,7 +47,8 @@ export function CellEditor({
   const parsed = useMemo(() => parseInput(column, text), [column, text]);
   const edited = text !== initial;
   const { result, checking } = useLiveCheck(table, edited && 'value' in parsed ? preview(parsed.value) : undefined);
-  const issues = result && !result.ok ? issuesFor(column.name, result.issues) : [];
+  const issues = issuesFor(column.name, result);
+  const checkFailed = result && !result.ok && 'failed' in result ? result.failed : undefined;
   const json = column.type === 'JSON';
 
   const apply = () => {
@@ -70,6 +71,7 @@ export function CellEditor({
           edited={edited}
           parseError={'error' in parsed ? parsed.error : undefined}
           checking={checking}
+          checkFailed={checkFailed}
           issues={issues.length}
           checked={result !== undefined}
         />
@@ -89,7 +91,7 @@ export function CellEditor({
           ))}
         </div>
       ) : json ? (
-        <JsonEditor initial={initial} onChange={setText} onSubmit={apply} />
+        <JsonEditor initial={initial} issues={issues} onChange={setText} onSubmit={apply} />
       ) : (
         <Input
           autoFocus
@@ -139,25 +141,33 @@ function Status({
   edited,
   parseError,
   checking,
+  checkFailed,
   issues,
   checked,
 }: {
   edited: boolean;
   parseError?: string;
   checking: boolean;
+  checkFailed?: string;
   issues: number;
   checked: boolean;
 }) {
   if (!edited) return null;
   const [icon, label, tone] = parseError
     ? [<CircleAlert key="i" />, 'Invalid', 'text-destructive']
-    : checking || !checked
-      ? [<LoaderCircle key="i" className="animate-spin" />, 'Checking', 'text-muted-foreground']
-      : issues > 0
-        ? [<CircleAlert key="i" />, `${issues} issue${issues === 1 ? '' : 's'}`, 'text-destructive']
-        : [<Check key="i" />, 'Valid', 'text-emerald-600 dark:text-emerald-400'];
+    : checkFailed && !checking
+      ? [<CircleAlert key="i" />, 'Not checked', 'text-muted-foreground']
+      : checking || !checked
+        ? [<LoaderCircle key="i" className="animate-spin" />, 'Checking', 'text-muted-foreground']
+        : issues > 0
+          ? [<CircleAlert key="i" />, `${issues} issue${issues === 1 ? '' : 's'}`, 'text-destructive']
+          : [<Check key="i" />, 'Valid', 'text-emerald-600 dark:text-emerald-400'];
   return (
-    <span className={cn('ml-auto flex items-center gap-1 text-xs [&_svg]:size-3.5', tone)} aria-live="polite">
+    <span
+      className={cn('ml-auto flex items-center gap-1 text-xs [&_svg]:size-3.5', tone)}
+      aria-live="polite"
+      title={checkFailed && `The value could not be checked: ${checkFailed}. Saving still validates it.`}
+    >
       {icon}
       {label}
     </span>

@@ -88,14 +88,19 @@ export function App() {
     void load(current);
   }, [current, load]);
 
+  const selectRef = useRef<(name: string) => boolean>(() => false);
   useEffect(() => {
-    const onHash = () => setCurrent(tableFromHash());
+    const onHash = () => {
+      if (!selectRef.current(tableFromHash())) {
+        history.replaceState(null, '', `#${encodeURIComponent(stateRef.current.tableName ?? '')}`);
+      }
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const stateRef = useRef({ dirty, editing, current });
-  stateRef.current = { dirty, editing, current };
+  const stateRef = useRef({ dirty, editing, current, tableName: table?.name });
+  stateRef.current = { dirty, editing, current, tableName: table?.name };
   useEffect(() => {
     const events = new EventSource('/api/events');
     let connectedBefore = false;
@@ -112,14 +117,15 @@ export function App() {
     return () => events.close();
   }, [load]);
 
-  const selectTable = (name: string) => {
-    if (name === table?.name) return;
+  /** Whether the table is now the one shown */
+  const selectTable = (name: string): boolean => {
+    if (name === table?.name) return true;
     if (dirty) {
       setNotice({
         kind: 'error',
         title: `Save or discard the ${changeCount} unsaved change(s) to ${table?.name} before opening ${name}`,
       });
-      return;
+      return false;
     }
     setPending(emptyPending());
     setSelected(new Set());
@@ -128,7 +134,9 @@ export function App() {
     setNotice(undefined);
     location.hash = encodeURIComponent(name);
     setCurrent(name);
+    return true;
   };
+  selectRef.current = selectTable;
 
   const discard = () => {
     setPending(emptyPending());
@@ -139,6 +147,7 @@ export function App() {
 
   const save = async () => {
     if (!table) return;
+    setEditing(undefined);
     setSaving(true);
     try {
       await saveChanges(table.name, toBatch(pending));
@@ -250,14 +259,20 @@ export function App() {
             </div>
             <div className="ml-auto flex items-center gap-2">
               {selected.size > 0 && (
-                <Button size="sm" variant="outline" className="text-destructive" onClick={deleteSelected}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive"
+                  onClick={deleteSelected}
+                  disabled={saving}
+                >
                   <Trash2 /> Delete {selected.size}
                 </Button>
               )}
               <Button
                 size="sm"
                 variant="outline"
-                disabled={!table || Boolean(table.readOnlyReason)}
+                disabled={!table || Boolean(table.readOnlyReason) || saving}
                 onClick={() => setPending(addInsert(pending, `new-${Date.now()}`))}
               >
                 <Plus /> Add record
@@ -268,6 +283,7 @@ export function App() {
                   variant="ghost"
                   className="size-7"
                   onClick={() => (dirty ? discard() : void load(current))}
+                  disabled={saving}
                 >
                   <RefreshCw className="size-4" />
                 </Button>
@@ -290,7 +306,7 @@ export function App() {
                 <span className="text-muted-foreground"> — not written to {table?.name}.jsonl until you save</span>
               </span>
               <div className="ml-auto flex items-center gap-2">
-                <Button size="sm" variant="ghost" onClick={discard}>
+                <Button size="sm" variant="ghost" onClick={discard} disabled={saving}>
                   <Undo2 /> Discard
                 </Button>
                 <Button size="sm" onClick={() => void save()} disabled={saving}>
@@ -365,6 +381,7 @@ export function App() {
               setSelected={setSelected}
               editing={editing}
               setEditing={setEditing}
+              saving={saving}
             />
           )}
         </main>
@@ -382,9 +399,11 @@ interface GridProps {
   setSelected: (selected: Set<string>) => void;
   editing: Editing | undefined;
   setEditing: (editing: Editing | undefined) => void;
+  /** Locks the grid: a change made now would be cleared with the ones being saved, without being saved */
+  saving: boolean;
 }
 
-function Grid({ table, rows, pending, setPending, selected, setSelected, editing, setEditing }: GridProps) {
+function Grid({ table, rows, pending, setPending, selected, setSelected, editing, setEditing, saving }: GridProps) {
   const primaryKey = table.primaryKey;
   const writable = !table.readOnlyReason && primaryKey !== null;
   const keys = rows.map(({ row }) => JSON.stringify(primaryKey ? keyOf(row, primaryKey) : null));
@@ -399,7 +418,7 @@ function Grid({ table, rows, pending, setPending, selected, setSelected, editing
   };
 
   return (
-    <div className="mt-3 min-h-0 flex-1 overflow-auto border-t">
+    <div className={cn('mt-3 min-h-0 flex-1 overflow-auto border-t', saving && 'opacity-60')} inert={saving}>
       <table className="w-max min-w-full border-separate border-spacing-0 text-sm">
         <thead className="sticky top-0 z-10 bg-background">
           <tr>

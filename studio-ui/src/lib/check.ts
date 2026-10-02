@@ -2,9 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import type { Issue } from './types';
 import type { Batch } from './pending';
 
-export type CheckResult = { ok: true } | { ok: false; message?: string; issues: Issue[] };
+export type CheckResult =
+  | { ok: true }
+  | { ok: false; message?: string; issues: Issue[] }
+  /** The check itself could not run, so the value is neither valid nor invalid as far as is known */
+  | { ok: false; failed: string };
 
-function segmentKey(segment: NonNullable<Issue['path']>[number]): string {
+export function segmentKey(segment: NonNullable<Issue['path']>[number]): string {
   return typeof segment === 'object' && segment !== null && 'key' in segment ? String(segment.key) : String(segment);
 }
 
@@ -13,7 +17,9 @@ export function issuePath(issue: Issue): string {
 }
 
 /** The issues about a field, nested values included, and those about no field in particular */
-export function issuesFor(field: string, issues: Issue[]): Issue[] {
+export function issuesFor(field: string, result: CheckResult | undefined): Issue[] {
+  if (!result || result.ok || !('issues' in result)) return [];
+  const { issues } = result;
   return issues.filter((issue) => !issue.path?.length || segmentKey(issue.path[0]) === field);
 }
 
@@ -24,7 +30,10 @@ export async function checkChanges(table: string, batch: Batch, signal: AbortSig
     body: JSON.stringify(batch),
     signal,
   });
-  return (await response.json()) as CheckResult;
+  const body = (await response.json().catch(() => ({}))) as { ok?: boolean; message?: string; issues?: Issue[] };
+  if (response.ok && body.ok === true) return { ok: true };
+  if (response.ok && body.ok === false) return { ok: false, message: body.message, issues: body.issues ?? [] };
+  return { ok: false, failed: body.message ?? `The check failed with status ${response.status}` };
 }
 
 /**
@@ -48,7 +57,11 @@ export function useLiveCheck(table: string, batch: Batch | undefined): { result?
         .then((answer) => {
           if (id === latest.current) setResult(answer);
         })
-        .catch(() => undefined)
+        .catch((error: unknown) => {
+          if (id === latest.current && !controller.signal.aborted) {
+            setResult({ ok: false, failed: error instanceof Error ? error.message : String(error) });
+          }
+        })
         .finally(() => {
           if (id === latest.current) setChecking(false);
         });
