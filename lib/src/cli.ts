@@ -15,6 +15,7 @@ import { styleText } from 'node:util';
 import { writeFile, stat, readdir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
+import { fillFields } from './fill.js';
 
 const originalEmitWarning = process.emitWarning;
 process.emitWarning = (warning, ...args) => {
@@ -293,6 +294,53 @@ const migrateCommand = defineCommand({
   },
 });
 
+const fillCommand = defineCommand({
+  name: 'fill',
+  description: 'Fill the values each table computes into the JSONL rows that have none for the named fields',
+  args: z.object({
+    path: arg(z.string(), {
+      positional: true,
+      description: 'Data directory, or one .jsonl file in it',
+    }),
+    fields: arg(z.string().optional(), {
+      alias: 'f',
+      description: "Comma-separated fields to fill (default: each table's primary key)",
+    }),
+  }),
+  run: async (args) => {
+    const fields = args.fields
+      ?.split(',')
+      .map((field) => field.trim())
+      .filter(Boolean);
+    const result = await fillFields({ path: args.path, fields });
+    if (!result.ok) {
+      console.error('Error:', result.error.message);
+      process.exit(1);
+    }
+    const { filled, tablesWithoutSchema, unreadableLines, unproducedFields } = result.value;
+    for (const table of tablesWithoutSchema) {
+      console.warn(styleText('yellow', `⚠ No schema file for ${table}, so nothing can be filled in there`));
+    }
+    for (const { file, lines } of unreadableLines) {
+      console.warn(
+        styleText(
+          'yellow',
+          `⚠ ${file}: line(s) ${lines.join(', ')} are not JSON objects, so nothing was filled in there`,
+        ),
+      );
+    }
+    if (unproducedFields.length > 0) {
+      console.warn(styleText('yellow', `⚠ No table produces a value for: ${unproducedFields.join(', ')}`));
+    }
+    if (filled.length === 0) {
+      console.log(styleText('green', '✓ Nothing to fill'));
+    }
+    for (const { file, fields: written, count } of filled) {
+      console.log(styleText('green', `✓ ${file}: filled ${written.join(', ')} in ${count} row(s)`));
+    }
+  },
+});
+
 const program = defineCommand({
   name: '@toiroakr/lines-db',
   description: 'Database utilities for JSONL files',
@@ -300,6 +348,7 @@ const program = defineCommand({
     generate: generateCommand,
     validate: validateCommand,
     migrate: migrateCommand,
+    fill: fillCommand,
   },
 });
 

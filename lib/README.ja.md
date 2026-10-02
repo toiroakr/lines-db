@@ -151,6 +151,40 @@ npx lines-db migrate ./data/users.jsonl "(row) => row" --fields id
 何も書き戻されないため、`id` を持つテーブルと持たないテーブルが混在するディレクトリでも
 `--fields id` 一つで動きます。どのテーブルにも無いフィールド名はtypoとみなしてエラーになります。
 
+### 足りない値を埋める
+
+```bash
+npx lines-db fill <path> [--fields id,createdAt]
+```
+
+`path`（データディレクトリ、またはその中の `.jsonl` ファイル1つ）の JSONL のうち、指定したフィールド
+（省略時は各テーブルの主キー）に値が無い行へ、そのテーブルの検証スキーマが行に与える値を埋めます。ファイルに
+既にある値は置き換えず、値が入らなかった行は改行コードも含めて1バイトも変えません。値が入った行は、
+スキーマが並べる順にキーを並べて書き直します。すべての値を計算してからファイルに書き、スキーマが弾く行には
+何も入りません。
+
+コードからは `fillFields()` で同じことができます。行の値を計算する関数も渡せるので、レコード作成時の値を
+検証スキーマ以外から得るテーブルにも使えます：
+
+```typescript
+import { fillFields, unwrap } from '@toiroakr/lines-db';
+
+const { filled } = unwrap(
+  await fillFields({
+    path: './data',
+    fields: ['id'],
+    // スキーマファイルが export する `hook` で値を計算する。例外を投げると何も書かずに止まる
+    loadFiller: (schemaModule, { schemaPath }) => {
+      if (typeof schemaModule.hook !== 'function') throw new Error(`${schemaPath} does not export \`hook\``);
+      return schemaModule.hook;
+    },
+  }),
+);
+```
+
+結果には、スキーマファイルの無いテーブル（`tablesWithoutSchema`）、JSON オブジェクトとして読めない行
+（`unreadableLines`）、どのテーブルも値を出さなかったフィールド（`unproducedFields`）も含まれます。
+
 ## TypeScript での使い方
 
 ### 型の生成

@@ -152,6 +152,42 @@ One list covers every table the migration touches. A table that does not have a 
 has nothing written back to it, so a directory holding tables that do not all share an `id` works
 with a single `--fields id`. A field _no_ table has is a typo, and the migration stops.
 
+### Fill Missing Values
+
+```bash
+npx lines-db fill <path> [--fields id,createdAt]
+```
+
+Fills the named fields - by default each table's primary key - into the rows of the JSONL files under
+`path` (a data directory, or one `.jsonl` file) that have no value for them, with the value each
+table's validation schema gives the row. A value already in the file is never replaced, and a line
+that gains nothing is left byte for byte, its line separator included; a line that does gain a value
+is written with its keys in the order the schema lists them. Every value is computed before any file
+is written, and a row the schema rejects gains nothing.
+
+The same runs from code with `fillFields()`, which also takes the function that computes a row's
+values, for a table whose create-time values come from something other than its validation schema:
+
+```typescript
+import { fillFields, unwrap } from '@toiroakr/lines-db';
+
+const { filled } = unwrap(
+  await fillFields({
+    path: './data',
+    fields: ['id'],
+    // Computes the values from the `hook` the schema file exports; throwing stops the fill
+    loadFiller: (schemaModule, { schemaPath }) => {
+      if (typeof schemaModule.hook !== 'function') throw new Error(`${schemaPath} does not export \`hook\``);
+      return schemaModule.hook;
+    },
+  }),
+);
+```
+
+The result also lists the tables without a schema file (`tablesWithoutSchema`), the lines that are
+not JSON objects (`unreadableLines`), and the named fields no table produced a value for
+(`unproducedFields`).
+
 ## TypeScript Usage
 
 ### Generate Types
