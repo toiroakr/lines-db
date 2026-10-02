@@ -1,0 +1,136 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { App } from './App';
+import type { TableInfo } from '@/lib/types';
+
+const users: TableInfo = {
+  name: 'users',
+  columns: [
+    { name: 'id', type: 'INTEGER', primaryKey: true },
+    { name: 'name', type: 'TEXT' },
+  ],
+  primaryKey: 'id',
+  rowCount: 2,
+  invalidRows: 0,
+  readOnlyReason: null,
+  schemaFile: null,
+  references: [],
+};
+const orders: TableInfo = {
+  ...users,
+  name: 'orders',
+  columns: [
+    { name: 'id', type: 'INTEGER', primaryKey: true },
+    { name: 'customerId', type: 'INTEGER' },
+  ],
+  rowCount: 1,
+  references: [{ column: 'customerId', table: 'users', referencedColumn: 'id' }],
+};
+const rows: Record<string, unknown> = {
+  users: {
+    rows: [
+      { id: 1, name: 'Alice' },
+      { id: 2, name: 'Bob' },
+    ],
+    defaulted: [[], []],
+  },
+  orders: { rows: [{ id: 10, customerId: 2 }], defaulted: [[]] },
+};
+
+const json = (body: unknown) => new Response(JSON.stringify(body));
+// Not set through location.hash: its hashchange would arrive after the page is up, and switch the table it shows
+const showTable = (name: string) => history.replaceState(null, '', `#${name}`);
+
+describe('App', () => {
+  beforeEach(() => {
+    showTable('users');
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        addEventListener() {}
+        close() {}
+      },
+    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === '/api/tables') return json({ dataDir: '/data', tables: [users, orders], problems: [] });
+      const rowsOf = /\/api\/tables\/(\w+)\/rows/.exec(url);
+      if (rowsOf) return json(rows[rowsOf[1]]);
+      return json({ ok: true });
+    });
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const form = () => screen.queryByRole('complementary', { name: /^users · id|^orders · id/ });
+
+  it('opens a row in the form from the button at the head of the row', async () => {
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Open row 1' }));
+
+    expect(form()?.getAttribute('aria-label')).toBe('users · id 1');
+    expect(within(form()!).getByRole('textbox', { name: 'name' })).toHaveProperty('value', 'Alice');
+  });
+
+  it('edits a cell from a click while no row is open in the form', async () => {
+    render(<App />);
+
+    await userEvent.click((await screen.findAllByRole('button', { name: 'Edit name' }))[1]);
+
+    expect(screen.getAllByRole('textbox', { name: 'name' })).toHaveLength(1);
+    expect(form()).toBeNull();
+  });
+
+  it('shows the row clicked in the form while one is open, and edits a cell only from a double click', async () => {
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Open row 1' }));
+    const bob = screen.getAllByRole('button', { name: 'Edit name' })[1];
+
+    await userEvent.click(bob);
+    expect(form()?.getAttribute('aria-label')).toBe('users · id 2');
+    expect(screen.getAllByRole('textbox', { name: 'name' })).toHaveLength(1);
+
+    await userEvent.dblClick(bob);
+    expect(screen.getAllByRole('textbox', { name: 'name' })).toHaveLength(2);
+  });
+
+  it('adds a change from the form to the unsaved ones, and drops it once typed back to the value of the file', async () => {
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Open row 1' }));
+    const name = within(form()!).getByRole('textbox', { name: 'name' });
+
+    await userEvent.type(name, 'x');
+    expect(screen.getByText(/Unsaved change to users/)).toBeTruthy();
+
+    await userEvent.type(name, '{Backspace}');
+    expect(screen.queryByText(/Unsaved change/)).toBeNull();
+  });
+
+  it('opens the row a foreign key refers to, in the table it is in', async () => {
+    showTable('orders');
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Open row 1' }));
+
+    await userEvent.click(within(form()!).getByRole('button', { name: 'Open users where id is 2' }));
+
+    await waitFor(() => expect(form()?.getAttribute('aria-label')).toBe('users · id 2'));
+  });
+
+  it('closes the form on Escape, after the cell editor over it', async () => {
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Open row 1' }));
+    await userEvent.dblClick(screen.getAllByRole('button', { name: 'Edit name' })[1]);
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.getAllByRole('textbox', { name: 'name' })).toHaveLength(1);
+    expect(form()).not.toBeNull();
+
+    await userEvent.keyboard('{Escape}');
+    expect(form()).toBeNull();
+  });
+});

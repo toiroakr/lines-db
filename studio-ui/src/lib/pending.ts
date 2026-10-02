@@ -47,6 +47,22 @@ export function resetCell(pending: Pending, key: JsonValue, field: string): Pend
   return withEdit(pending, { key, changes, reset: [...edit.reset.filter((name) => name !== field), field] });
 }
 
+/**
+ * Set a field a form edits, or drop its change once it holds the value the file does again. A field
+ * the file does not hold (undefined) keeps the change: setting it writes it to the file
+ */
+export function setOrRevertCell(
+  pending: Pending,
+  key: JsonValue,
+  field: string,
+  value: JsonValue,
+  fileValue: JsonValue | undefined,
+): Pending {
+  return fileValue !== undefined && JSON.stringify(value) === JSON.stringify(fileValue)
+    ? revertCell(pending, key, field)
+    : setCell(pending, key, field, value);
+}
+
 /** Remove a field from each of the rows named, leaving its value to the schema */
 export function resetField(pending: Pending, keys: readonly JsonValue[], field: string): Pending {
   return keys.reduce((next, key) => resetCell(next, key, field), pending);

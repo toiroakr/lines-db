@@ -4,6 +4,7 @@ import {
   setCell,
   resetCell,
   resetField,
+  setOrRevertCell,
   addInsert,
   setInsertCell,
   removeInsert,
@@ -116,5 +117,26 @@ describe('markDeleted', () => {
         { key: 2, changes: {}, resetToDefault: ['note'] },
       ]),
     );
+  });
+
+  it('records a value a form sets that differs from the one the file holds', () => {
+    const pending = setOrRevertCell(emptyPending(), 1, 'name', 'Alicia', 'Alice');
+
+    expect(cellChange(pending, 1, 'name')).toEqual({ kind: 'set', value: 'Alicia' });
+  });
+
+  it('leaves no change when a form sets the value the file holds again', () => {
+    const edited = setOrRevertCell(emptyPending(), 1, 'tags', ['a', 'b'], ['a']);
+
+    const pending = setOrRevertCell(edited, 1, 'tags', ['a'], ['a']);
+
+    expect(cellChange(pending, 1, 'tags')).toBeUndefined();
+    expect(countChanges(pending)).toBe(0);
+  });
+
+  it('records a value a form sets on a field the file does not hold, though it equals the one the schema fills in', () => {
+    const pending = setOrRevertCell(emptyPending(), 1, 'age', 20, undefined);
+
+    expect(cellChange(pending, 1, 'age')).toEqual({ kind: 'set', value: 20 });
   });
 });

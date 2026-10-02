@@ -8,6 +8,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightOpen,
   Lock,
   Plus,
   RefreshCw,
@@ -28,6 +29,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CellEditor } from '@/components/cell-editor';
 import { SchemaDialog } from '@/components/schema-viewer';
 import { CopyPath } from '@/components/copy-path';
+import { RecordDrawer, type FieldModel } from '@/components/record-form';
 import { tableNameOf } from '@/lib/hash';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -51,6 +53,7 @@ import {
   revertCell,
   setCell,
   setInsertCell,
+  setOrRevertCell,
   toBatch,
   toggleDelete,
   previewCell,
@@ -59,13 +62,17 @@ import {
   type Pending,
 } from '@/lib/pending';
 import { formatValue, isBoolean } from '@/lib/values';
-import type { Column, Issue, JsonObject, JsonValue, TableInfo } from '@/lib/types';
+import type { Column, Issue, JsonObject, JsonValue, Reference, TableInfo } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { fieldIssues, issuePath } from '@/lib/check';
 import { eventsUrl } from '@/lib/session';
 
 type Notice = { kind: 'error'; title: string; issues?: Issue[] } | { kind: 'success'; title: string };
 type Editing = { row: 'existing'; key: JsonValue; column: string } | { row: 'new'; id: string; column: string };
+/** The row the form shows: a row of the file by its key, or a new row by its id */
+type OpenRow = { row: 'existing'; key: JsonValue } | { row: 'new'; id: string };
+/** A row of another table to open once its rows are read: the one whose column holds the value */
+type Opening = { table: string; column: string; value: JsonValue };
 
 const tableFromHash = () => tableNameOf(location.hash);
 
@@ -80,6 +87,8 @@ export function App() {
   const [schemaShown, setSchemaShown] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [openRow, setOpenRow] = useState<OpenRow>();
+  const [opening, setOpening] = useState<Opening>();
   const toggleSidebar = () => {
     setSidebarCollapsed(!sidebarCollapsed);
     writeSidebarCollapsed(!sidebarCollapsed);
@@ -171,6 +180,7 @@ export function App() {
     setData(undefined);
     setSelected(new Set());
     setEditing(undefined);
+    setOpenRow(undefined);
     setFilter('');
     setNotice(undefined);
     location.hash = encodeURIComponent(name);
@@ -254,6 +264,98 @@ export function App() {
     const needle = filter.toLowerCase();
     return all.filter(({ row }) => JSON.stringify(row).toLowerCase().includes(needle));
   }, [data, filter]);
+
+  const openReference = (reference: Reference, value: JsonValue) => {
+    if (selectTable(reference.table)) {
+      setOpening({ table: reference.table, column: reference.referencedColumn, value });
+    }
+  };
+
+  // Not opened before the rows of that table are read: the row to open is found among them
+  useEffect(() => {
+    if (!opening || !data || table?.name !== opening.table) return;
+    const value = JSON.stringify(opening.value);
+    const index = data.rows.findIndex((row) => JSON.stringify(row[opening.column]) === value);
+    if (index >= 0) setOpenRow({ row: 'existing', key: rowIdOf(table, data.rows[index], index) });
+    else setNotice({ kind: 'error', title: `No row of ${opening.table} has ${opening.column} ${value}` });
+    setOpening(undefined);
+  }, [opening, data, table]);
+
+  const drawer = table && data && openRow ? drawerOf(table, data, openRow) : undefined;
+  // Closed once its row is gone, as after a reload or saving a new row: it would come back on a later row with that key
+  useEffect(() => {
+    if (openRow && data && !drawer) setOpenRow(undefined);
+  }, [openRow, data, drawer]);
+
+  function drawerOf(table: TableInfo, data: RowsResponse, open: OpenRow) {
+    const referenceOf = (column: Column, value: JsonValue | undefined) => {
+      const reference = table.references.find((candidate) => candidate.column === column.name);
+      return reference && value !== undefined
+        ? { reference, onOpenReference: () => openReference(reference, value) }
+        : {};
+    };
+    if (open.row === 'new') {
+      const insert = pending.inserts.find((candidate) => candidate.id === open.id);
+      if (!insert) return undefined;
+      const fields = table.columns.map((column): FieldModel => {
+        const set = Object.hasOwn(insert.row, column.name);
+        return {
+          column,
+          value: insert.row[column.name],
+          state: set ? 'set' : 'unset',
+          readOnly: false,
+          issues: [],
+          preview: (value) => ({ inserts: [{ ...insert.row, [column.name]: value }], updates: [], deletes: [] }),
+          canUseDefault: set,
+          canRevert: false,
+          ...referenceOf(column, insert.row[column.name]),
+          onChange: (value) => setPending((now) => setInsertCell(now, insert.id, column.name, value)),
+          onUseDefault: () => setPending((now) => setInsertCell(now, insert.id, column.name, undefined)),
+          onRevert: () => undefined,
+        };
+      });
+      return { title: `${table.name} · new row`, fields, readOnlyReason: undefined };
+    }
+    const index = data.rows.findIndex(
+      (row, at) => JSON.stringify(rowIdOf(table, row, at)) === JSON.stringify(open.key),
+    );
+    if (index < 0) return undefined;
+    const row = data.rows[index];
+    const key = open.key;
+    const defaulted = data.defaulted[index] ?? [];
+    const issues = data.issues?.[index] ?? [];
+    const byIndex = table.invalidRows > 0;
+    const writable = byIndex || (!table.readOnlyReason && table.primaryKey !== null);
+    const deleted = writable && !byIndex && isDeleted(pending, key);
+    const fields = table.columns.map((column): FieldModel => {
+      const change = writable ? cellChange(pending, key, column.name) : undefined;
+      const value = change?.kind === 'set' ? change.value : row[column.name];
+      const isDefault = defaulted.includes(column.name);
+      return {
+        column,
+        value,
+        state: change?.kind === 'set' ? 'changed' : change?.kind === 'reset' ? 'reset' : isDefault ? 'default' : 'file',
+        readOnly: !writable || deleted || Boolean(column.primaryKey),
+        issues: change ? [] : fieldIssues(column.name, issues),
+        preview: (next) => ({ ...previewCell(pending, key, column.name, next), revision: data.revision }),
+        canUseDefault: byIndex ? Object.hasOwn(row, column.name) : !isDefault || change !== undefined,
+        canRevert: change !== undefined,
+        ...referenceOf(column, value),
+        // Not kept as a change when typed back to what the file holds: the form changes a field a keystroke at a time
+        onChange: (next) =>
+          setPending((now) => setOrRevertCell(now, key, column.name, next, isDefault ? undefined : row[column.name])),
+        onUseDefault: () => setPending((now) => resetCell(now, key, column.name)),
+        onRevert: () => setPending((now) => revertCell(now, key, column.name)),
+      };
+    });
+    const title =
+      byIndex || !table.primaryKey
+        ? `${table.name} · row ${index + 1}`
+        : `${table.name} · ${table.primaryKey} ${formatValue(key)}`;
+    const readOnlyReason =
+      table.readOnlyReason ?? (deleted ? 'Marked to be deleted: undo the delete to change it' : undefined);
+    return { title, fields, readOnlyReason };
+  }
 
   const tables = (meta?.tables ?? []).filter((candidate) =>
     candidate.name.toLowerCase().includes(tableFilter.toLowerCase()),
@@ -536,9 +638,21 @@ export function App() {
               saving={saving}
               revision={data?.revision}
               onRemoveField={removeFieldEverywhere}
+              openRow={openRow}
+              onOpenRow={setOpenRow}
             />
           )}
         </main>
+        {table && drawer && (
+          <RecordDrawer
+            key={JSON.stringify(openRow)}
+            table={table.name}
+            title={drawer.title}
+            fields={drawer.fields}
+            readOnlyReason={drawer.readOnlyReason ?? undefined}
+            onClose={() => setOpenRow(undefined)}
+          />
+        )}
       </div>
     </TooltipProvider>
   );
@@ -558,6 +672,8 @@ interface GridProps {
   revision?: string;
   /** Removes a field from every row of the table, not only the ones shown */
   onRemoveField: (field: string) => void;
+  openRow: OpenRow | undefined;
+  onOpenRow: (row: OpenRow) => void;
 }
 
 function Grid({
@@ -572,7 +688,12 @@ function Grid({
   saving,
   revision,
   onRemoveField,
+  openRow,
+  onOpenRow,
 }: GridProps) {
+  // While a row is open in the form, a click picks the row to show there, and a double click edits the cell
+  const formOpen = openRow !== undefined;
+  const isOpen = (row: OpenRow) => JSON.stringify(row) === JSON.stringify(openRow);
   const primaryKey = table.primaryKey;
   // Not found by primary key in a table with failing rows: the failing field may be that key
   const byIndex = table.invalidRows > 0;
@@ -596,6 +717,7 @@ function Grid({
       <table className="w-max min-w-full border-separate border-spacing-0 text-sm">
         <thead className="sticky top-0 z-10 bg-background">
           <tr>
+            <th className="w-8 border-b bg-background" aria-label="Open in the form" />
             {selectable && (
               <th className="w-10 border-b bg-background px-3 py-2">
                 <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Select all rows" />
@@ -639,7 +761,12 @@ function Grid({
         </thead>
         <tbody>
           {pending.inserts.map((insert) => (
-            <tr key={insert.id} className="bg-added/40">
+            <tr
+              key={insert.id}
+              className={cn('bg-added/40', isOpen({ row: 'new', id: insert.id }) && 'bg-accent')}
+              onClick={formOpen ? () => onOpenRow({ row: 'new', id: insert.id }) : undefined}
+            >
+              <OpenCell label="Open the new row" onOpen={() => onOpenRow({ row: 'new', id: insert.id })} />
               <td className="border-b px-3 py-1.5">
                 <Tooltip content="Remove this new row">
                   <button
@@ -663,6 +790,7 @@ function Grid({
                     deletes: [],
                   })}
                   state={Object.hasOwn(insert.row, column.name) ? 'set' : 'unset'}
+                  formOpen={formOpen}
                   isEditing={editing?.row === 'new' && editing.id === insert.id && editing.column === column.name}
                   onOpen={() => setEditing({ row: 'new', id: insert.id, column: column.name })}
                   onClose={() => setEditing(undefined)}
@@ -685,6 +813,7 @@ function Grid({
             const key = keyOfRow(row, rowIndex);
             const rowKey = keys[index];
             const deleted = selectable && isDeleted(pending, key);
+            const open: OpenRow = { row: 'existing', key: rowIdOf(table, row, rowIndex) };
             return (
               <tr
                 key={rowKey + index}
@@ -692,8 +821,11 @@ function Grid({
                   'group',
                   deleted && 'bg-removed/50 line-through opacity-70',
                   issues.length > 0 && 'bg-destructive/10',
+                  isOpen(open) && 'bg-accent',
                 )}
+                onClick={formOpen ? () => onOpenRow(open) : undefined}
               >
+                <OpenCell label={`Open row ${rowIndex + 1}`} onOpen={() => onOpenRow(open)} />
                 {byIndex && (
                   <td className="border-b px-3 py-1.5">
                     {issues.length > 0 && (
@@ -761,6 +893,7 @@ function Grid({
                               : 'file'
                       }
                       readOnly={!writable || deleted || Boolean(column.primaryKey)}
+                      formOpen={formOpen}
                       isEditing={
                         editing?.row === 'existing' &&
                         JSON.stringify(editing.key) === rowKey &&
@@ -794,7 +927,7 @@ function Grid({
           })}
           {rows.length === 0 && pending.inserts.length === 0 && (
             <tr>
-              <td colSpan={table.columns.length + 1} className="px-4 py-12 text-center text-sm text-muted-foreground">
+              <td colSpan={table.columns.length + 2} className="px-4 py-12 text-center text-sm text-muted-foreground">
                 No rows
               </td>
             </tr>
@@ -816,6 +949,8 @@ interface CellProps {
   preview: (value: JsonValue) => Batch;
   state: CellState;
   readOnly?: boolean;
+  /** Whether a row is open in the form: a click then picks the row, and a double click edits the cell */
+  formOpen?: boolean;
   isEditing: boolean;
   onOpen: () => void;
   onClose: () => void;
@@ -826,7 +961,18 @@ interface CellProps {
   onRevert: () => void;
 }
 
-function Cell({ column, value, issues = [], state, readOnly, isEditing, onOpen, onClose, ...editor }: CellProps) {
+function Cell({
+  column,
+  value,
+  issues = [],
+  state,
+  readOnly,
+  formOpen,
+  isEditing,
+  onOpen,
+  onClose,
+  ...editor
+}: CellProps) {
   const json = column.type === 'JSON' && !column.unknown;
   const content =
     state === 'reset' ? (
@@ -883,7 +1029,8 @@ function Cell({ column, value, issues = [], state, readOnly, isEditing, onOpen, 
         <button
           type="button"
           className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-          onClick={onOpen}
+          onClick={formOpen ? undefined : onOpen}
+          onDoubleClick={formOpen ? onOpen : undefined}
           aria-label={
             issues.length > 0
               ? `Edit ${column.name}, which fails validation: ${describeIssues(issues)}`
@@ -918,6 +1065,35 @@ function Cell({ column, value, issues = [], state, readOnly, isEditing, onOpen, 
       <PopoverContent onOpenAutoFocus={(event) => event.preventDefault()}>{editorOf}</PopoverContent>
     </Popover>
   );
+}
+
+/** The button at the head of a row that opens the row in the form */
+function OpenCell({ label, onOpen }: { label: string; onOpen: () => void }) {
+  return (
+    <td className="border-b px-1 py-1.5">
+      <Tooltip content={label}>
+        <button
+          type="button"
+          className="flex rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={label}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen();
+          }}
+        >
+          <PanelRightOpen className="size-4" />
+        </button>
+      </Tooltip>
+    </td>
+  );
+}
+
+/**
+ * What tells a row from the others while it is open in the form: its key, or its index in a table
+ * without one or with failing rows, as the grid edits those by index
+ */
+function rowIdOf(table: TableInfo, row: JsonObject, index: number): JsonValue {
+  return table.primaryKey && table.invalidRows === 0 ? keyOf(row, table.primaryKey) : index;
 }
 
 /** The issues as one sentence, for a control whose tooltip lists them */
