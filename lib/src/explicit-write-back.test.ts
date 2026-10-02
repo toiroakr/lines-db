@@ -180,6 +180,44 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
     expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice","nickname":"Ali"}\n');
   });
 
+  it('leaves a schema-filled field out of the rows a migration transform did not set it on', async () => {
+    await writeFile(peoplePath(), '{"id":"a","name":"Alice"}\n{"id":"b","name":"Bob"}\n');
+    await writeFile(join(dataDir, 'people.schema.ts'), DEFAULTS_SCHEMA);
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(
+      await db.initialize({ tableName: 'people', transform: (row) => (row.id === 'a' ? { ...row, age: 30 } : row) }),
+    );
+
+    unwrap(await db.sync('people'));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice","age":30}\n{"id":"b","name":"Bob"}\n');
+  });
+
+  it('keeps writing a field set on a row whose delete failed', async () => {
+    await writeFile(join(dataDir, 'pets.jsonl'), '{"id":"p","owner":"a"}\n');
+    await writeFile(
+      join(dataDir, 'pets.schema.ts'),
+      "export const foreignKeys = [{ column: 'owner', references: { table: 'people', column: 'id' } }];\n" +
+        "export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+    );
+    await load('{"id":"a","name":"Alice"}\n');
+
+    await write((tx) => {
+      unwrap(tx.update('people', { age: 25 }, { id: 'a' }));
+      expect(tx.delete('people', { id: 'a' }).ok).toBe(false);
+    });
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice","age":25}\n');
+  });
+
+  it('writes a value raw SQL stored in a field its line omitted', async () => {
+    await load('{"id":"a","name":"Alice"}\n');
+
+    await write((tx) => unwrap(tx.execute('UPDATE people SET age = 31')));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice","age":31}\n');
+  });
+
   it('writes the fields a migration transform set while loading', async () => {
     await writeFile(peoplePath(), '{"id":"a","name":"Alice"}\n');
     await writeFile(join(dataDir, 'people.schema.ts'), DEFAULTS_SCHEMA);

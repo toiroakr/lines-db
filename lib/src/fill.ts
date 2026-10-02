@@ -108,7 +108,7 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
         if (line.text.trim() !== '') unreadable.push(index + 1);
         return;
       }
-      const computed = fill(line.row);
+      const computed = fill(structuredClone(line.row));
       const gained = fields.filter((field) => {
         if (isBlank(ownValue(computed, field))) return false;
         produced.add(field);

@@ -201,7 +201,8 @@ counts and shows a table as a grid. Click a cell to edit it, add records, or sel
 the changes stay pending - highlighted in the grid - until **Save N changes** writes them all in one
 transaction through `db.update()` / `db.insert()` / `db.delete()`, or **Discard** drops them. A value
 the schema rejects writes nothing: the issues are shown with the change they came from, and the
-pending changes stay for you to fix. A saved change rewrites only the line it belongs to.
+pending changes stay for you to fix. A save changes the values of the rows it edits only, but
+rewrites the table's JSONL file as a whole, so the formatting of the other lines can change too.
 
 - The URL printed at start-up holds a token generated for the run. Opening it signs the browser in
   with an HttpOnly, SameSite=Strict cookie; a request without the token is refused with 401.
@@ -572,9 +573,10 @@ unwrap(await db.findWithDefaults('people'));
 // [{ row: { id: 1, name: 'Alicia', age: 20 }, defaulted: ['age'] }]
 ```
 
-A row whose backward transformation renames fields, and a row with neither a line nor a recorded
-write (one added with raw SQL), is written whole, since there is no way to tell which of its fields a
-user wrote.
+A row whose backward transformation renames fields, a row with neither a line nor a recorded
+write (one added with raw SQL), and every row of a table after raw SQL through `execute()` or
+`query()` changed rows, are written whole, since there is no way to tell which of their fields a user
+wrote. A field a migration `transform` set on a row while loading counts as written on that row.
 
 ### Writing Back Only Some Fields
 

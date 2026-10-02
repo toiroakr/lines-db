@@ -61,6 +61,18 @@ describe('fillFields', () => {
     ]);
   });
 
+  it('keeps the values of a line its filler changed in place, writing only the fields it fills', async () => {
+    const jsonlPath = await writeTable('Widget', ['{"name":"a"}']);
+    const mutating: RowFiller = (row) => {
+      row.name = 'changed';
+      return { id: 'generated', ...row };
+    };
+
+    unwrap(await fillFields({ path: dataDir, loadFiller: () => mutating }));
+
+    expect(await readLines(jsonlPath)).toEqual(['{"id":"generated","name":"a"}', '']);
+  });
+
   it('fills the named fields, leaving a value the row already has alone', async () => {
     const jsonlPath = await writeTable('Widget', [
       '{"name":"dated","createdAt":"2020-01-02T03:04:05.000Z"}',

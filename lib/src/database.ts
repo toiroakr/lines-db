@@ -137,8 +137,11 @@ export class LinesDB<Tables extends TableDefs> {
    * holds the fields a user wrote, so only what changed since it was written needs remembering
    */
   private fieldChanges: Map<string, Map<string, FieldChanges>> = new Map();
-  /** The fields a migration transform set on the rows of a table while loading it */
-  private transformedFields: Map<string, Set<string>> = new Map();
+  /**
+   * The tables raw SQL may have changed since they were last written back: which fields it set is
+   * unknown, so their rows are written back whole
+   */
+  private rawSqlTables: Set<string> = new Set();
   /** Whether a transaction() call is past its guard but has not begun yet */
   private transactionStarting = false;
   /** The tables changed in the running transaction, or 'all' once raw SQL may have changed any */
@@ -525,16 +528,15 @@ export class LinesDB<Tables extends TableDefs> {
     }
 
     // Apply transform if provided (before validation)
+    const transformedFields: string[][] = [];
     if (transform) {
-      const changed = new Set<string>();
       data = data.map((row) => {
         const transformed = transform(row);
-        for (const key of Object.keys(transformed)) {
-          if (JSON.stringify(transformed[key]) !== JSON.stringify(row[key])) changed.add(key);
-        }
+        transformedFields.push(
+          Object.keys(transformed).filter((key) => JSON.stringify(transformed[key]) !== JSON.stringify(row[key])),
+        );
         return transformed;
       });
-      this.transformedFields.set(tableName, changed);
     }
 
     // Load validation schema if provided or try to auto-load
@@ -736,6 +738,17 @@ export class LinesDB<Tables extends TableDefs> {
       }
     } else {
       this.insertData(tableName, schema, validatedData);
+    }
+
+    this.fieldChanges.delete(tableName);
+    if (transformedFields.some((fields) => fields.length > 0)) {
+      const rowids = this.queryInternal<JsonObject>(
+        `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)} ORDER BY rowid`,
+      );
+      rowids.forEach((row, index) => {
+        const set = transformedFields[index] ?? [];
+        if (set.length > 0) this.noteFieldChanges(tableName, row[ROWID_ALIAS] as number | bigint, { set });
+      });
     }
 
     for (const [jsonlPath, contentHash] of contentHashes) {
@@ -1076,14 +1089,16 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
-   * Run a caller's SQL, and when it changed rows inside a transaction, write back every table: which
-   * tables raw SQL changed is unknown, and a query() can change rows with RETURNING too
+   * Run a caller's SQL, and when it changed rows, write back every table whole: which tables and
+   * fields raw SQL changed is unknown, and a query() can change rows with RETURNING too
    */
   private trackRawSql<T>(run: () => T): T {
-    if (!this.transactionChanges) return run();
     const before = this.totalChanges();
     const result = run();
-    if (this.totalChanges() !== before) this.transactionChanges = 'all';
+    if (this.totalChanges() !== before) {
+      for (const tableName of this.schemas.keys()) this.rawSqlTables.add(tableName);
+      if (this.transactionChanges) this.transactionChanges = 'all';
+    }
     return result;
   }
 
@@ -1666,10 +1681,10 @@ export class LinesDB<Tables extends TableDefs> {
       throw new Error('Function filters are not supported in delete operations');
     }
 
-    this.forgetFieldChanges(tableName, whereSql, values);
-
+    const deleted = this.rowidsWhere(tableName, whereSql, values);
     const sql = `DELETE FROM ${this.quoteTableName(tableName)} WHERE ${whereSql}`;
     const result = this.executeInternal(sql, values);
+    this.forgetFieldChanges(tableName, deleted);
 
     // Auto-sync if not in transaction
     this.afterWrite(tableName, result.changes);
@@ -1723,9 +1738,9 @@ export class LinesDB<Tables extends TableDefs> {
     const placeholders = pkValues.map(() => '?').join(', ');
     const sql = `DELETE FROM ${this.quoteTableName(tableName)} WHERE ${this.quoteIdentifier(pkName)} IN (${placeholders})`;
     const values = pkValues.map((value) => this.normalizeValue(value));
-    this.forgetFieldChanges(tableName, `${this.quoteIdentifier(pkName)} IN (${placeholders})`, values);
-
+    const deleted = this.rowidsWhere(tableName, `${this.quoteIdentifier(pkName)} IN (${placeholders})`, values);
     const result = this.executeInternal(sql, values);
+    this.forgetFieldChanges(tableName, deleted);
 
     this.afterWrite(tableName, result.changes);
 
@@ -1987,7 +2002,6 @@ export class LinesDB<Tables extends TableDefs> {
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
     const lines = this.matchExistingRows(tableName, lineRows, existingRows, { required: false });
     const changes = this.fieldChanges.get(tableName);
-    const transformed = this.transformedFields.get(tableName) ?? new Set<string>();
 
     return lineRows.map((lineRow, index) => {
       const line = lines?.[index];
@@ -1996,11 +2010,11 @@ export class LinesDB<Tables extends TableDefs> {
       const renamesFields = Object.keys(lineRow).some((key) => !Object.hasOwn(rows[index], key));
       // Not narrowed without a line unless the row was inserted: a row whose key changed has lost its
       // line too, and narrowing it would drop the fields that line held
-      if (renamesFields || (!line && !rowChanges?.inserted)) {
+      if (renamesFields || this.rawSqlTables.has(tableName) || (!line && !rowChanges?.inserted)) {
         return { written: lineRow, narrowed: false };
       }
 
-      const keep = new Set([...Object.keys(line ?? {}), ...transformed, ...(rowChanges?.set ?? [])]);
+      const keep = new Set([...Object.keys(line ?? {}), ...(rowChanges?.set ?? [])]);
       for (const key of rowChanges?.reset ?? []) keep.delete(key);
       for (const key of namedFields) keep.add(key);
       if (pkName) keep.add(pkName);
@@ -2011,21 +2025,24 @@ export class LinesDB<Tables extends TableDefs> {
     });
   }
 
-  /**
-   * Forget the field changes of the rows about to be deleted: a deleted row's rowid can be given to a
-   * row inserted later, which must not inherit them
-   */
-  private forgetFieldChanges(
+  private rowidsWhere(
     tableName: string,
     whereSql: string,
     values: (string | number | bigint | null | Uint8Array)[],
-  ): void {
-    const deleted = this.queryInternal<JsonObject>(
+  ): string[] {
+    return this.queryInternal<JsonObject>(
       `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)} WHERE ${whereSql}`,
       values,
-    );
-    for (const row of deleted) {
-      this.fieldChanges.get(tableName)?.delete(String(row[ROWID_ALIAS]));
+    ).map((row) => String(row[ROWID_ALIAS]));
+  }
+
+  /**
+   * Forget the field changes of deleted rows: a deleted row's rowid can be given to a row inserted
+   * later, which must not inherit them
+   */
+  private forgetFieldChanges(tableName: string, rowids: string[]): void {
+    for (const rowid of rowids) {
+      this.fieldChanges.get(tableName)?.delete(rowid);
     }
   }
 
@@ -2126,7 +2143,7 @@ export class LinesDB<Tables extends TableDefs> {
   private async writePrepared({ tableName, jsonlPath, rows }: PreparedWriteBack): Promise<void> {
     await JsonlWriter.write(jsonlPath, rows);
     this.fieldChanges.delete(tableName);
-    this.transformedFields.delete(tableName);
+    this.rawSqlTables.delete(tableName);
     const contentHash = hashJsonlContent(JsonlWriter.serialize(rows));
     this.fileHashes.set(jsonlPath, contentHash);
     this.observedHashes.set(jsonlPath, contentHash);
@@ -2137,14 +2154,42 @@ export class LinesDB<Tables extends TableDefs> {
    * tables it changed once its callback is done
    */
   private afterWrite(tableName: string, changes: number | bigint): void {
+    // Not counted when no row changed: writing the table back could then fail on a file it never touched
+    if (BigInt(changes) === 0n && this.transactionChanges) return;
+    const tableNames = [tableName, ...this.tablesChangedByForeignKeyActions(tableName)];
     if (this.transactionChanges) {
-      // Not counted when no row changed: writing the table back could then fail on a file it never touched
-      if (this.transactionChanges !== 'all' && BigInt(changes) > 0n) this.transactionChanges.add(tableName);
+      if (this.transactionChanges !== 'all') for (const name of tableNames) this.transactionChanges.add(name);
       return;
     }
-    this.syncTable(tableName).catch((err) => {
-      console.error(`Failed to sync table ${tableName}:`, err);
-    });
+    for (const name of tableNames) {
+      this.syncTable(name).catch((err) => {
+        console.error(`Failed to sync table ${name}:`, err);
+      });
+    }
+  }
+
+  /**
+   * The tables whose rows an ON DELETE / ON UPDATE action can change when a table's rows change,
+   * following the actions on to the tables they change in turn
+   */
+  private tablesChangedByForeignKeyActions(tableName: string): string[] {
+    const found = new Set<string>();
+    const visit = (referenced: string) => {
+      for (const [name, schema] of this.schemas) {
+        if (found.has(name) || name === tableName) continue;
+        const acts = (schema.foreignKeys ?? []).some(
+          (fk) =>
+            fk.references.table === referenced &&
+            [fk.onDelete, fk.onUpdate].some((action) => action === 'CASCADE' || action === 'SET NULL'),
+        );
+        if (acts) {
+          found.add(name);
+          visit(name);
+        }
+      }
+    };
+    visit(tableName);
+    return Array.from(found);
   }
 
   private tablesChangedInTransaction(): string[] {
@@ -2450,15 +2495,13 @@ export class LinesDB<Tables extends TableDefs> {
     this.transactionStarting = true;
 
     let fieldChangesBefore: Map<string, Map<string, FieldChanges>> | undefined;
-    let transformedFieldsBefore: Map<string, Set<string>> | undefined;
+    let rawSqlTablesBefore: Set<string> | undefined;
     let written: PreparedWriteBack[] = [];
     try {
       // Not beginning first: a pending auto-sync would then read, and write out, rows still uncommitted
       await this.waitForPendingSyncs();
       fieldChangesBefore = cloneFieldChanges(this.fieldChanges);
-      transformedFieldsBefore = new Map(
-        Array.from(this.transformedFields, ([name, fields]) => [name, new Set(fields)]),
-      );
+      rawSqlTablesBefore = new Set(this.rawSqlTables);
       this.db.exec('BEGIN TRANSACTION');
       this.inTransaction = true;
       this.transactionStarting = false;
@@ -2481,7 +2524,7 @@ export class LinesDB<Tables extends TableDefs> {
       this.transactionStarting = false;
       this.transactionChanges = undefined;
       if (fieldChangesBefore) this.fieldChanges = fieldChangesBefore;
-      if (transformedFieldsBefore) this.transformedFields = transformedFieldsBefore;
+      if (rawSqlTablesBefore) this.rawSqlTables = rawSqlTablesBefore;
       // Not only when writing a file fails: a COMMIT failing after the writes leaves files holding rolled-back rows
       await this.restoreAll(written);
       if (this.inTransaction) {

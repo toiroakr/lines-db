@@ -123,6 +123,22 @@ describe('LinesDB.transaction write-back', () => {
     expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n');
   });
 
+  it('writes back the rows a foreign-key action changed in another table', async () => {
+    await db.close();
+    await writeFile(itemsPath(), '{"id":1,"name":"a","tagId":1}\n');
+    await writeFile(
+      join(dataDir, 'items.schema.ts'),
+      "export const foreignKeys = [{ column: 'tagId', references: { table: 'tags', column: 'id' }, onDelete: 'CASCADE' }];\n" +
+        "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+    );
+    db = LinesDB.create<TableDefs>({ dataDir });
+    unwrap(await db.initialize());
+
+    unwrap(await db.transaction((tx) => void unwrap(tx.delete('tags', { id: 1 }))));
+
+    expect((await readFile(itemsPath(), 'utf-8')).trim()).toBe('');
+  });
+
   it('puts the files back when COMMIT fails after they were written', async () => {
     await db.close();
     await writeFile(itemsPath(), '{"id":1,"name":"a","tagId":1}\n');
