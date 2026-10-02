@@ -432,6 +432,11 @@ already holds the change the file did not get. `transaction()` and `sync()` with
 back every table, so a change to any table's file fails them. An auto-sync after a write outside a
 transaction fails the same way, and reports the error through `console.error`.
 
+The file is checked right before it is written, with no lock held in between, so a change saved in
+the instant between the check and the write - by an editor or by another process writing the same
+file - is still overwritten. The check is meant for a single user editing files on their own
+machine, where a change landing in that window is unlikely.
+
 ### Writing Back Only Some Fields
 
 A sync writes each row back in full by default, which materializes values a validation schema
