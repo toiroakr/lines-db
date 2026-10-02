@@ -556,11 +556,9 @@ export class LinesDB<Tables extends TableDefs> {
 
     const schemaPath = config.validationSchema ? undefined : await this.findTableSchemaFile(tableName, config);
     if (!validationSchema && schemaPath) {
-      try {
-        validationSchema = await SchemaLoader.loadSchema(config.jsonlPath, dirname(schemaPath));
-      } catch (_error) {
-        // Schema file not found or failed to load - this is OK, table can still be used without validation
-      }
+      // Not loaded without validation when its schema file fails to load: rows written then would skip
+      // the checks the file means to make; the error names the file and why it failed
+      validationSchema = await SchemaLoader.loadSchema(config.jsonlPath, dirname(schemaPath));
     }
 
     // Load schema metadata (foreignKeys, primaryKey, indexes) from schema module

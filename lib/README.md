@@ -69,6 +69,10 @@ export default schema;
 
 - Any library implementing [StandardSchema](https://standardschema.dev/)
 
+A table whose schema file cannot be loaded - it fails to import, or exports no Standard Schema as
+`schema` or `default` - makes `initialize()` fail with the file and the reason, rather than loading the
+table without validation.
+
 ### Validate JSONL Files
 
 Validate your JSONL files against their schemas:

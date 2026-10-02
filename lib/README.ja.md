@@ -69,6 +69,10 @@ export default schema;
 
 - [StandardSchema](https://standardschema.dev/)を実装する任意のライブラリ
 
+スキーマファイルを読み込めない（import に失敗する、または `schema` か `default` として Standard Schema を
+export していない）テーブルがあると、`initialize()` はそのファイルと理由を示して失敗します。検証なしで
+テーブルを読み込むことはしません。
+
 ### JSONL ファイルのバリデーション
 
 JSONLファイルをスキーマに対してバリデーションします：
