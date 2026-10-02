@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { LinesDB } from './database.js';
+import { JsonlWriter } from './jsonl-writer.js';
 import { unwrap } from './result.js';
 import type { TableDefs } from './types.js';
 
@@ -150,6 +151,25 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
     ]);
   });
 
+  it('refuses to report the filled fields once the file changed on disk, as its lines no longer match the rows', async () => {
+    await load('{"id":"a","name":"Alice"}\n');
+    await writeFile(peoplePath(), '{"id":"a","name":"Alice","age":20}\n');
+
+    const result = await db.findWithDefaults('people');
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error.name).toBe('JsonlConflictError');
+  });
+
+  it('reports the filled fields of a row after the sync it queued wrote it', async () => {
+    await load('{"id":"a","name":"Alice"}\n');
+    unwrap(db.update('people', { age: 30 }, { id: 'a' }));
+
+    expect(unwrap(await db.findWithDefaults('people'))).toEqual([
+      { row: { id: 'a', name: 'Alice', age: 30 }, defaulted: [] },
+    ]);
+  });
+
   it('writes every field of the rows of a schema whose backward transform renames fields, as the line keys no longer match', async () => {
     const renaming = `export const schema = { backward: (row) => ({ id: row.id, full_name: row.fullName }), '~standard': { version: 1, vendor: 'test', validate: (data) =>
   ({ value: { id: data.id, fullName: data.full_name ?? data.fullName } }) } };
@@ -242,6 +262,29 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
 
     expect(await readFile(join(dataDir, 'pets.jsonl'), 'utf-8')).toBe(
       '{"id":"p","owner":null}\n{"id":"q","owner":null}\n',
+    );
+  });
+
+  it('keeps a field set while an automatic sync was writing, so the sync after it writes the field too', async () => {
+    await load('{"id":"a","name":"Alice"}\n{"id":"b","name":"Bob"}\n');
+    const write = JsonlWriter.write.bind(JsonlWriter);
+    let setDuringWrite = false;
+    const spy = vi.spyOn(JsonlWriter, 'write').mockImplementation(async (path, rows) => {
+      if (!setDuringWrite) {
+        setDuringWrite = true;
+        unwrap(db.update('people', { age: 30 }, { id: 'b' }));
+      }
+      return write(path, rows);
+    });
+    try {
+      unwrap(db.update('people', { name: 'Alicia' }, { id: 'a' }));
+      await db.close();
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe(
+      '{"id":"a","name":"Alicia"}\n{"id":"b","name":"Bob","age":30}\n',
     );
   });
 

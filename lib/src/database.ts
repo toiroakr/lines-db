@@ -74,6 +74,8 @@ interface PreparedWriteBack {
   rows: JsonObject[];
   /** Undefined when the file did not exist */
   previousContent: string | undefined;
+  /** How many changes the table had seen when its rows were read */
+  generation: number;
 }
 
 /** The fields set and reset on a row since its table was last written back */
@@ -142,6 +144,8 @@ export class LinesDB<Tables extends TableDefs> {
    * unknown, so their rows are written back whole
    */
   private rawSqlTables: Set<string> = new Set();
+  /** How many changes each table has seen, which tells a write-back whether one came after it read the rows */
+  private changeGenerations: Map<string, number> = new Map();
   /**
    * The lines read, by rowid, that hold a field the table has no column for: kept to write that field
    * back, also once the row's primary key changed and its line can no longer be found by it
@@ -1117,7 +1121,10 @@ export class LinesDB<Tables extends TableDefs> {
       return run();
     } finally {
       if (this.totalChanges() !== before) {
-        for (const tableName of this.schemas.keys()) this.rawSqlTables.add(tableName);
+        for (const tableName of this.schemas.keys()) {
+          this.rawSqlTables.add(tableName);
+          this.noteChange(tableName);
+        }
         if (this.transactionChanges) this.transactionChanges = 'all';
       }
     }
@@ -2060,6 +2067,7 @@ export class LinesDB<Tables extends TableDefs> {
     // without it SQLite may return them in any order, and matching rows to their existing
     // line by position depends on that order being the one the file was read in.
     const { rowids, rows: deserializedRows, lineRows } = this.readStoredRows(tableName);
+    const generation = this.changeGenerations.get(tableName) ?? 0;
     let finalRows = lineRows;
 
     const previousContent = await readFile(tableConfig.jsonlPath, 'utf-8').catch((error: NodeJS.ErrnoException) => {
@@ -2087,7 +2095,7 @@ export class LinesDB<Tables extends TableDefs> {
       strictFields: options?.strictFields ?? false,
     });
 
-    return { tableName, jsonlPath: tableConfig.jsonlPath, rows: finalRows, previousContent };
+    return { tableName, jsonlPath: tableConfig.jsonlPath, rows: finalRows, previousContent, generation };
   }
 
   /**
@@ -2184,11 +2192,16 @@ export class LinesDB<Tables extends TableDefs> {
     }
   }
 
+  private noteChange(tableName: string): void {
+    this.changeGenerations.set(tableName, (this.changeGenerations.get(tableName) ?? 0) + 1);
+  }
+
   private noteFieldChanges(
     tableName: string,
     rowid: number | bigint,
     changes: { set?: readonly string[]; reset?: readonly string[]; inserted?: boolean },
   ): void {
+    this.noteChange(tableName);
     const byRow = this.fieldChanges.get(tableName) ?? new Map<string, FieldChanges>();
     const rowChanges = byRow.get(String(rowid)) ?? {
       set: new Set<string>(),
@@ -2259,10 +2272,10 @@ export class LinesDB<Tables extends TableDefs> {
       if (!tableConfig || !this.schemas.has(tableName)) {
         throw new Error(`Table '${tableName}' is not loaded`);
       }
+      // Not read as the file is now: lines another tool changed would be matched to the rows read before
+      await this.waitForPendingSyncs();
+      const existingRows = await this.readUnchangedRows(tableConfig.jsonlPath);
       const { rowids, rows, lineRows } = this.readStoredRows(tableName);
-      const read = await JsonlReader.read(tableConfig.jsonlPath);
-      if (!read.ok && (read.error as NodeJS.ErrnoException).code !== 'ENOENT') throw read.error;
-      const existingRows = read.ok ? read.value : [];
 
       const kept = this.keepWrittenFields(tableName, rowids, rows, lineRows, existingRows, this.config.writeBackFields);
       return ok(
@@ -2278,10 +2291,13 @@ export class LinesDB<Tables extends TableDefs> {
     }
   }
 
-  private async writePrepared({ tableName, jsonlPath, rows }: PreparedWriteBack): Promise<void> {
+  private async writePrepared({ tableName, jsonlPath, rows, generation }: PreparedWriteBack): Promise<void> {
     await JsonlWriter.write(jsonlPath, rows);
-    this.fieldChanges.delete(tableName);
-    this.rawSqlTables.delete(tableName);
+    // Not cleared once a change came while writing: the write-back after it needs that change's fields
+    if ((this.changeGenerations.get(tableName) ?? 0) === generation) {
+      this.fieldChanges.delete(tableName);
+      this.rawSqlTables.delete(tableName);
+    }
     const contentHash = hashJsonlContent(JsonlWriter.serialize(rows));
     this.fileHashes.set(jsonlPath, contentHash);
     this.observedHashes.set(jsonlPath, contentHash);
