@@ -129,6 +129,18 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
     });
   });
 
+  it('changes nothing when a reset the schema refuses fails an update, keeping it all or nothing', async () => {
+    const strict = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  data.age === undefined ? { issues: [{ message: 'age is required' }] } : { value: data } } };
+`;
+    await load('{"id":"a","name":"Alice","age":31}\n', strict, 'strict');
+
+    const result = db.update('strict', { name: 'Alicia' }, { id: 'a' }, { resetToDefault: ['age'] });
+
+    expect(result.ok).toBe(false);
+    expect(unwrap(db.findOne('strict', { id: 'a' }))).toMatchObject({ name: 'Alice', age: 31 });
+  });
+
   it('reports the fields of each row that the schema filled in rather than the file', async () => {
     await load('{"id":"a","name":"Alice"}\n{"id":"b","name":"Bob","age":40}\n');
 

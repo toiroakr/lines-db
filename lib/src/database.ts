@@ -139,6 +139,8 @@ export class LinesDB<Tables extends TableDefs> {
   private fieldChanges: Map<string, Map<string, FieldChanges>> = new Map();
   /** The fields a migration transform set on the rows of a table while loading it */
   private transformedFields: Map<string, Set<string>> = new Map();
+  /** Whether a transaction() call is past its guard but has not begun yet */
+  private transactionStarting = false;
   /** The tables changed in the running transaction, or 'all' once raw SQL may have changed any */
   private transactionChanges: Set<string> | 'all' | undefined;
   /** Hash of each JSONL file's content as this database last read or wrote it */
@@ -1338,7 +1340,7 @@ export class LinesDB<Tables extends TableDefs> {
     this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(data), inserted: true });
 
     // Auto-sync if not in transaction
-    this.afterWrite(tableName);
+    this.afterWrite(tableName, result.changes);
 
     return result;
   }
@@ -1391,7 +1393,7 @@ export class LinesDB<Tables extends TableDefs> {
       lastRowid = BigInt(result.lastInsertRowid);
     }
 
-    this.afterWrite(tableName);
+    this.afterWrite(tableName, totalChanges);
 
     return {
       changes: totalChanges,
@@ -1457,6 +1459,11 @@ export class LinesDB<Tables extends TableDefs> {
       whereValues,
     );
 
+    // Not computed after the UPDATE: a reset the schema refuses must fail the update before it changes anything
+    const resetFields = options?.resetToDefault ?? [];
+    const resets =
+      resetFields.length > 0 ? this.computeResets(tableName, targets, data as JsonObject, resetFields) : [];
+
     let result: { changes: number | bigint; lastInsertRowid: number | bigint } = { changes: 0, lastInsertRowid: 0 };
     if (Object.keys(data).length > 0) {
       const setClauses = Object.keys(data)
@@ -1474,13 +1481,12 @@ export class LinesDB<Tables extends TableDefs> {
       this.noteFieldChanges(tableName, target[ROWID_ALIAS] as number | bigint, { set });
     }
 
-    const resetFields = options?.resetToDefault ?? [];
-    if (resetFields.length > 0) {
-      result = this.resetToDefault(tableName, targets, data as JsonObject, resetFields);
+    if (resets.length > 0) {
+      result = this.applyResets(tableName, resets, resetFields);
     }
 
     // Auto-sync if not in transaction
-    this.afterWrite(tableName);
+    this.afterWrite(tableName, result.changes);
 
     return result;
   }
@@ -1666,7 +1672,7 @@ export class LinesDB<Tables extends TableDefs> {
     const result = this.executeInternal(sql, values);
 
     // Auto-sync if not in transaction
-    this.afterWrite(tableName);
+    this.afterWrite(tableName, result.changes);
 
     return result;
   }
@@ -1721,7 +1727,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     const result = this.executeInternal(sql, values);
 
-    this.afterWrite(tableName);
+    this.afterWrite(tableName, result.changes);
 
     return {
       changes: BigInt(result.changes),
@@ -2051,27 +2057,37 @@ export class LinesDB<Tables extends TableDefs> {
    * Store the value the schema fills in for each reset field, as validating the row without the field
    * gives it, and remember the field as reset so it leaves the line
    */
-  private resetToDefault(
+  /** The value the schema fills in for each reset field of each target, validating the row without them */
+  private computeResets(
     tableName: string,
     targets: JsonObject[],
     data: JsonObject,
     fields: readonly string[],
-  ): { changes: number | bigint; lastInsertRowid: number | bigint } {
-    let changes = 0n;
-    for (const target of targets) {
+  ): Array<{ rowid: number | bigint; values: ReturnType<LinesDB<Tables>['normalizeValue']>[] }> {
+    return targets.map((target) => {
       const { [ROWID_ALIAS]: rowid, ...stored } = target;
       const row = { ...this.deserializeRow(tableName, stored), ...data };
       for (const field of fields) delete row[field];
       const validated = this.validateAndTransform(tableName, row);
+      return { rowid: rowid as number | bigint, values: fields.map((field) => this.normalizeValue(validated[field])) };
+    });
+  }
 
-      const setClauses = fields.map((field) => `${this.quoteIdentifier(field)} = ?`).join(', ');
-      const values = fields.map((field) => this.normalizeValue(validated[field]));
+  /** Store the values computeResets gave, and remember the fields as reset so they leave the line */
+  private applyResets(
+    tableName: string,
+    resets: Array<{ rowid: number | bigint; values: ReturnType<LinesDB<Tables>['normalizeValue']>[] }>,
+    fields: readonly string[],
+  ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    let changes = 0n;
+    const setClauses = fields.map((field) => `${this.quoteIdentifier(field)} = ?`).join(', ');
+    for (const { rowid, values } of resets) {
       const result = this.executeInternal(
         `UPDATE ${this.quoteTableName(tableName)} SET ${setClauses} WHERE rowid = ?`,
-        [...values, rowid as number | bigint],
+        [...values, rowid],
       );
       changes += BigInt(result.changes);
-      this.noteFieldChanges(tableName, rowid as number | bigint, { reset: fields });
+      this.noteFieldChanges(tableName, rowid, { reset: fields });
     }
     return { changes, lastInsertRowid: 0 };
   }
@@ -2120,9 +2136,10 @@ export class LinesDB<Tables extends TableDefs> {
    * Write a table back to its file, or leave it to the running transaction, which writes back the
    * tables it changed once its callback is done
    */
-  private afterWrite(tableName: string): void {
+  private afterWrite(tableName: string, changes: number | bigint): void {
     if (this.transactionChanges) {
-      if (this.transactionChanges !== 'all') this.transactionChanges.add(tableName);
+      // Not counted when no row changed: writing the table back could then fail on a file it never touched
+      if (this.transactionChanges !== 'all' && BigInt(changes) > 0n) this.transactionChanges.add(tableName);
       return;
     }
     this.syncTable(tableName).catch((err) => {
@@ -2426,9 +2443,11 @@ export class LinesDB<Tables extends TableDefs> {
    * (or any error) from `fn`; only a thrown error rolls the transaction back.
    */
   async transaction<T>(fn: (tx: LinesDB<Tables>) => Promise<T> | T): Promise<Result<T, Error>> {
-    if (this.inTransaction) {
+    if (this.inTransaction || this.transactionStarting) {
       return err(new Error('Nested transactions are not supported'));
     }
+    // Not left to inTransaction: it is set only after the awaits below, which a second call could slip past
+    this.transactionStarting = true;
 
     let fieldChangesBefore: Map<string, Map<string, FieldChanges>> | undefined;
     let transformedFieldsBefore: Map<string, Set<string>> | undefined;
@@ -2442,6 +2461,7 @@ export class LinesDB<Tables extends TableDefs> {
       );
       this.db.exec('BEGIN TRANSACTION');
       this.inTransaction = true;
+      this.transactionStarting = false;
       this.transactionChanges = new Set();
 
       const result = await fn(this);
@@ -2458,6 +2478,7 @@ export class LinesDB<Tables extends TableDefs> {
 
       return ok(result);
     } catch (error) {
+      this.transactionStarting = false;
       this.transactionChanges = undefined;
       if (fieldChangesBefore) this.fieldChanges = fieldChangesBefore;
       if (transformedFieldsBefore) this.transformedFields = transformedFieldsBefore;

@@ -172,4 +172,27 @@ describe('LinesDB.transaction write-back', () => {
     expect(result.ok).toBe(false);
     expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"a"}\n');
   });
+
+  it('refuses a second transaction started before the first one began, instead of rolling the first back', async () => {
+    const [first, second] = await Promise.all([
+      db.transaction((tx) => unwrap(tx.update('items', { name: 'A' }, { id: 1 }))),
+      db.transaction((tx) => unwrap(tx.update('tags', { label: 'X' }, { id: 1 }))),
+    ]);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(false);
+    expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"A"}\n');
+  });
+
+  it('leaves a table that a write did not change out of the write-back, so a change on disk does not stop it', async () => {
+    await writeFile(tagsPath(), '{"id":1,"label":"edited-in-editor"}\n');
+
+    const result = await db.transaction((tx) => {
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      unwrap(tx.delete('tags', { id: 999 }));
+    });
+
+    expect(result.ok).toBe(true);
+    expect(await readFile(tagsPath(), 'utf-8')).toBe('{"id":1,"label":"edited-in-editor"}\n');
+  });
 });

@@ -23,7 +23,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && pnpm --filter @toiroakr/lines-db-studio-ui build",
     "publint": "publint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

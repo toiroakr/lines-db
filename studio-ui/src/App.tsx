@@ -570,12 +570,25 @@ function Cell({ column, value, state, readOnly, isEditing, onOpen, onClose, ...e
         <td
           className={cn(
             'max-w-80 border-b border-l px-3 py-1.5 font-mono text-xs whitespace-nowrap first:border-l-0',
-            !readOnly && 'cursor-pointer hover:bg-accent/60',
+            !readOnly &&
+              'cursor-pointer outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
             (state === 'changed' || state === 'reset') &&
               'bg-changed/60 shadow-[inset_2px_0_0_var(--changed-foreground)]',
             isEditing && 'ring-2 ring-ring ring-inset',
           )}
           onClick={readOnly ? undefined : onOpen}
+          tabIndex={readOnly ? undefined : 0}
+          aria-label={readOnly ? undefined : `Edit ${column.name}`}
+          onKeyDown={
+            readOnly
+              ? undefined
+              : (event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onOpen();
+                  }
+                }
+          }
         >
           <div className="flex items-center gap-1.5">
             <span className="truncate">{content}</span>

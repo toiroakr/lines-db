@@ -320,7 +320,7 @@ describe('studio server', () => {
     expect(response.status).toBe(400);
   });
 
-  it('validates a save made right after a schema file appeared against that schema, not the state loaded before', async () => {
+  it('refuses a save made after the edited table schema file changed, then validates the retry against it', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'members.jsonl'), '{"id":1,"name":"Alexandria"}\n');
     studio = await startStudioServer({ dataDir, port: 0 });
@@ -329,9 +329,12 @@ describe('studio server', () => {
       NAME_REQUIRED_SCHEMA.replace('data.name.length > 0', 'data.name.length > 9'),
     );
 
-    const response = await patchJson(rowUrl('members', 1), { changes: { name: 'Alex' } });
+    const first = await patchJson(rowUrl('members', 1), { changes: { name: 'Alex' } });
+    const retry = await patchJson(rowUrl('members', 1), { changes: { name: 'Alex' } });
 
-    expect(response.status).toBe(400);
+    expect(first.status).toBe(409);
+    expect((await bodyOf(first)).message).toContain('members.schema.ts');
+    expect(retry.status).toBe(400);
     expect(await readFile(join(dataDir, 'members.jsonl'), 'utf8')).toBe('{"id":1,"name":"Alexandria"}\n');
   });
 

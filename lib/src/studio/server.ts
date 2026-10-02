@@ -3,7 +3,7 @@ import { watch } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { extname, join, relative, resolve as resolvePath } from 'node:path';
+import { basename, extname, join, relative, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LinesDB } from '../database.js';
 import { ErrorFormatter } from '../error-formatter.js';
@@ -215,7 +215,12 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         await reloadUnlocked();
         // Not saved over an outside edit of the edited table's own file: the change was made on rows
         // the page showed before that edit
-        const ownFile = changedFiles.find((file) => resolvePath(file) === resolvePath(dataDir, `${tableName}.jsonl`));
+        // A changed schema file of the edited table counts too: its primary key may name another column
+        const ownFile = changedFiles.find(
+          (file) =>
+            resolvePath(file) === resolvePath(dataDir, `${tableName}.jsonl`) ||
+            basename(file).startsWith(`${tableName}.schema.`),
+        );
         if (ownFile) {
           const message = `${relative(dataDir, ownFile) || ownFile} changed on disk, so the tables were reloaded. Check the rows and try again.`;
           return { status: 409, body: { message }, changed: true };
