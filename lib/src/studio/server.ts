@@ -155,7 +155,10 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
     if (req.method === 'GET' && url.pathname === '/api/tables') {
       await reloadIfChanged();
-      const tables = snapshot.db.getTableNames().map((name) => {
+      // Not listed as loaded when rows failed a constraint on load: its passing rows are in the database,
+      // but its rows are fixed in the file, by index
+      const loadedTables = snapshot.db.getTableNames().filter((name) => !snapshot.invalid.has(name));
+      const tables = loadedTables.map((name) => {
         const columns = snapshot.db.getSchema(name)?.columns ?? [];
         const primaryKey = columns.find((column) => column.primaryKey)?.name ?? null;
         const rowCount =
@@ -269,7 +272,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       sendJson(res, 403, { message: 'Writes are accepted from the studio page only' });
       return;
     }
-    if (write.kind !== 'delete' && !req.headers['content-type']?.startsWith('application/json')) {
+    if (write.kind !== 'delete' && !isJsonMediaType(req.headers['content-type'])) {
       sendJson(res, 415, { message: 'Writes must be sent as application/json' });
       return;
     }
@@ -687,6 +690,11 @@ function isJsonObject(value: unknown): value is JsonObject {
 
 function isFieldList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((field) => typeof field === 'string');
+}
+
+/** `application/json`, with or without parameters such as a charset */
+function isJsonMediaType(contentType: string | undefined): boolean {
+  return contentType?.split(';')[0].trim().toLowerCase() === 'application/json';
 }
 
 function changeBatch(body: unknown): ChangeBatch {

@@ -412,6 +412,18 @@ describe('studio server', () => {
     expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toContain('"name":"Alice"');
   });
 
+  it('rejects a media type that only starts like application/json, and accepts one with parameters', async () => {
+    const send = (type: string) =>
+      fetch(rowUrl('users', 1), {
+        method: 'PATCH',
+        headers: { 'Content-Type': type },
+        body: JSON.stringify({ changes: { name: 'Alicia' } }),
+      });
+
+    expect((await send('application/jsonp')).status).toBe(415);
+    expect((await send('Application/JSON; charset=utf-8')).status).toBe(200);
+  });
+
   it('rejects a write sent from another origin', async () => {
     const response = await fetch(rowUrl('users', 1), {
       method: 'DELETE',
@@ -730,6 +742,24 @@ describe('studio server', () => {
       expect((await bodyOf(response)).stillFailing).toEqual([
         { index: 0, issues: [expect.objectContaining({ path: [{ key: 'owner' }] })] },
       ]);
+    });
+
+    it('lists a table whose rows fail a foreign key once, as a table with failing rows', async () => {
+      await studio.close();
+      await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');
+      await writeFile(join(dataDir, 'pets.jsonl'), '{"id":1,"owner":1,"name":"a"}\n{"id":2,"owner":9,"name":"b"}\n');
+      await writeFile(
+        join(dataDir, 'pets.schema.ts'),
+        "export const foreignKeys = [{ column: 'owner', references: { table: 'owners', column: 'id' } }];\n" +
+          "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+      );
+      studio = await startStudioServer({ dataDir, port: 0 });
+
+      const pets = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.filter(
+        (table: { name: string }) => table.name === 'pets',
+      );
+
+      expect(pets).toEqual([expect.objectContaining({ invalidRows: 1, primaryKey: null })]);
     });
 
     it('refuses to add or delete rows until the failing rows are fixed', async () => {
