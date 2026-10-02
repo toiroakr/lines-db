@@ -71,4 +71,29 @@ describe('CellEditor', () => {
     expect(onApply).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('names its text box after the field it edits', () => {
+    renderEditor('Alice', true);
+
+    expect(screen.getByRole('textbox', { name: 'name' })).toBeTruthy();
+  });
+
+  it('names its JSON editor after the field it edits', () => {
+    render(
+      <CellEditor
+        table="users"
+        column={{ name: 'tags', type: 'JSON' }}
+        value={['a']}
+        preview={() => ({ inserts: [], updates: [], deletes: [] })}
+        canUseDefault
+        canRevert={false}
+        onApply={vi.fn()}
+        onUseDefault={vi.fn()}
+        onRevert={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('textbox', { name: 'tags' })).toBeTruthy();
+  });
 });

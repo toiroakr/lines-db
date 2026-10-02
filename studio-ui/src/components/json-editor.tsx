@@ -16,6 +16,8 @@ function parseErrors(view: EditorView): Diagnostic[] {
 }
 
 export interface JsonEditorProps {
+  /** What the editor is named to assistive technology */
+  label: string;
   initial: string;
   /** Issues about the value, each underlined where its path points inside it */
   issues: Issue[];
@@ -24,7 +26,7 @@ export interface JsonEditorProps {
 }
 
 /** A JSON editor with highlighting and syntax errors marked as you type */
-export function JsonEditor({ initial, issues, onChange, onSubmit }: JsonEditorProps) {
+export function JsonEditor({ label, initial, issues, onChange, onSubmit }: JsonEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView>(undefined);
   const handlers = useRef({ onChange, onSubmit });
@@ -37,6 +39,7 @@ export function JsonEditor({ initial, issues, onChange, onSubmit }: JsonEditorPr
         doc: initial,
         extensions: [
           EditorView.cspNonce.of(cspNonce()),
+          EditorView.contentAttributes.of({ 'aria-label': label }),
           keymap.of([{ key: 'Mod-Enter', run: () => (handlers.current.onSubmit(), true) }]),
           basicSetup,
           json(),

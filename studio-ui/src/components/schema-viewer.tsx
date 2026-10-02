@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { fetchSchema } from '@/lib/api';
 
 /** The source of a schema file, highlighted and read-only */
-export function SchemaViewer({ source }: { source: string }) {
+export function SchemaViewer({ source, label }: { source: string; label: string }) {
   const host = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -18,6 +18,7 @@ export function SchemaViewer({ source }: { source: string }) {
         doc: source,
         extensions: [
           EditorView.cspNonce.of(cspNonce()),
+          EditorView.contentAttributes.of({ 'aria-label': label }),
           basicSetup,
           javascript({ typescript: true }),
           syntaxHighlighting(highlight),
@@ -27,7 +28,7 @@ export function SchemaViewer({ source }: { source: string }) {
       }),
     });
     return () => view.destroy();
-  }, [source]);
+  }, [source, label]);
 
   return <div ref={host} className="max-h-[70vh] min-h-40 overflow-auto rounded-md border bg-muted/30" />;
 }
@@ -58,7 +59,7 @@ export function SchemaDialog({ table, file, onClose }: { table: string; file: st
         ) : 'error' in schema ? (
           <p className="text-sm text-destructive">{schema.error}</p>
         ) : (
-          <SchemaViewer source={schema.source} />
+          <SchemaViewer source={schema.source} label={file} />
         )}
       </DialogContent>
     </Dialog>

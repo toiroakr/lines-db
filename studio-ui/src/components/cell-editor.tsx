@@ -136,6 +136,7 @@ export function CellEditor({
         </div>
       ) : json ? (
         <JsonEditor
+          label={column.name}
           initial={initial}
           issues={issues.filter((issue) => !issue.path?.length || segmentKey(issue.path[0]) === column.name)}
           onChange={setText}
@@ -145,6 +146,7 @@ export function CellEditor({
         <Input
           autoFocus
           className="font-mono"
+          aria-label={column.name}
           inputMode={isNumber(column) ? 'decimal' : undefined}
           aria-invalid={'error' in parsed || issues.length > 0}
           value={text}
