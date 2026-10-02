@@ -426,13 +426,29 @@ describe('studio server', () => {
     expect(response.status).toBe(400);
   });
 
+  it('checks a batch without writing it, reporting the issues a save would meet', async () => {
+    const before = await readFile(join(dataDir, 'users.jsonl'), 'utf8');
+
+    const refused = await sendJsonRequest('POST', `${studio.url}/api/tables/users/check`, {
+      updates: [{ key: 1, changes: { name: '' } }],
+    });
+    const accepted = await sendJsonRequest('POST', `${studio.url}/api/tables/users/check`, {
+      updates: [{ key: 1, changes: { name: 'Alicia' } }],
+    });
+
+    expect(await bodyOf(refused)).toMatchObject({ ok: false, issues: [{ message: 'Name is required' }] });
+    expect(await bodyOf(accepted)).toEqual({ ok: true });
+    expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toBe(before);
+    expect((await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`))).rows[0].name).toBe('Alice');
+  });
+
   describe('the built page', () => {
     let uiDir: string;
 
     beforeEach(async () => {
       uiDir = await mkdtemp(join(tmpdir(), 'linesdb-studio-ui-'));
       await mkdir(join(uiDir, 'assets'));
-      await writeFile(join(uiDir, 'index.html'), '<!doctype html><div id="root"></div>');
+      await writeFile(join(uiDir, 'index.html'), '<!doctype html><head></head><div id="root"></div>');
       await writeFile(join(uiDir, 'assets', 'app.js'), 'console.log("app");');
       await studio.close();
       studio = await startStudioServer({ dataDir, port: 0, uiDir });
@@ -440,6 +456,14 @@ describe('studio server', () => {
 
     afterEach(async () => {
       await rm(uiDir, { recursive: true, force: true });
+    });
+
+    it('hands the page a nonce its CSP allows styles with, for an editor that injects its styles', async () => {
+      const response = await fetch(`${studio.url}/`);
+      const nonce = response.headers.get('content-security-policy')?.match(/style-src 'self' 'nonce-([^']+)'/)?.[1];
+
+      expect(nonce).toBeTruthy();
+      expect(await response.text()).toContain(`<meta name="csp-nonce" content="${nonce}">`);
     });
 
     it('is served with scripts and styles allowed only from the server itself', async () => {

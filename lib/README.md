@@ -211,6 +211,11 @@ pending changes stay for you to fix. A saved change rewrites only the line it be
 - A value the schema filled in rather than the file is shown dimmed with a **default** mark. **Use
   default** in a cell's editor removes the value from the file and leaves it to the schema; a new
   row's empty field is left to the schema too.
+- A cell's editor checks the value as you type, against the schema as a save would
+  (`POST /api/tables/:name/check`, which validates the change without writing it), and lists the
+  issues under the field. A JSON column opens in a dialog with syntax highlighting, and a syntax
+  error is marked where it is. **Set** puts the value among the pending changes; nothing is written
+  until you save.
 - A table needs a primary key (an `id` column, or `primaryKey` in its schema file) to be edited; one
   without is shown read-only.
 - A table whose rows fail validation on load is left out, and the failing rows are listed at the top

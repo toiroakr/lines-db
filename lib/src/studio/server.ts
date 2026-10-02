@@ -155,7 +155,10 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     const [, , tableName, resource, encodedKey] = segments;
     const isRows = segments[0] === 'api' && segments[1] === 'tables' && resource === 'rows' && segments.length <= 5;
     const isChanges =
-      segments[0] === 'api' && segments[1] === 'tables' && resource === 'changes' && segments.length === 4;
+      segments[0] === 'api' &&
+      segments[1] === 'tables' &&
+      (resource === 'changes' || resource === 'check') &&
+      segments.length === 4;
     if (!isRows && !isChanges) {
       sendJson(res, 404, { message: 'Not found' });
       return;
@@ -174,7 +177,9 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
     const write = isChanges
       ? req.method === 'POST'
-        ? ({ kind: 'batch' } as const)
+        ? resource === 'check'
+          ? ({ kind: 'check' } as const)
+          : ({ kind: 'batch' } as const)
         : undefined
       : writeOperation(req.method, encodedKey);
     if (!write) {
@@ -191,7 +196,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       return;
     }
     let batch: ChangeBatch;
-    if (write.kind === 'batch') {
+    if (write.kind === 'batch' || write.kind === 'check') {
       batch = changeBatch(await readJson(req));
     } else if (write.kind === 'delete') {
       batch = { inserts: [], updates: [], deletes: [write.key] };
@@ -213,6 +218,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       const changedFiles = unwrap(await snapshot.db.findExternalChanges());
       if (changedFiles.length > 0) {
         await reloadUnlocked();
+        if (write.kind === 'check') changedFiles.length = 0;
         // Not saved over an outside edit of the edited table's own file: the change was made on rows
         // the page showed before that edit
         // A changed schema file of the edited table counts too: its primary key may name another column
@@ -247,7 +253,22 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           }),
         );
         batch.inserts.forEach((row, index) => check(tx.insert(tableName, row), { kind: 'insert', index }));
+        // Not committed when only checking: throwing rolls the transaction back before anything is written
+        if (write.kind === 'check') throw DRY_RUN;
       });
+      if (write.kind === 'check') {
+        if (!result.ok && result.error === DRY_RUN) return { status: 200, body: { ok: true } };
+        const failure = (result.ok ? {} : result.error) as Partial<ValidationError> & { change?: FailedChange };
+        return {
+          status: 200,
+          body: {
+            ok: false,
+            message: failure.message,
+            issues: failure.issues ?? [],
+            ...(failure.change ? { change: failure.change } : {}),
+          },
+        };
+      }
       if (!result.ok) {
         if (result.error.name === 'JsonlConflictError') {
           await reloadUnlocked();
@@ -364,14 +385,19 @@ async function servePage(res: ServerResponse, uiDir: string, pathname: string): 
     sendJson(res, 404, { message: 'Not found' });
     return;
   }
+  // Not 'unsafe-inline' for styles: the editor injects its styles, and a nonce allows only those
+  const nonce = randomBytes(18).toString('base64');
+  const body =
+    pathname === '/'
+      ? Buffer.from(content.toString('utf8').replace('</head>', `<meta name="csp-nonce" content="${nonce}"></head>`))
+      : content;
   res.writeHead(200, {
     'Content-Type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream',
-    'Content-Security-Policy':
-      "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     'Cache-Control': pathname === '/' ? 'no-store' : 'public, max-age=31536000, immutable',
     'X-Content-Type-Options': 'nosniff',
   });
-  res.end(content);
+  res.end(body);
 }
 
 function presentedToken(req: IncomingMessage): string | undefined {
@@ -474,6 +500,9 @@ function writeBody(body: unknown): WriteBody {
   }
   return { row, changes, resetToDefault };
 }
+
+/** Thrown at the end of a checked batch, so its transaction rolls back */
+const DRY_RUN = new Error('dry run');
 
 /** An error in the request itself, answered with 400 */
 class BadRequestError extends Error {}

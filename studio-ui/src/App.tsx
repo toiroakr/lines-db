@@ -21,6 +21,7 @@ import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CellEditor } from '@/components/cell-editor';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { fetchRows, fetchTables, keyOf, saveChanges, type RowsResponse, type TablesResponse } from '@/lib/api';
 import {
   addInsert,
@@ -35,11 +36,13 @@ import {
   setInsertCell,
   toBatch,
   toggleDelete,
+  type Batch,
   type Pending,
 } from '@/lib/pending';
 import { formatValue, isBoolean } from '@/lib/values';
 import type { Column, Issue, JsonObject, JsonValue, TableInfo, WriteError } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { issuePath } from '@/lib/check';
 
 type Notice = { kind: 'error'; title: string; issues?: Issue[] } | { kind: 'success'; title: string };
 type Editing = { row: 'existing'; key: JsonValue; column: string } | { row: 'new'; id: string; column: string };
@@ -269,19 +272,33 @@ export function App() {
                   <RefreshCw className="size-4" />
                 </Button>
               </Tooltip>
-              {dirty && (
-                <>
-                  <div className="mx-1 h-5 w-px bg-border" />
-                  <Button size="sm" variant="ghost" onClick={discard}>
-                    <Undo2 /> Discard
-                  </Button>
-                  <Button size="sm" onClick={() => void save()} disabled={saving}>
-                    <Save /> Save {changeCount} change{changeCount === 1 ? '' : 's'}
-                  </Button>
-                </>
-              )}
             </div>
           </header>
+
+          {dirty && (
+            <div
+              role="status"
+              className="flex shrink-0 items-center gap-3 border-b bg-changed/60 px-4 py-2 text-sm shadow-[inset_0_-1px_0_var(--changed-foreground)]"
+            >
+              <span className="flex size-6 items-center justify-center rounded-full bg-changed-foreground font-mono text-xs font-semibold text-background tabular-nums">
+                {changeCount}
+              </span>
+              <span>
+                <span className="font-medium">
+                  Unsaved change{changeCount === 1 ? '' : 's'} to {table?.name}
+                </span>
+                <span className="text-muted-foreground"> — not written to {table?.name}.jsonl until you save</span>
+              </span>
+              <div className="ml-auto flex items-center gap-2">
+                <Button size="sm" variant="ghost" onClick={discard}>
+                  <Undo2 /> Discard
+                </Button>
+                <Button size="sm" onClick={() => void save()} disabled={saving}>
+                  <Save /> Save {changeCount} change{changeCount === 1 ? '' : 's'}
+                </Button>
+              </div>
+            </div>
+          )}
 
           <div className="grid gap-2 px-4 empty:hidden [&>*]:mt-3">
             {meta && meta.problems.length > 0 && (
@@ -356,13 +373,6 @@ export function App() {
   );
 }
 
-function issuePath(issue: Issue): string {
-  const path = (issue.path ?? []).map((segment) =>
-    typeof segment === 'object' && segment !== null && 'key' in segment ? String(segment.key) : String(segment),
-  );
-  return path.join('.') || 'row';
-}
-
 interface GridProps {
   table: TableInfo;
   rows: Array<{ row: JsonObject; defaulted: string[] }>;
@@ -432,7 +442,13 @@ function Grid({ table, rows, pending, setPending, selected, setSelected, editing
                 <Cell
                   key={column.name}
                   column={column}
+                  table={table.name}
                   value={insert.row[column.name]}
+                  preview={(value) => ({
+                    inserts: [{ ...insert.row, [column.name]: value }],
+                    updates: [],
+                    deletes: [],
+                  })}
                   state={Object.hasOwn(insert.row, column.name) ? 'set' : 'unset'}
                   isEditing={editing?.row === 'new' && editing.id === insert.id && editing.column === column.name}
                   onOpen={() => setEditing({ row: 'new', id: insert.id, column: column.name })}
@@ -486,7 +502,13 @@ function Grid({ table, rows, pending, setPending, selected, setSelected, editing
                     <Cell
                       key={column.name}
                       column={column}
+                      table={table.name}
                       value={value}
+                      preview={(next) => ({
+                        inserts: [],
+                        updates: [{ key, changes: { [column.name]: next } }],
+                        deletes: [],
+                      })}
                       state={
                         change?.kind === 'set'
                           ? 'changed'
@@ -540,8 +562,10 @@ function Grid({ table, rows, pending, setPending, selected, setSelected, editing
 type CellState = 'file' | 'default' | 'changed' | 'reset' | 'set' | 'unset';
 
 interface CellProps {
+  table: string;
   column: Column;
   value: JsonValue | undefined;
+  preview: (value: JsonValue) => Batch;
   state: CellState;
   readOnly?: boolean;
   isEditing: boolean;
@@ -555,6 +579,7 @@ interface CellProps {
 }
 
 function Cell({ column, value, state, readOnly, isEditing, onOpen, onClose, ...editor }: CellProps) {
+  const json = column.type === 'JSON';
   const content =
     state === 'reset' || state === 'unset' ? (
       <span className="text-muted-foreground italic">default</span>
@@ -564,47 +589,61 @@ function Cell({ column, value, state, readOnly, isEditing, onOpen, onClose, ...e
       <span className={cn(state === 'default' && 'text-muted-foreground')}>{formatValue(value)}</span>
     );
 
+  const cell = (
+    <td
+      className={cn(
+        'max-w-80 border-b border-l px-3 py-1.5 font-mono text-xs whitespace-nowrap first:border-l-0',
+        !readOnly &&
+          'cursor-pointer outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+        (state === 'changed' || state === 'reset') && 'bg-changed/60 shadow-[inset_2px_0_0_var(--changed-foreground)]',
+        isEditing && 'ring-2 ring-ring ring-inset',
+      )}
+      onClick={readOnly ? undefined : onOpen}
+      tabIndex={readOnly ? undefined : 0}
+      aria-label={readOnly ? undefined : `Edit ${column.name}`}
+      onKeyDown={
+        readOnly
+          ? undefined
+          : (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onOpen();
+              }
+            }
+      }
+    >
+      <div className="flex items-center gap-1.5">
+        <span className="truncate">{content}</span>
+        {state === 'default' && (
+          <Tooltip content="Filled in by the schema; not written in the file">
+            <Badge variant="outline" className="font-sans">
+              default
+            </Badge>
+          </Tooltip>
+        )}
+      </div>
+    </td>
+  );
+  const editorOf = <CellEditor column={column} value={value} onClose={onClose} {...editor} />;
+
+  if (json) {
+    return (
+      <>
+        {cell}
+        <Dialog open={isEditing} onOpenChange={(open) => (open ? onOpen() : onClose())}>
+          <DialogContent>
+            <DialogTitle className="sr-only">Edit {column.name}</DialogTitle>
+            <DialogDescription className="sr-only">Edit the JSON value of {column.name}</DialogDescription>
+            {editorOf}
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
   return (
     <Popover open={isEditing} onOpenChange={(open) => (open ? onOpen() : onClose())}>
-      <PopoverAnchor asChild>
-        <td
-          className={cn(
-            'max-w-80 border-b border-l px-3 py-1.5 font-mono text-xs whitespace-nowrap first:border-l-0',
-            !readOnly &&
-              'cursor-pointer outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-            (state === 'changed' || state === 'reset') &&
-              'bg-changed/60 shadow-[inset_2px_0_0_var(--changed-foreground)]',
-            isEditing && 'ring-2 ring-ring ring-inset',
-          )}
-          onClick={readOnly ? undefined : onOpen}
-          tabIndex={readOnly ? undefined : 0}
-          aria-label={readOnly ? undefined : `Edit ${column.name}`}
-          onKeyDown={
-            readOnly
-              ? undefined
-              : (event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    onOpen();
-                  }
-                }
-          }
-        >
-          <div className="flex items-center gap-1.5">
-            <span className="truncate">{content}</span>
-            {state === 'default' && (
-              <Tooltip content="Filled in by the schema; not written in the file">
-                <Badge variant="outline" className="font-sans">
-                  default
-                </Badge>
-              </Tooltip>
-            )}
-          </div>
-        </td>
-      </PopoverAnchor>
-      <PopoverContent onOpenAutoFocus={(event) => event.preventDefault()}>
-        <CellEditor column={column} value={value} onClose={onClose} {...editor} />
-      </PopoverContent>
+      <PopoverAnchor asChild>{cell}</PopoverAnchor>
+      <PopoverContent onOpenAutoFocus={(event) => event.preventDefault()}>{editorOf}</PopoverContent>
     </Popover>
   );
 }

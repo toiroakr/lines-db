@@ -96,11 +96,13 @@ export function countChanges(pending: Pending): number {
   return edited.length + pending.inserts.length + Object.keys(pending.deletes).length;
 }
 
-export function toBatch(pending: Pending): {
+export interface Batch {
   inserts: JsonObject[];
   updates: Array<{ key: JsonValue; changes: JsonObject; resetToDefault?: string[] }>;
   deletes: JsonValue[];
-} {
+}
+
+export function toBatch(pending: Pending): Batch {
   return {
     inserts: pending.inserts.map(({ row }) => row),
     updates: Object.entries(pending.edits)
