@@ -1,12 +1,23 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { writeFileSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fillFields } from './fill.js';
 import { unwrap } from './result.js';
 import type { RowFiller } from './fill.js';
 import type { JsonObject } from './types.js';
+
+/** The file a rename onto fails, standing in for a disk that fails partway through the fill */
+const failing = vi.hoisted(() => ({ renameTo: undefined as string | undefined }));
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    rename: (from: string, to: string) =>
+      to === failing.renameTo ? Promise.reject(new Error('EIO: i/o error')) : actual.rename(from, to),
+  };
+});
 
 /**
  * A table whose create-time behavior gives a row an `id` and timestamps, exported as `hook` the way a
@@ -81,6 +92,22 @@ describe('fillFields', () => {
     unwrap(await fillFields({ path: dataDir, loadFiller: useHook }));
 
     expect(await readFile(jsonlPath, 'utf-8')).toBe('\u{feff}{"id":"generated-1","name":"a"}\n');
+  });
+
+  it('puts back the files already filled when replacing a later one fails, and leaves no temporary file', async () => {
+    const first = await writeTable('Alpha', ['{"name":"a"}']);
+    const second = await writeTable('Beta', ['{"name":"b"}']);
+    failing.renameTo = second;
+    try {
+      const result = await fillFields({ path: dataDir, loadFiller: useHook });
+
+      expect(result.ok).toBe(false);
+    } finally {
+      failing.renameTo = undefined;
+    }
+    expect(await readLines(first)).toEqual(['{"name":"a"}', '']);
+    expect(await readLines(second)).toEqual(['{"name":"b"}', '']);
+    expect((await readdir(dataDir)).filter((entry) => entry.endsWith('.tmp'))).toEqual([]);
   });
 
   it('fills the named fields, leaving a value the row already has alone', async () => {

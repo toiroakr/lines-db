@@ -125,6 +125,13 @@ describe('JsonlReader', () => {
   });
 
   describe('inferSchema', () => {
+    it('lets a column be null when some rows lack the field, as their rows store null for it', () => {
+      const schema = unwrap(JsonlReader.inferSchema('records', [{ id: 1, note: 'a' }, { id: 2 }]));
+
+      expect(schema.columns.find((column) => column.name === 'note')?.notNull).toBe(false);
+      expect(schema.columns.find((column) => column.name === 'id')?.notNull).toBe(true);
+    });
+
     it('should infer schema with basic types', () => {
       const data = [
         { id: 1, name: 'Alice', age: 30, active: true },

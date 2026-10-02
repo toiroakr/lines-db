@@ -102,6 +102,7 @@ export class JsonlReader {
     }
 
     const columnTypes = new Map<string, Set<string>>();
+    const presence = new Map<string, number>();
     const booleanColumns = new Set<string>();
     const nonBooleanColumns = new Set<string>();
 
@@ -112,6 +113,7 @@ export class JsonlReader {
           columnTypes.set(key, new Set());
         }
         columnTypes.get(key)!.add(this.inferType(value));
+        presence.set(key, (presence.get(key) ?? 0) + 1);
 
         if (typeof value === 'boolean') {
           booleanColumns.add(key);
@@ -146,7 +148,8 @@ export class JsonlReader {
       columns.push({
         name: columnName,
         type: sqlType,
-        notNull: !typeArray.includes('NULL'),
+        // A row without the field stores null for it, so the field is nullable unless every row has it
+        notNull: !typeArray.includes('NULL') && presence.get(columnName) === data.length,
         valueType: isBooleanColumn ? 'boolean' : undefined,
       });
     }

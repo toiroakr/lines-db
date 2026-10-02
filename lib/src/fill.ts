@@ -1,4 +1,5 @@
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { type Result, ok, err, toError } from './result.js';
@@ -143,9 +144,7 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
       throw error;
     }
   }
-  for (const { file, content } of writes) {
-    await writeFile(file, content, 'utf-8');
-  }
+  await replaceAll(writes);
 
   const named = options.fields ?? [...new Set(tables.flatMap(({ fields }) => fields))];
   return {
@@ -154,6 +153,29 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
     unreadableLines,
     unproducedFields: tableNames.length > 0 ? named.filter((field) => !produced.has(field)) : [],
   };
+}
+
+/**
+ * Write every file or none: each content goes to a temporary file first, the temporaries replace the
+ * files once all are written, and the files already replaced are put back when a later one fails
+ */
+async function replaceAll(writes: Array<{ file: string; read: string; content: string }>): Promise<void> {
+  const staged = writes.map((write) => ({
+    ...write,
+    temporary: `${write.file}.${randomBytes(6).toString('hex')}.tmp`,
+  }));
+  const replaced: typeof staged = [];
+  try {
+    for (const { temporary, content } of staged) await writeFile(temporary, content, 'utf-8');
+    for (const write of staged) {
+      await rename(write.temporary, write.file);
+      replaced.push(write);
+    }
+  } catch (error) {
+    for (const { file, read } of replaced) await writeFile(file, read, 'utf-8').catch(() => {});
+    await Promise.all(staged.map(({ temporary }) => rm(temporary, { force: true })));
+    throw error;
+  }
 }
 
 async function resolveTables(path: string): Promise<{ dataDir: string; tableNames: string[] }> {
