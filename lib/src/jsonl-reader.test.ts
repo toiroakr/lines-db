@@ -78,6 +78,18 @@ describe('JsonlReader', () => {
       }
     });
 
+    it('reads a line that holds JSON but not an object as broken, naming its file and line, as a row is an object', async () => {
+      for (const value of ['null', '[1,2]', '"text"', '3']) {
+        await writeFile(testFilePath, `{"id":1}\n${value}\n`);
+
+        const result = await JsonlReader.read(testFilePath);
+
+        expect(result.ok).toBe(false);
+        const error = (result as { error: JsonlParseError }).error;
+        expect([error.name, error.file, error.line]).toEqual(['JsonlParseError', testFilePath, 2]);
+      }
+    });
+
     it('should count leading blank lines toward the physical line number', async () => {
       const content = '\n\n{invalid json}\n';
       await writeFile(testFilePath, content);

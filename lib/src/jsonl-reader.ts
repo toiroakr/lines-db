@@ -79,15 +79,23 @@ export class JsonlReader {
       const line = rawLines[i].endsWith('\r') ? rawLines[i].slice(0, -1) : rawLines[i];
       if (line.trim().length === 0) continue;
 
-      try {
-        rows.push(JSON.parse(line) as JsonObject);
-      } catch (error) {
-        const parseError = new Error(`Failed to parse JSON line: ${line}`, { cause: error }) as JsonlParseError;
+      const fail = (message: string, cause?: unknown) => {
+        const parseError = new Error(message, { cause }) as JsonlParseError;
         parseError.name = 'JsonlParseError';
         parseError.file = filePath;
         parseError.line = i + 1;
         return err(parseError);
+      };
+      let value: unknown;
+      try {
+        value = JSON.parse(line);
+      } catch (error) {
+        return fail(`Failed to parse JSON line: ${line}`, error);
       }
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return fail(`A JSONL line holds a row, which is a JSON object: ${line}`);
+      }
+      rows.push(value as JsonObject);
     }
 
     return ok(rows);
