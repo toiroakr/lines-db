@@ -11,6 +11,7 @@ import {
   toBatch,
   cellChange,
   previewCell,
+  markDeleted,
 } from './pending';
 
 describe('pending changes', () => {
@@ -93,5 +94,14 @@ describe('previewCell', () => {
     const pending = resetCell(emptyPending(), 1, 'age');
 
     expect(previewCell(pending, 1, 'age', 30).updates).toEqual([{ key: 1, changes: { age: 30 } }]);
+  });
+});
+
+describe('markDeleted', () => {
+  it('marks a row for deletion, leaving one already marked as it is', () => {
+    const once = markDeleted(emptyPending(), 1);
+
+    expect(markDeleted(once, 1)).toEqual(once);
+    expect(toBatch(markDeleted(once, 2)).deletes).toEqual([1, 2]);
   });
 });

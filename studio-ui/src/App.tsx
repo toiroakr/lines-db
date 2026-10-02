@@ -38,6 +38,7 @@ import {
   toBatch,
   toggleDelete,
   previewCell,
+  markDeleted,
   type Batch,
   type Pending,
 } from '@/lib/pending';
@@ -186,7 +187,7 @@ export function App() {
 
   const deleteSelected = () => {
     let next = pending;
-    for (const key of selected) next = toggleDelete(next, JSON.parse(key) as JsonValue);
+    for (const key of selected) next = markDeleted(next, JSON.parse(key) as JsonValue);
     setPending(next);
     setSelected(new Set());
   };
@@ -692,58 +693,57 @@ function Cell({ column, value, issues = [], state, readOnly, isEditing, onOpen, 
       <span className={cn(state === 'default' && 'text-muted-foreground')}>{formatValue(value)}</span>
     );
 
+  const contents = (
+    <>
+      <span className="truncate">{content}</span>
+      {issues.length > 0 && (
+        <Tooltip
+          content={
+            <ul className="grid gap-0.5 font-mono text-xs">
+              {issues.map((issue, at) => (
+                <li key={at}>
+                  {issuePath(issue)}: {issue.message}
+                </li>
+              ))}
+            </ul>
+          }
+        >
+          <CircleAlert className="size-3.5 shrink-0 text-destructive" aria-label={`${column.name} fails validation`} />
+        </Tooltip>
+      )}
+      {state === 'default' && (
+        <Tooltip content="Filled in by the schema; not written in the file">
+          <Badge variant="outline" className="font-sans">
+            default
+          </Badge>
+        </Tooltip>
+      )}
+    </>
+  );
   const cell = (
     <td
       className={cn(
-        'max-w-80 border-b border-l px-3 py-1.5 font-mono text-xs whitespace-nowrap first:border-l-0',
-        !readOnly &&
-          'cursor-pointer outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+        'max-w-80 border-b border-l p-0 font-mono text-xs whitespace-nowrap first:border-l-0',
+        !readOnly && 'hover:bg-accent/60',
         (state === 'changed' || state === 'reset') && 'bg-changed/60 shadow-[inset_2px_0_0_var(--changed-foreground)]',
         issues.length > 0 && 'bg-destructive/15 shadow-[inset_0_0_0_1px_var(--destructive)]',
         isEditing && 'ring-2 ring-ring ring-inset',
       )}
-      onClick={readOnly ? undefined : onOpen}
-      tabIndex={readOnly ? undefined : 0}
-      aria-label={readOnly ? undefined : `Edit ${column.name}`}
-      onKeyDown={
-        readOnly
-          ? undefined
-          : (event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                onOpen();
-              }
-            }
-      }
     >
-      <div className="flex items-center gap-1.5">
-        <span className="truncate">{content}</span>
-        {issues.length > 0 && (
-          <Tooltip
-            content={
-              <ul className="grid gap-0.5 font-mono text-xs">
-                {issues.map((issue, at) => (
-                  <li key={at}>
-                    {issuePath(issue)}: {issue.message}
-                  </li>
-                ))}
-              </ul>
-            }
-          >
-            <CircleAlert
-              className="size-3.5 shrink-0 text-destructive"
-              aria-label={`${column.name} fails validation`}
-            />
-          </Tooltip>
-        )}
-        {state === 'default' && (
-          <Tooltip content="Filled in by the schema; not written in the file">
-            <Badge variant="outline" className="font-sans">
-              default
-            </Badge>
-          </Tooltip>
-        )}
-      </div>
+      {readOnly ? (
+        <div className="flex items-center gap-1.5 px-3 py-1.5">{contents}</div>
+      ) : (
+        // Not the cell itself: a table cell given a button role would no longer read as part of its row
+        <button
+          type="button"
+          className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          onClick={onOpen}
+          aria-label={`Edit ${column.name}`}
+          aria-haspopup="dialog"
+        >
+          {contents}
+        </button>
+      )}
     </td>
   );
   const editorOf = <CellEditor column={column} value={value} initialIssues={issues} onClose={onClose} {...editor} />;

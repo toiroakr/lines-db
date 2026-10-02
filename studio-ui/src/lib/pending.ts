@@ -84,6 +84,11 @@ export function isDeleted(pending: Pending, key: JsonValue): boolean {
   return Object.hasOwn(pending.deletes, keyOf(key));
 }
 
+/** Mark a row for deletion, whether or not it already is */
+export function markDeleted(pending: Pending, key: JsonValue): Pending {
+  return isDeleted(pending, key) ? pending : toggleDelete(pending, key);
+}
+
 export function toggleDelete(pending: Pending, key: JsonValue): Pending {
   const deletes = { ...pending.deletes };
   if (isDeleted(pending, key)) delete deletes[keyOf(key)];
