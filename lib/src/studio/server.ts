@@ -313,7 +313,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         const validated = snapshot.db.validateRow(tableName, next);
         if (!validated.ok) {
           const change: FailedChange = { kind: 'update', index, key };
-          const failure = { message: validated.error.message, issues: validated.error.issues, change };
+          const failure = { message: validated.error.message, issues: perKey(validated.error.issues), change };
           return write.kind === 'check'
             ? { status: 200, body: { ok: false, ...failure } }
             : { status: 400, body: failure };
@@ -396,7 +396,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           body: {
             ok: false,
             message: failure.message,
-            issues: failure.issues ?? [],
+            issues: perKey(failure.issues ?? []),
             ...(failure.change ? { change: failure.change } : {}),
           },
         };
@@ -411,7 +411,11 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         const { issues, change } = result.error as Partial<ValidationError> & { change?: FailedChange };
         return {
           status: 400,
-          body: { message: result.error.message, ...(issues ? { issues } : {}), ...(change ? { change } : {}) },
+          body: {
+            message: result.error.message,
+            ...(issues ? { issues: perKey(issues) } : {}),
+            ...(change ? { change } : {}),
+          },
         };
       }
       return { status: write.kind === 'insert' ? 201 : 200, body: { ok: true }, changed: true };
@@ -471,6 +475,18 @@ async function loadSnapshot(dataDir: string, writeFilledValues: WriteFilledValue
 }
 
 /** The field of the row an issue is about, if it is about one */
+/**
+ * The issues with one about several refused keys split per key. Zod reports the keys a strict object
+ * refuses in one issue with an empty path and the keys beside it, which no field would be found by
+ */
+function perKey(issues: readonly StandardSchemaIssue[]): StandardSchemaIssue[] {
+  return issues.flatMap((issue) => {
+    const keys = (issue as { keys?: unknown }).keys;
+    if (issue.path?.length || !Array.isArray(keys) || !keys.every((key) => typeof key === 'string')) return [issue];
+    return keys.map((key) => ({ ...issue, keys: [key], path: [{ key }] }));
+  });
+}
+
 function fieldOf(issue: StandardSchemaIssue): string | undefined {
   const segment = issue.path?.[0];
   if (segment === undefined) return undefined;
@@ -509,7 +525,7 @@ function unknownFields(
     const clears = indexes.every((index) => {
       const { [key]: _removed, ...rest } = rows[index];
       const result = db.validateRow(tableName, rest);
-      return result.ok || !result.error.issues.some((issue) => fieldOf(issue) === key);
+      return result.ok || !perKey(result.error.issues).some((issue) => fieldOf(issue) === key);
     });
     if (clears) unknown.add(key);
   }
@@ -535,7 +551,7 @@ function invalidTables(errors: ValidationErrorDetail[]): Map<string, InvalidTabl
             path: [{ key: foreignKey.column }],
           },
         ]
-      : [...error.issues];
+      : perKey(error.issues);
     table.issues.set(error.rowIndex, [...(table.issues.get(error.rowIndex) ?? []), ...issues]);
     tables.set(error.tableName, table);
   }
