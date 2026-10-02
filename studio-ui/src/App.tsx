@@ -403,7 +403,7 @@ export function App() {
                   onClick={() => {
                     setEditing(undefined);
                     if (dirty) discard();
-                    else void load(current);
+                    void load(current);
                   }}
                   disabled={saving}
                 >
