@@ -28,6 +28,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CellEditor } from '@/components/cell-editor';
 import { SchemaDialog } from '@/components/schema-viewer';
 import { CopyPath } from '@/components/copy-path';
+import { tableNameOf } from '@/lib/hash';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import {
   fetchRows,
@@ -64,7 +65,7 @@ import { fieldIssues, issuePath } from '@/lib/check';
 type Notice = { kind: 'error'; title: string; issues?: Issue[] } | { kind: 'success'; title: string };
 type Editing = { row: 'existing'; key: JsonValue; column: string } | { row: 'new'; id: string; column: string };
 
-const tableFromHash = () => decodeURIComponent(location.hash.slice(1));
+const tableFromHash = () => tableNameOf(location.hash);
 
 export function App() {
   const [meta, setMeta] = useState<TablesResponse>();
