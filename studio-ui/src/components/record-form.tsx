@@ -233,54 +233,50 @@ function JsonField({
   );
 }
 
-/** One row as a form: its fields edited side by side with the grid, which stays usable to pick another row */
-export function RecordDrawer({
-  table,
-  title,
-  fields,
-  readOnlyReason,
-  onClose,
-}: {
-  table: string;
+/** A row as the form shows it */
+export interface FormRow {
   title: string;
   fields: FieldModel[];
+  /** Why the row cannot be changed, when it cannot */
   readOnlyReason?: string;
-  onClose: () => void;
-}) {
-  const close = useRef(onClose);
-  close.current = onClose;
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
-      // Not closed under a dialog or popover: the Escape is for that one
-      if (document.querySelector('[role=dialog], [data-radix-popper-content-wrapper]')) return;
-      close.current();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, []);
+}
 
+/** One row as a form: its fields edited side by side with the grid, which stays usable to pick another row */
+export function RecordDrawer({ table, row, onClose }: { table: string; row?: FormRow; onClose: () => void }) {
   return (
     <aside
-      aria-label={title}
+      aria-label={row?.title ?? 'Row form'}
       className="fixed inset-y-0 right-0 z-30 flex w-full flex-col border-l bg-background shadow-lg sm:w-[28rem] lg:static lg:z-auto lg:shadow-none"
     >
       <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-        <span className="min-w-0 truncate font-mono text-sm font-semibold">{title}</span>
-        <Button size="icon" variant="ghost" className="ml-auto size-7" aria-label="Close the row" onClick={onClose}>
+        <span className="min-w-0 truncate font-mono text-sm font-semibold">{row?.title ?? 'Row form'}</span>
+        {/* Not shown on a wide screen: the grid beside it has the button that hides it */}
+        <Button
+          size="icon"
+          variant="ghost"
+          className="ml-auto size-7 lg:hidden"
+          aria-label="Hide the row form"
+          onClick={onClose}
+        >
           <X className="size-4" />
         </Button>
       </div>
-      {readOnlyReason && (
+      {row?.readOnlyReason && (
         <p className="flex items-center gap-1.5 border-b bg-muted/50 px-4 py-2 text-xs text-muted-foreground">
-          <Lock className="size-3" /> {readOnlyReason}
+          <Lock className="size-3" /> {row.readOnlyReason}
         </p>
       )}
-      <div className="grid flex-1 content-start gap-4 overflow-y-auto p-4">
-        {fields.map((model) => (
-          <FormField key={model.column.name} table={table} model={model} />
-        ))}
-      </div>
+      {row ? (
+        <div className="grid flex-1 content-start gap-4 overflow-y-auto p-4">
+          {row.fields.map((model) => (
+            <FormField key={model.column.name} table={table} model={model} />
+          ))}
+        </div>
+      ) : (
+        <p className="flex flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
+          Click a row to show it here
+        </p>
+      )}
       <p className="border-t px-4 py-2 text-[11px] text-muted-foreground">
         Changes join the unsaved ones · nothing is written until you save
       </p>

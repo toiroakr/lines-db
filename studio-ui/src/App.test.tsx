@@ -44,6 +44,7 @@ const showTable = (name: string) => history.replaceState(null, '', `#${name}`);
 
 describe('App', () => {
   beforeEach(() => {
+    localStorage.clear();
     showTable('users');
     vi.stubGlobal(
       'EventSource',
@@ -66,42 +67,54 @@ describe('App', () => {
     vi.restoreAllMocks();
   });
 
-  const form = () => screen.queryByRole('complementary', { name: /^users · id|^orders · id/ });
+  const form = () => screen.queryByRole('complementary', { name: /^users · |^orders · |^Row form$/ });
+  const showForm = async () => userEvent.click(await screen.findByRole('button', { name: 'Show the row form' }));
+  const nameCells = () => screen.findAllByRole('button', { name: 'Edit name' });
 
-  it('opens a row in the form from the button at the head of the row', async () => {
+  it('edits a cell from a click while the form is hidden', async () => {
     render(<App />);
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Open row 1' }));
-
-    expect(form()?.getAttribute('aria-label')).toBe('users · id 1');
-    expect(within(form()!).getByRole('textbox', { name: 'name' })).toHaveProperty('value', 'Alice');
-  });
-
-  it('edits a cell from a click while no row is open in the form', async () => {
-    render(<App />);
-
-    await userEvent.click((await screen.findAllByRole('button', { name: 'Edit name' }))[1]);
+    await userEvent.click((await nameCells())[1]);
 
     expect(screen.getAllByRole('textbox', { name: 'name' })).toHaveLength(1);
     expect(form()).toBeNull();
   });
 
-  it('shows the row clicked in the form while one is open, and edits a cell only from a double click', async () => {
+  it('shows the form from the header, waiting for a row to be picked', async () => {
     render(<App />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Open row 1' }));
-    const bob = screen.getAllByRole('button', { name: 'Edit name' })[1];
+
+    await showForm();
+
+    expect(form()?.getAttribute('aria-label')).toBe('Row form');
+  });
+
+  it('shows the row clicked in the form while it is shown, and edits a cell only from a double click', async () => {
+    render(<App />);
+    await showForm();
+    const bob = (await nameCells())[1];
 
     await userEvent.click(bob);
     expect(form()?.getAttribute('aria-label')).toBe('users · id 2');
+    expect(within(form()!).getByRole('textbox', { name: 'name' })).toHaveProperty('value', 'Bob');
     expect(screen.getAllByRole('textbox', { name: 'name' })).toHaveLength(1);
 
     await userEvent.dblClick(bob);
     expect(screen.getAllByRole('textbox', { name: 'name' })).toHaveLength(2);
   });
 
+  it('hides the form from the header again', async () => {
+    render(<App />);
+    await showForm();
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Hide the row form' })[0]);
+
+    expect(form()).toBeNull();
+  });
+
   it('adds a change from the form to the unsaved ones, and drops it once typed back to the value of the file', async () => {
     render(<App />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Open row 1' }));
+    await showForm();
+    await userEvent.click((await nameCells())[0]);
     const name = within(form()!).getByRole('textbox', { name: 'name' });
 
     await userEvent.type(name, 'x');
@@ -114,23 +127,11 @@ describe('App', () => {
   it('opens the row a foreign key refers to, in the table it is in', async () => {
     showTable('orders');
     render(<App />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Open row 1' }));
+    await showForm();
+    await userEvent.click((await screen.findAllByRole('button', { name: 'Edit customerId' }))[0]);
 
     await userEvent.click(within(form()!).getByRole('button', { name: 'Open users where id is 2' }));
 
     await waitFor(() => expect(form()?.getAttribute('aria-label')).toBe('users · id 2'));
-  });
-
-  it('closes the form on Escape, after the cell editor over it', async () => {
-    render(<App />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Open row 1' }));
-    await userEvent.dblClick(screen.getAllByRole('button', { name: 'Edit name' })[1]);
-
-    await userEvent.keyboard('{Escape}');
-    expect(screen.getAllByRole('textbox', { name: 'name' })).toHaveLength(1);
-    expect(form()).not.toBeNull();
-
-    await userEvent.keyboard('{Escape}');
-    expect(form()).toBeNull();
   });
 });

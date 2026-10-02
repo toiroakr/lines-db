@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { FormField, RecordDrawer, type FieldModel } from './record-form';
 import type { Column, JsonValue } from '@/lib/types';
@@ -135,47 +135,30 @@ describe('RecordDrawer', () => {
   ];
 
   it('shows a field for each column of the row, under the name of the row', () => {
-    render(<RecordDrawer table="users" title="users id 1" fields={fields} onClose={vi.fn()} />);
+    render(<RecordDrawer table="users" row={{ title: 'users id 1', fields }} onClose={vi.fn()} />);
 
     const drawer = screen.getByRole('complementary', { name: 'users id 1' });
     expect(drawer.querySelectorAll('[data-field]')).toHaveLength(2);
   });
 
-  it('closes from its close button', async () => {
-    const onClose = vi.fn();
-    render(<RecordDrawer table="users" title="users id 1" fields={fields} onClose={onClose} />);
+  it('says how to show a row in it, before one is picked', () => {
+    render(<RecordDrawer table="users" onClose={vi.fn()} />);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Close the row' }));
-
-    expect(onClose).toHaveBeenCalled();
+    expect(within(screen.getByRole('complementary', { name: 'Row form' })).getByText(/Click a row/)).toBeTruthy();
   });
 
-  it('closes on Escape', async () => {
+  it('hides from its close button', async () => {
     const onClose = vi.fn();
-    render(<RecordDrawer table="users" title="users id 1" fields={fields} onClose={onClose} />);
+    render(<RecordDrawer table="users" row={{ title: 'users id 1', fields }} onClose={onClose} />);
 
-    await userEvent.keyboard('{Escape}');
+    await userEvent.click(screen.getByRole('button', { name: 'Hide the row form' }));
 
     expect(onClose).toHaveBeenCalled();
-  });
-
-  it('stays open on Escape while a dialog over it is open, so the Escape closes only that dialog', async () => {
-    const onClose = vi.fn();
-    render(
-      <>
-        <RecordDrawer table="users" title="users id 1" fields={fields} onClose={onClose} />
-        <div role="dialog" />
-      </>,
-    );
-
-    await userEvent.keyboard('{Escape}');
-
-    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('says why the row cannot be changed, when it cannot', () => {
     render(
-      <RecordDrawer table="users" title="users id 1" fields={fields} readOnlyReason="Deleted" onClose={vi.fn()} />,
+      <RecordDrawer table="users" row={{ title: 'users id 1', fields, readOnlyReason: 'Deleted' }} onClose={vi.fn()} />,
     );
 
     expect(screen.getByText('Deleted')).toBeTruthy();

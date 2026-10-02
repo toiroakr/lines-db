@@ -8,6 +8,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
   PanelRightOpen,
   Lock,
   Plus,
@@ -88,6 +89,11 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [openRow, setOpenRow] = useState<OpenRow>();
+  const [formShown, setFormShown] = useState(readFormShown);
+  const showForm = (shown: boolean) => {
+    setFormShown(shown);
+    writeFormShown(shown);
+  };
   const [opening, setOpening] = useState<Opening>();
   const toggleSidebar = () => {
     setSidebarCollapsed(!sidebarCollapsed);
@@ -267,6 +273,7 @@ export function App() {
 
   const openReference = (reference: Reference, value: JsonValue) => {
     if (selectTable(reference.table)) {
+      showForm(true);
       setOpening({ table: reference.table, column: reference.referencedColumn, value });
     }
   };
@@ -281,13 +288,13 @@ export function App() {
     setOpening(undefined);
   }, [opening, data, table]);
 
-  const drawer = table && data && openRow ? drawerOf(table, data, openRow) : undefined;
+  const formRow = table && data && openRow ? formRowOf(table, data, openRow) : undefined;
   // Closed once its row is gone, as after a reload or saving a new row: it would come back on a later row with that key
   useEffect(() => {
-    if (openRow && data && !drawer) setOpenRow(undefined);
-  }, [openRow, data, drawer]);
+    if (openRow && data && !formRow) setOpenRow(undefined);
+  }, [openRow, data, formRow]);
 
-  function drawerOf(table: TableInfo, data: RowsResponse, open: OpenRow) {
+  function formRowOf(table: TableInfo, data: RowsResponse, open: OpenRow) {
     const referenceOf = (column: Column, value: JsonValue | undefined) => {
       const reference = table.references.find((candidate) => candidate.column === column.name);
       return reference && value !== undefined
@@ -504,6 +511,18 @@ export function App() {
               >
                 <Plus /> <span className="hidden sm:inline">Add record</span>
               </Button>
+              <Tooltip content={formShown ? 'Hide the row form' : 'Show the row form'}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-7"
+                  aria-label={formShown ? 'Hide the row form' : 'Show the row form'}
+                  aria-pressed={formShown}
+                  onClick={() => showForm(!formShown)}
+                >
+                  {formShown ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+                </Button>
+              </Tooltip>
               <Tooltip content={dirty ? 'Save or discard the unsaved changes to reload' : 'Reload from the files'}>
                 {/* Not the button as the trigger: a disabled button gets no pointer events, so its tooltip would not say why */}
                 <span>
@@ -638,19 +657,18 @@ export function App() {
               saving={saving}
               revision={data?.revision}
               onRemoveField={removeFieldEverywhere}
-              openRow={openRow}
+              openRow={formShown ? openRow : undefined}
+              formShown={formShown}
               onOpenRow={setOpenRow}
             />
           )}
         </main>
-        {table && drawer && (
+        {table && formShown && (
           <RecordDrawer
             key={JSON.stringify(openRow)}
             table={table.name}
-            title={drawer.title}
-            fields={drawer.fields}
-            readOnlyReason={drawer.readOnlyReason ?? undefined}
-            onClose={() => setOpenRow(undefined)}
+            row={formRow}
+            onClose={() => showForm(false)}
           />
         )}
       </div>
@@ -673,6 +691,8 @@ interface GridProps {
   /** Removes a field from every row of the table, not only the ones shown */
   onRemoveField: (field: string) => void;
   openRow: OpenRow | undefined;
+  /** Whether the form is shown: a click then picks the row it shows, and a double click edits the cell */
+  formShown: boolean;
   onOpenRow: (row: OpenRow) => void;
 }
 
@@ -689,10 +709,9 @@ function Grid({
   revision,
   onRemoveField,
   openRow,
+  formShown: formOpen,
   onOpenRow,
 }: GridProps) {
-  // While a row is open in the form, a click picks the row to show there, and a double click edits the cell
-  const formOpen = openRow !== undefined;
   const isOpen = (row: OpenRow) => JSON.stringify(row) === JSON.stringify(openRow);
   const primaryKey = table.primaryKey;
   // Not found by primary key in a table with failing rows: the failing field may be that key
@@ -717,7 +736,6 @@ function Grid({
       <table className="w-max min-w-full border-separate border-spacing-0 text-sm">
         <thead className="sticky top-0 z-10 bg-background">
           <tr>
-            <th className="w-8 border-b bg-background" aria-label="Open in the form" />
             {selectable && (
               <th className="w-10 border-b bg-background px-3 py-2">
                 <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Select all rows" />
@@ -766,7 +784,6 @@ function Grid({
               className={cn('bg-added/40', isOpen({ row: 'new', id: insert.id }) && 'bg-accent')}
               onClick={formOpen ? () => onOpenRow({ row: 'new', id: insert.id }) : undefined}
             >
-              <OpenCell label="Open the new row" onOpen={() => onOpenRow({ row: 'new', id: insert.id })} />
               <td className="border-b px-3 py-1.5">
                 <Tooltip content="Remove this new row">
                   <button
@@ -825,7 +842,6 @@ function Grid({
                 )}
                 onClick={formOpen ? () => onOpenRow(open) : undefined}
               >
-                <OpenCell label={`Open row ${rowIndex + 1}`} onOpen={() => onOpenRow(open)} />
                 {byIndex && (
                   <td className="border-b px-3 py-1.5">
                     {issues.length > 0 && (
@@ -927,7 +943,7 @@ function Grid({
           })}
           {rows.length === 0 && pending.inserts.length === 0 && (
             <tr>
-              <td colSpan={table.columns.length + 2} className="px-4 py-12 text-center text-sm text-muted-foreground">
+              <td colSpan={table.columns.length + 1} className="px-4 py-12 text-center text-sm text-muted-foreground">
                 No rows
               </td>
             </tr>
@@ -1067,27 +1083,6 @@ function Cell({
   );
 }
 
-/** The button at the head of a row that opens the row in the form */
-function OpenCell({ label, onOpen }: { label: string; onOpen: () => void }) {
-  return (
-    <td className="border-b px-1 py-1.5">
-      <Tooltip content={label}>
-        <button
-          type="button"
-          className="flex rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label={label}
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpen();
-          }}
-        >
-          <PanelRightOpen className="size-4" />
-        </button>
-      </Tooltip>
-    </td>
-  );
-}
-
 /**
  * What tells a row from the others while it is open in the form: its key, or its index in a table
  * without one or with failing rows, as the grid edits those by index
@@ -1116,5 +1111,26 @@ function writeSidebarCollapsed(collapsed: boolean): void {
     localStorage.setItem(SIDEBAR_KEY, String(collapsed));
   } catch {
     // Not kept for the next visit, which then starts expanded
+  }
+}
+
+const FORM_KEY = 'lines-db-studio:form-shown';
+
+/** Shown at first on a screen wide enough to keep the grid beside it */
+function readFormShown(): boolean {
+  try {
+    const stored = localStorage.getItem(FORM_KEY);
+    if (stored !== null) return stored === 'true';
+  } catch {
+    // Not remembered, so decided by the width of the screen
+  }
+  return typeof matchMedia === 'function' && matchMedia('(min-width: 1024px)').matches;
+}
+
+function writeFormShown(shown: boolean): void {
+  try {
+    localStorage.setItem(FORM_KEY, String(shown));
+  } catch {
+    // Not kept for the next visit, which then decides by the width of the screen
   }
 }
