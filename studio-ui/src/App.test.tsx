@@ -80,6 +80,15 @@ describe('App', () => {
     expect(form()).toBeNull();
   });
 
+  it('shows the row double-clicked in the form while the form is hidden, closing the cell editor', async () => {
+    render(<App />);
+
+    await userEvent.dblClick((await nameCells())[1]);
+
+    expect(form()?.getAttribute('aria-label')).toBe('users · id 2');
+    expect(screen.getAllByRole('textbox', { name: 'name' })).toHaveLength(1);
+  });
+
   it('shows the form from the header, waiting for a row to be picked', async () => {
     render(<App />);
 

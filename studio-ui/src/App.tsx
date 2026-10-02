@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   AlertTriangle,
   CircleAlert,
@@ -671,6 +671,11 @@ export function App() {
               openRow={formShown ? openRow : undefined}
               formShown={formShown}
               onOpenRow={setOpenRow}
+              onShowRow={(row) => {
+                setEditing(undefined);
+                setOpenRow(row);
+                showForm(true);
+              }}
             />
           )}
         </main>
@@ -698,6 +703,8 @@ interface GridProps {
   /** Whether the form is shown: a click then picks the row it shows, and a double click edits the cell */
   formShown: boolean;
   onOpenRow: (row: OpenRow) => void;
+  /** Shows the form with the row in it, from a double click while the form is hidden */
+  onShowRow: (row: OpenRow) => void;
 }
 
 function Grid({
@@ -715,6 +722,7 @@ function Grid({
   openRow,
   formShown: formOpen,
   onOpenRow,
+  onShowRow,
 }: GridProps) {
   const isOpen = (row: OpenRow) => JSON.stringify(row) === JSON.stringify(openRow);
   const primaryKey = table.primaryKey;
@@ -741,11 +749,11 @@ function Grid({
         <thead className="sticky top-0 z-10 bg-header">
           <tr>
             {selectable && (
-              <th className="w-10 border-b bg-header px-3 py-2">
+              <th className={cn('w-10 border-b px-3 py-2', LEAD_HEAD)}>
                 <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Select all rows" />
               </th>
             )}
-            {byIndex && <th className="w-10 border-b bg-header px-3 py-2" aria-label="Validation" />}
+            {byIndex && <th className={cn('w-10 border-b px-3 py-2', LEAD_HEAD)} aria-label="Validation" />}
             {table.columns.map((column) => (
               <th
                 key={column.name}
@@ -786,9 +794,11 @@ function Grid({
             <tr
               key={insert.id}
               className={cn('bg-added/40', isOpen({ row: 'new', id: insert.id }) && 'bg-accent')}
+              style={tintOf(isOpen({ row: 'new', id: insert.id }) ? 'var(--accent)' : mix('--added', 40))}
               onClick={formOpen ? () => onOpenRow({ row: 'new', id: insert.id }) : undefined}
+              onDoubleClick={formOpen ? undefined : () => onShowRow({ row: 'new', id: insert.id })}
             >
-              <td className="border-b px-3 py-1.5">
+              <td data-lead className={cn('border-b px-3 py-1.5', LEAD)}>
                 <Tooltip content="Remove this new row">
                   <button
                     type="button"
@@ -840,14 +850,25 @@ function Grid({
                 key={rowKey + index}
                 className={cn(
                   'group',
-                  deleted && 'bg-removed/50 line-through opacity-70',
+                  // Not the lead cell: it covers the cells that scroll under it, which would show through
+                  deleted && 'bg-removed/50 line-through [&>td:not([data-lead])]:opacity-70',
                   issues.length > 0 && 'bg-destructive/10',
                   isOpen(open) && 'bg-accent',
                 )}
                 onClick={formOpen ? () => onOpenRow(open) : undefined}
+                onDoubleClick={formOpen ? undefined : () => onShowRow(open)}
+                style={tintOf(
+                  isOpen(open)
+                    ? 'var(--accent)'
+                    : issues.length > 0
+                      ? mix('--destructive', 10)
+                      : deleted
+                        ? mix('--removed', 50)
+                        : undefined,
+                )}
               >
                 {byIndex && (
-                  <td className="border-b px-3 py-1.5">
+                  <td data-lead className={cn('border-b px-3 py-1.5', LEAD)}>
                     {issues.length > 0 && (
                       <Tooltip
                         content={
@@ -872,7 +893,7 @@ function Grid({
                   </td>
                 )}
                 {selectable && (
-                  <td className="border-b px-3 py-1.5 group-hover:bg-accent/50">
+                  <td data-lead className={cn('border-b px-3 py-1.5', LEAD)}>
                     {deleted ? (
                       <Tooltip content="Keep this row">
                         <button
@@ -1094,6 +1115,16 @@ function Cell({
 function rowIdOf(table: TableInfo, row: JsonObject, index: number): JsonValue {
   return table.primaryKey && table.invalidRows === 0 ? keyOf(row, table.primaryKey) : index;
 }
+
+/**
+ * The cell at the head of a row, kept in view as the grid scrolls sideways. It is opaque, as the cells
+ * scroll under it, and takes the tint of its row through a shadow over its background: the row's own
+ * background is translucent, and would let them show through
+ */
+const LEAD = 'sticky left-0 z-[1] border-r bg-background shadow-[inset_0_0_0_9999px_var(--row-tint,transparent)]';
+const LEAD_HEAD = 'sticky left-0 z-[2] border-r bg-header';
+const mix = (color: string, percent: number) => `color-mix(in oklab, var(${color}) ${percent}%, transparent)`;
+const tintOf = (tint: string | undefined) => (tint ? ({ '--row-tint': tint } as CSSProperties) : undefined);
 
 /** The issues as one sentence, for a control whose tooltip lists them */
 function describeIssues(issues: Issue[]): string {
