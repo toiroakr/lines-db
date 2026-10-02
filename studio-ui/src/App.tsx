@@ -5,6 +5,9 @@ import {
   Database,
   FileCode,
   KeyRound,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Lock,
   Plus,
   RefreshCw,
@@ -64,6 +67,12 @@ export function App() {
   const [editing, setEditing] = useState<Editing>();
   const [filter, setFilter] = useState('');
   const [schemaShown, setSchemaShown] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const toggleSidebar = () => {
+    setSidebarCollapsed(!sidebarCollapsed);
+    writeSidebarCollapsed(!sidebarCollapsed);
+  };
   const [tableFilter, setTableFilter] = useState('');
   const [notice, setNotice] = useState<Notice>();
   const [filesChanged, setFilesChanged] = useState(false);
@@ -226,10 +235,40 @@ export function App() {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full">
-        <aside className="flex w-60 shrink-0 flex-col border-r bg-sidebar">
+        {drawerOpen && (
+          <div className="fixed inset-0 z-30 bg-black/50 md:hidden" aria-hidden onClick={() => setDrawerOpen(false)} />
+        )}
+        <aside
+          className={cn(
+            'fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r bg-sidebar transition-transform md:static md:w-60 md:translate-x-0 md:transition-none',
+            drawerOpen ? 'translate-x-0' : '-translate-x-full',
+            sidebarCollapsed && 'md:hidden',
+          )}
+          onKeyDown={(event) => event.key === 'Escape' && setDrawerOpen(false)}
+        >
           <div className="flex h-12 items-center gap-2 border-b px-4">
             <Database className="size-4 text-muted-foreground" />
             <span className="text-sm font-semibold tracking-tight">lines-db studio</span>
+            <Tooltip content="Collapse the sidebar">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="ml-auto hidden size-7 md:inline-flex"
+                aria-label="Collapse the sidebar"
+                onClick={toggleSidebar}
+              >
+                <PanelLeftClose className="size-4" />
+              </Button>
+            </Tooltip>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="ml-auto size-7 md:hidden"
+              aria-label="Close the table list"
+              onClick={() => setDrawerOpen(false)}
+            >
+              <X className="size-4" />
+            </Button>
           </div>
           <div className="p-2">
             <div className="relative">
@@ -247,7 +286,7 @@ export function App() {
               <button
                 key={candidate.name}
                 type="button"
-                onClick={() => selectTable(candidate.name)}
+                onClick={() => selectTable(candidate.name) && setDrawerOpen(false)}
                 className={cn(
                   'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent',
                   candidate.name === table?.name && 'bg-accent font-medium',
@@ -269,14 +308,36 @@ export function App() {
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-            <h1 className="text-sm font-semibold">{table?.name ?? 'No tables'}</h1>
+          <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b px-2 py-2 sm:px-4">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-7 md:hidden"
+              aria-label="Open the table list"
+              onClick={() => setDrawerOpen(true)}
+            >
+              <Menu className="size-4" />
+            </Button>
+            {sidebarCollapsed && (
+              <Tooltip content="Expand the sidebar">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="hidden size-7 md:inline-flex"
+                  aria-label="Expand the sidebar"
+                  onClick={toggleSidebar}
+                >
+                  <PanelLeftOpen className="size-4" />
+                </Button>
+              </Tooltip>
+            )}
+            <h1 className="min-w-0 truncate text-sm font-semibold">{table?.name ?? 'No tables'}</h1>
             {table && (
               <Badge variant="outline">
                 {rows.length} of {table.rowCount} rows
               </Badge>
             )}
-            <div className="relative ml-4 w-64">
+            <div className="relative order-last w-full sm:order-none sm:ml-4 sm:w-64">
               <Search className="absolute top-2 left-2.5 size-4 text-muted-foreground" />
               <Input
                 className="h-8 pl-8"
@@ -287,8 +348,8 @@ export function App() {
             </div>
             <div className="ml-auto flex items-center gap-2">
               {table?.schemaFile && (
-                <Button size="sm" variant="outline" onClick={() => setSchemaShown(true)}>
-                  <FileCode /> Schema
+                <Button size="sm" variant="outline" aria-label="Schema" onClick={() => setSchemaShown(true)}>
+                  <FileCode /> <span className="hidden sm:inline">Schema</span>
                 </Button>
               )}
               {selected.size > 0 && (
@@ -299,7 +360,7 @@ export function App() {
                   onClick={deleteSelected}
                   disabled={saving}
                 >
-                  <Trash2 /> Delete {selected.size}
+                  <Trash2 /> <span className="hidden sm:inline">Delete</span> {selected.size}
                 </Button>
               )}
               <Button
@@ -307,8 +368,9 @@ export function App() {
                 variant="outline"
                 disabled={!table || Boolean(table.readOnlyReason) || table.invalidRows > 0 || saving}
                 onClick={() => setPending(addInsert(pending, `new-${Date.now()}`))}
+                aria-label="Add record"
               >
-                <Plus /> Add record
+                <Plus /> <span className="hidden sm:inline">Add record</span>
               </Button>
               <Tooltip content="Reload from the files">
                 <Button
@@ -335,7 +397,7 @@ export function App() {
           {dirty && (
             <div
               role="status"
-              className="flex shrink-0 items-center gap-3 border-b bg-changed/60 px-4 py-2 text-sm shadow-[inset_0_-1px_0_var(--changed-foreground)]"
+              className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b bg-changed/60 px-2 py-2 text-sm shadow-[inset_0_-1px_0_var(--changed-foreground)] sm:px-4"
             >
               <span className="flex size-6 items-center justify-center rounded-full bg-changed-foreground font-mono text-xs font-semibold text-background tabular-nums">
                 {changeCount}
@@ -344,7 +406,10 @@ export function App() {
                 <span className="font-medium">
                   Unsaved change{changeCount === 1 ? '' : 's'} to {table?.name}
                 </span>
-                <span className="text-muted-foreground"> — not written to {table?.name}.jsonl until you save</span>
+                <span className="hidden text-muted-foreground sm:inline">
+                  {' '}
+                  — not written to {table?.name}.jsonl until you save
+                </span>
               </span>
               <div className="ml-auto flex items-center gap-2">
                 <Button size="sm" variant="ghost" onClick={discard} disabled={saving}>
@@ -357,7 +422,7 @@ export function App() {
             </div>
           )}
 
-          <div className="grid gap-2 px-4 empty:hidden [&>*]:mt-3">
+          <div className="grid gap-2 px-2 empty:hidden sm:px-4 [&>*]:mt-3">
             {table && table.invalidRows > 0 && (
               <Alert variant="destructive">
                 <AlertTriangle />
@@ -797,4 +862,22 @@ function Cell({ column, value, issues = [], state, readOnly, isEditing, onOpen, 
 /** The issues as one sentence, for a control whose tooltip lists them */
 function describeIssues(issues: Issue[]): string {
   return issues.map((issue) => `${issuePath(issue)}: ${issue.message}`).join('; ');
+}
+
+const SIDEBAR_KEY = 'lines-db-studio:sidebar-collapsed';
+
+function readSidebarCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writeSidebarCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(SIDEBAR_KEY, String(collapsed));
+  } catch {
+    // Not kept for the next visit, which then starts expanded
+  }
 }
