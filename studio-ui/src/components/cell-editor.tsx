@@ -99,7 +99,7 @@ export function CellEditor({
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape') onClose();
-    if (!json && event.key === 'Enter') {
+    if (!json && event.key === 'Enter' && !event.nativeEvent.isComposing) {
       event.preventDefault();
       apply();
     }

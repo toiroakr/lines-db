@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CellEditor } from './cell-editor';
 import type { JsonValue } from '@/lib/types';
@@ -59,5 +59,16 @@ describe('CellEditor', () => {
     await userEvent.click(screen.getByRole('button', { name: /^Set$/ }));
 
     expect(onApply).toHaveBeenCalledWith('Guest');
+  });
+
+  it('leaves Enter that confirms an input method composition to the input method', () => {
+    const { onApply, onClose } = renderEditor('Alice', true);
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'Alicia' } });
+
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
