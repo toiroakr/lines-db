@@ -407,6 +407,46 @@ describe('LinesDB.transaction write-back', () => {
     expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"A"}\n');
   });
 
+  it('gives a row inserted in the rowid of a row raw SQL deleted none of the fields its schema does not know', async () => {
+    await db.close();
+    await writeFile(itemsPath(), '{"id":"a","name":"a","note":"kept"}\n');
+    await writeFile(
+      join(dataDir, 'items.schema.ts'),
+      "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: { id: data.id, name: data.name } }) } };\n",
+    );
+    db = LinesDB.create<TableDefs>({ dataDir });
+    unwrap(await db.initialize());
+
+    unwrap(
+      await db.transaction((tx) => {
+        unwrap(tx.execute("DELETE FROM items WHERE id = 'a'"));
+        unwrap(tx.insert('items', { id: 'b', name: 'b' }));
+      }),
+    );
+
+    expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":"b","name":"b"}\n');
+  });
+
+  it('gives a row raw SQL inserted in the rowid of a row it deleted none of the fields its schema does not know', async () => {
+    await db.close();
+    await writeFile(itemsPath(), '{"id":"a","name":"a","note":"kept"}\n');
+    await writeFile(
+      join(dataDir, 'items.schema.ts'),
+      "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: { id: data.id, name: data.name } }) } };\n",
+    );
+    db = LinesDB.create<TableDefs>({ dataDir });
+    unwrap(await db.initialize());
+
+    unwrap(
+      await db.transaction((tx) => {
+        unwrap(tx.execute("DELETE FROM items WHERE id = 'a'"));
+        unwrap(tx.execute("INSERT INTO items (id, name) VALUES ('b', 'b')"));
+      }),
+    );
+
+    expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":"b","name":"b"}\n');
+  });
+
   it('keeps a field its schema does not know on a row whose deletion was rolled back', async () => {
     await db.close();
     await writeFile(itemsPath(), '{"id":1,"name":"a","note":"kept"}\n');

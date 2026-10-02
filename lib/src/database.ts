@@ -1125,6 +1125,7 @@ export class LinesDB<Tables extends TableDefs> {
           this.rawSqlTables.add(tableName);
           this.noteChange(tableName);
         }
+        this.forgetLinesOfGoneRows(this.schemas.keys());
         if (this.transactionChanges) this.transactionChanges = 'all';
       }
     }
@@ -2185,6 +2186,25 @@ export class LinesDB<Tables extends TableDefs> {
     }
   }
 
+  /** Forget the lines kept for rows that are gone, such as rows raw SQL or a foreign-key action deleted */
+  private forgetLinesOfGoneRows(tableNames: Iterable<string>): void {
+    for (const tableName of tableNames) {
+      const lines = this.linesWithUnknownFields.get(tableName);
+      if (!lines || lines.size === 0) continue;
+      let stored: JsonObject[];
+      try {
+        stored = this.queryInternal<JsonObject>(
+          `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)}`,
+        );
+      } catch {
+        // Not thrown: raw SQL may have dropped the table, and the error worth reporting is that SQL's own
+        continue;
+      }
+      const present = new Set(stored.map((row) => String(row[ROWID_ALIAS])));
+      for (const rowid of lines.keys()) if (!present.has(rowid)) lines.delete(rowid);
+    }
+  }
+
   private forgetFieldChanges(tableName: string, rowids: string[]): void {
     for (const rowid of rowids) {
       this.fieldChanges.get(tableName)?.delete(rowid);
@@ -2311,6 +2331,8 @@ export class LinesDB<Tables extends TableDefs> {
     // Not counted when no row changed: writing the table back could then fail on a file it never touched
     if (BigInt(changes) === 0n && this.transactionChanges) return;
     const tableNames = [tableName, ...this.tablesChangedByForeignKeyActions(tableName)];
+    // Not left to the write-back: a row inserted before it can take the rowid of a row deleted here
+    this.forgetLinesOfGoneRows(tableNames);
     if (this.transactionChanges) {
       if (this.transactionChanges !== 'all') for (const name of tableNames) this.transactionChanges.add(name);
       return;
