@@ -19,7 +19,8 @@ export function issuePath(issue: Issue): string {
 /** The issues about a field, nested values included, and those about no field in particular */
 export function issuesFor(field: string, result: CheckResult | undefined): Issue[] {
   if (!result || result.ok || !('issues' in result)) return [];
-  const { issues } = result;
+  // A refusal SQLite gives, such as a unique constraint, has a message and no issues
+  const issues = result.issues.length > 0 || !result.message ? result.issues : [{ message: result.message }];
   return issues.filter((issue) => !issue.path?.length || segmentKey(issue.path[0]) === field);
 }
 

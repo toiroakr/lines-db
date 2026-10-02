@@ -47,6 +47,14 @@ describe('checkChanges', () => {
   });
 });
 
+describe('issuesFor with a refusal that only has a message', () => {
+  it('reports the message as an issue about the whole row, so the value does not show as valid', () => {
+    expect(issuesFor('email', { ok: false, message: 'UNIQUE constraint failed: users.email', issues: [] })).toEqual([
+      { message: 'UNIQUE constraint failed: users.email' },
+    ]);
+  });
+});
+
 describe('issuesFor with a failed check', () => {
   it('finds no issues, as the value was not checked', () => {
     expect(issuesFor('name', { ok: false, failed: 'offline' })).toEqual([]);

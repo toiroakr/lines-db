@@ -11,7 +11,8 @@ export default defineConfig({
   build: { outDir: '../lib/studio', emptyOutDir: true },
   server: {
     proxy: {
-      '/api': { target: 'http://127.0.0.1:4848', changeOrigin: false },
+      // Not passing the browser's Host and Origin through: the studio server refuses requests not addressed to it
+      '/api': { target: 'http://127.0.0.1:4848', changeOrigin: true, headers: { origin: 'http://127.0.0.1:4848' } },
     },
   },
   test: { environment: 'jsdom', include: ['src/**/*.test.{ts,tsx}'] },
