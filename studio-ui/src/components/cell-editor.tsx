@@ -90,8 +90,12 @@ export function CellEditor({
     );
   }
 
+  // Not closed unchanged for a value the schema filled in: setting it as it is writes it to the file
+  const unchanged = (next: JsonValue) =>
+    canUseDefault && value !== undefined && JSON.stringify(next) === JSON.stringify(value);
+  const set = (next: JsonValue) => (unchanged(next) ? onClose() : onApply(next));
   const apply = () => {
-    if ('value' in parsed) onApply(parsed.value);
+    if ('value' in parsed) set(parsed.value);
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape') onClose();
@@ -171,7 +175,7 @@ export function CellEditor({
             <RotateCcw /> Revert
           </Button>
         )}
-        <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => onApply(null)}>
+        <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => set(null)}>
           <X /> Set null
         </Button>
       </div>
