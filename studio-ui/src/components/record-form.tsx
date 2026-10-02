@@ -263,7 +263,7 @@ export function RecordDrawer({ table, row, onClose }: { table: string; row?: For
         </p>
       )}
       {row ? (
-        <div key={row.title} className="grid flex-1 content-start gap-4 overflow-y-auto p-4">
+        <div key={row.title} className="grid flex-1 content-start gap-4 overflow-y-auto overscroll-none p-4">
           {row.fields.map((model) => (
             <FormField key={model.column.name} table={table} model={model} />
           ))}

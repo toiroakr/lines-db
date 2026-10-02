@@ -423,7 +423,7 @@ export function App() {
               />
             </div>
           </div>
-          <nav className="flex-1 overflow-y-auto px-2 pb-2">
+          <nav className="flex-1 overflow-y-auto overscroll-none px-2 pb-2">
             {tables.map((candidate) => (
               <button
                 key={candidate.name}
@@ -744,7 +744,10 @@ function Grid({
   };
 
   return (
-    <div className={cn('mt-3 min-h-0 flex-1 overflow-auto border-t', saving && 'opacity-60')} inert={saving}>
+    <div
+      className={cn('mt-3 min-h-0 flex-1 overflow-auto overscroll-none border-t', saving && 'opacity-60')}
+      inert={saving}
+    >
       <table className="w-max min-w-full border-separate border-spacing-0 text-sm">
         <thead className="sticky top-0 z-10 bg-header">
           <tr>

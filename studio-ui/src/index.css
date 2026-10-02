@@ -150,6 +150,11 @@
   #root {
     @apply h-full;
   }
+  /* Not bounced at the ends of a scroll: the grid and the page are panes, not a document */
+  html,
+  body {
+    @apply overscroll-none;
+  }
   body {
     @apply bg-background text-foreground antialiased;
   }
