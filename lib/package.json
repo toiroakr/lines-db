@@ -16,6 +16,7 @@
   "files": [
     "dist",
     "bin",
+    "studio",
     "CHANGELOG.md"
   ],
   "engines": {

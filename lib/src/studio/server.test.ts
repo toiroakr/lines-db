@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { request } from 'node:http';
@@ -380,14 +380,101 @@ describe('studio server', () => {
     expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toContain('"name":"Alice"');
   });
 
-  it('serves the studio page with a script allowed only by the nonce in its Content-Security-Policy', async () => {
-    const response = await fetch(`${studio.url}/`);
+  it('lists how many rows each table holds', async () => {
+    const body = await bodyOf(await fetch(`${studio.url}/api/tables`));
+
+    expect(body.tables[0]).toMatchObject({ name: 'users', rowCount: 2 });
+  });
+
+  it('applies a batch of inserts, updates and deletes in one write', async () => {
+    const response = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+      inserts: [{ id: 3, name: 'Carol', active: true, tags: [] }],
+      updates: [{ key: 1, changes: { name: 'Alicia' } }],
+      deletes: [2],
+    });
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toContain('text/html');
-    const nonce = response.headers.get('content-security-policy')?.match(/'nonce-([^']+)'/)?.[1];
-    expect(nonce).toBeTruthy();
-    expect(await response.text()).toContain(`<script nonce="${nonce}">`);
+    expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toBe(
+      '{"id":1,"name":"Alicia","active":true,"tags":["a"]}\n{"id":3,"name":"Carol","active":true,"tags":[]}\n',
+    );
+  });
+
+  it('applies none of a batch when one change is refused, and names that change', async () => {
+    const before = await readFile(join(dataDir, 'users.jsonl'), 'utf8');
+
+    const response = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+      updates: [
+        { key: 1, changes: { name: 'Alicia' } },
+        { key: 2, changes: { name: '' } },
+      ],
+    });
+
+    expect(response.status).toBe(400);
+    expect(await bodyOf(response)).toMatchObject({
+      change: { kind: 'update', index: 1, key: 2 },
+      issues: [{ message: 'Name is required' }],
+    });
+    expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toBe(before);
+  });
+
+  it('answers a batch of the wrong shape with 400', async () => {
+    const response = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, { updates: [{ key: 1 }] });
+
+    expect(response.status).toBe(400);
+  });
+
+  describe('the built page', () => {
+    let uiDir: string;
+
+    beforeEach(async () => {
+      uiDir = await mkdtemp(join(tmpdir(), 'linesdb-studio-ui-'));
+      await mkdir(join(uiDir, 'assets'));
+      await writeFile(join(uiDir, 'index.html'), '<!doctype html><div id="root"></div>');
+      await writeFile(join(uiDir, 'assets', 'app.js'), 'console.log("app");');
+      await studio.close();
+      studio = await startStudioServer({ dataDir, port: 0, uiDir });
+    });
+
+    afterEach(async () => {
+      await rm(uiDir, { recursive: true, force: true });
+    });
+
+    it('is served with scripts and styles allowed only from the server itself', async () => {
+      const response = await fetch(`${studio.url}/`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/html');
+      expect(response.headers.get('content-security-policy')).toContain("script-src 'self'");
+      expect(await response.text()).toContain('<div id="root"></div>');
+    });
+
+    it('serves an asset with the type its extension names', async () => {
+      const response = await fetch(`${studio.url}/assets/app.js`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/javascript');
+      expect(await response.text()).toBe('console.log("app");');
+    });
+
+    it('refuses a path that leaves the directory of the built page', async () => {
+      const { port, host } = new URL(studio.url);
+
+      const response = await rawRequest({
+        port,
+        path: '/assets/../../users.jsonl',
+        headers: { Host: host, Authorization: `Bearer ${studio.token}` },
+      });
+
+      expect(response.status).toBe(404);
+    });
+
+    it('answers 503 for the page when it has not been built, while the API keeps working', async () => {
+      await studio.close();
+      studio = await startStudioServer({ dataDir, port: 0, uiDir: join(uiDir, 'missing') });
+
+      expect((await fetch(`${studio.url}/`)).status).toBe(503);
+      expect((await fetch(`${studio.url}/api/tables`)).status).toBe(200);
+    });
   });
 
   function rawRequest(options: {

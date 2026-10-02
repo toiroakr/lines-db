@@ -1,12 +1,13 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { watch } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { relative, resolve as resolvePath } from 'node:path';
+import { extname, join, relative, resolve as resolvePath } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { LinesDB } from '../database.js';
 import { ErrorFormatter } from '../error-formatter.js';
 import { unwrap } from '../result.js';
-import { renderPage } from './page.js';
 import type {
   JsonlConflictError,
   JsonlParseError,
@@ -20,6 +21,8 @@ import type {
 
 export interface StudioServerOptions {
   dataDir: string;
+  /** Directory holding the built page. Defaults to the one shipped with the package */
+  uiDir?: string;
   /** Which values the schema fills in a save writes into the file. Defaults to 'primaryKey' */
   writeFilledValues?: WriteFilledValues;
   host?: string;
@@ -44,6 +47,7 @@ interface Snapshot {
 export async function startStudioServer(options: StudioServerOptions): Promise<StudioServer> {
   const { dataDir } = options;
   const host = options.host ?? '127.0.0.1';
+  const uiDir = options.uiDir ?? (await shippedUiDir());
   const token = randomBytes(24).toString('base64url');
   const writeFilledValues = options.writeFilledValues ?? 'primaryKey';
   const load = () => loadSnapshot(dataDir, writeFilledValues);
@@ -121,14 +125,8 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     }
     const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
 
-    if (req.method === 'GET' && url.pathname === '/') {
-      const nonce = randomBytes(24).toString('base64');
-      res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
-        'Cache-Control': 'no-store',
-      });
-      res.end(renderPage(nonce));
+    if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
+      await servePage(res, uiDir, url.pathname);
       return;
     }
 
@@ -145,19 +143,25 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       const tables = snapshot.db.getTableNames().map((name) => {
         const columns = snapshot.db.getSchema(name)?.columns ?? [];
         const primaryKey = columns.find((column) => column.primaryKey)?.name ?? null;
-        return { name, columns, primaryKey, readOnlyReason: primaryKey ? null : readOnlyReason };
+        const rowCount =
+          unwrap(snapshot.db.queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM "${name.replaceAll('"', '""')}"`))?.n ??
+          0;
+        return { name, columns, primaryKey, rowCount, readOnlyReason: primaryKey ? null : readOnlyReason };
       });
       sendJson(res, 200, { dataDir: resolvePath(dataDir), tables, problems: snapshot.problems });
       return;
     }
 
-    if (segments[0] !== 'api' || segments[1] !== 'tables' || segments[3] !== 'rows' || segments.length > 5) {
+    const [, , tableName, resource, encodedKey] = segments;
+    const isRows = segments[0] === 'api' && segments[1] === 'tables' && resource === 'rows' && segments.length <= 5;
+    const isChanges =
+      segments[0] === 'api' && segments[1] === 'tables' && resource === 'changes' && segments.length === 4;
+    if (!isRows && !isChanges) {
       sendJson(res, 404, { message: 'Not found' });
       return;
     }
-    const tableName = segments[2];
 
-    if (req.method === 'GET' && segments.length === 4) {
+    if (isRows && req.method === 'GET' && encodedKey === undefined) {
       await reloadIfChanged();
       if (!snapshot.db.getSchema(tableName)) {
         sendJson(res, 404, { message: `Table '${tableName}' does not exist` });
@@ -168,7 +172,11 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       return;
     }
 
-    const write = writeOperation(req.method, segments[4]);
+    const write = isChanges
+      ? req.method === 'POST'
+        ? ({ kind: 'batch' } as const)
+        : undefined
+      : writeOperation(req.method, encodedKey);
     if (!write) {
       sendJson(res, 405, { message: 'Method not allowed' });
       return;
@@ -182,7 +190,22 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       sendJson(res, 415, { message: 'Writes must be sent as application/json' });
       return;
     }
-    const body = write.kind === 'delete' ? {} : writeBody(await readJson(req));
+    let batch: ChangeBatch;
+    if (write.kind === 'batch') {
+      batch = changeBatch(await readJson(req));
+    } else if (write.kind === 'delete') {
+      batch = { inserts: [], updates: [], deletes: [write.key] };
+    } else {
+      const body = writeBody(await readJson(req));
+      batch =
+        write.kind === 'insert'
+          ? { inserts: [body.row ?? {}], updates: [], deletes: [] }
+          : {
+              inserts: [],
+              updates: [{ key: write.key, changes: body.changes ?? {}, resetToDefault: body.resetToDefault }],
+              deletes: [],
+            };
+    }
 
     const outcome = await serialize(async (): Promise<{ status: number; body: unknown; changed?: boolean }> => {
       // Not left to the watcher: its event may not have fired yet, and a changed schema file is no
@@ -204,15 +227,21 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       const primaryKey = schema.columns.find((column) => column.primaryKey)?.name;
       if (!primaryKey) return { status: 409, body: { message: readOnlyReason } };
 
-      const where = { [primaryKey]: write.kind === 'insert' ? null : write.key };
       const result = await db.transaction((tx) => {
-        const written =
-          write.kind === 'insert'
-            ? tx.insert(tableName, body.row ?? {})
-            : write.kind === 'update'
-              ? tx.update(tableName, body.changes ?? {}, where, { resetToDefault: body.resetToDefault })
-              : tx.delete(tableName, where);
-        if (!written.ok) throw written.error;
+        const check = (written: { ok: boolean; error?: Error }, change: FailedChange) => {
+          if (!written.ok) throw Object.assign(written.error!, { change });
+        };
+        batch.deletes.forEach((key, index) =>
+          check(tx.delete(tableName, { [primaryKey]: key }), { kind: 'delete', index, key }),
+        );
+        batch.updates.forEach(({ key, changes, resetToDefault }, index) =>
+          check(tx.update(tableName, changes, { [primaryKey]: key }, { resetToDefault }), {
+            kind: 'update',
+            index,
+            key,
+          }),
+        );
+        batch.inserts.forEach((row, index) => check(tx.insert(tableName, row), { kind: 'insert', index }));
       });
       if (!result.ok) {
         if (result.error.name === 'JsonlConflictError') {
@@ -221,8 +250,11 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           const message = `${relative(dataDir, file) || file} changed on disk, so the tables were reloaded. Check the rows and try again.`;
           return { status: 409, body: { message }, changed: true };
         }
-        const issues = (result.error as Partial<ValidationError>).issues;
-        return { status: 400, body: { message: result.error.message, ...(issues ? { issues } : {}) } };
+        const { issues, change } = result.error as Partial<ValidationError> & { change?: FailedChange };
+        return {
+          status: 400,
+          body: { message: result.error.message, ...(issues ? { issues } : {}), ...(change ? { change } : {}) },
+        };
       }
       return { status: write.kind === 'insert' ? 201 : 200, body: { ok: true }, changed: true };
     });
@@ -288,6 +320,55 @@ function describeProblems(dataDir: string, errors: ValidationErrorDetail[]): str
 
 const TOKEN_COOKIE = 'lines_db_studio_token';
 
+const CONTENT_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.json': 'application/json; charset=utf-8',
+};
+
+/** The built page shipped next to the CLI (bin/) or the sources (src/studio/), whichever exists */
+async function shippedUiDir(): Promise<string> {
+  const candidates = ['../studio', '../../studio'].map((path) => fileURLToPath(new URL(path, import.meta.url)));
+  for (const dir of candidates) {
+    if (await stat(join(dir, 'index.html')).catch(() => undefined)) return dir;
+  }
+  return candidates[0];
+}
+
+async function servePage(res: ServerResponse, uiDir: string, pathname: string): Promise<void> {
+  const file = resolvePath(uiDir, `.${pathname === '/' ? '/index.html' : pathname}`);
+  if (relative(uiDir, file).startsWith('..')) {
+    sendJson(res, 404, { message: 'Not found' });
+    return;
+  }
+  const content = await readFile(file).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT' || error.code === 'EISDIR') return undefined;
+    throw error;
+  });
+  if (!content) {
+    if (pathname === '/') {
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('The studio page has not been built. Run `pnpm build` in the lines-db repository.');
+      return;
+    }
+    sendJson(res, 404, { message: 'Not found' });
+    return;
+  }
+  res.writeHead(200, {
+    'Content-Type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream',
+    'Content-Security-Policy':
+      "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    'Cache-Control': pathname === '/' ? 'no-store' : 'public, max-age=31536000, immutable',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(content);
+}
+
 function presentedToken(req: IncomingMessage): string | undefined {
   const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
   if (bearer) return bearer;
@@ -329,6 +410,49 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   return parseJson(Buffer.concat(chunks).toString('utf8'), 'The request body is not JSON');
 }
 
+/** The rows a save inserts, the changes it makes by primary key, and the keys it deletes */
+interface ChangeBatch {
+  inserts: JsonObject[];
+  updates: Array<{ key: JsonValue; changes: JsonObject; resetToDefault?: string[] }>;
+  deletes: JsonValue[];
+}
+
+/** The change of a batch the database refused */
+type FailedChange = { kind: 'insert'; index: number } | { kind: 'update' | 'delete'; index: number; key: JsonValue };
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isFieldList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((field) => typeof field === 'string');
+}
+
+function changeBatch(body: unknown): ChangeBatch {
+  if (!isJsonObject(body)) throw new BadRequestError('The request body must be a JSON object');
+  const { inserts = [], updates = [], deletes = [] } = body;
+  if (!Array.isArray(inserts) || !inserts.every(isJsonObject))
+    throw new BadRequestError('`inserts` must be a list of rows');
+  if (!Array.isArray(deletes)) throw new BadRequestError('`deletes` must be a list of primary keys');
+  if (
+    !Array.isArray(updates) ||
+    !updates.every(
+      (update) =>
+        isJsonObject(update) &&
+        'key' in update &&
+        isJsonObject(update.changes) &&
+        (update.resetToDefault === undefined || isFieldList(update.resetToDefault)),
+    )
+  ) {
+    throw new BadRequestError('`updates` must be a list of { key, changes, resetToDefault? }');
+  }
+  return {
+    inserts,
+    updates: updates as unknown as ChangeBatch['updates'],
+    deletes,
+  };
+}
+
 interface WriteBody {
   row?: JsonObject;
   changes?: JsonObject;
@@ -336,19 +460,14 @@ interface WriteBody {
 }
 
 function writeBody(body: unknown): WriteBody {
-  const isObject = (value: unknown): value is JsonObject =>
-    typeof value === 'object' && value !== null && !Array.isArray(value);
-  if (!isObject(body)) throw new BadRequestError('The request body must be a JSON object');
+  if (!isJsonObject(body)) throw new BadRequestError('The request body must be a JSON object');
   const { row, changes, resetToDefault } = body;
-  if (row !== undefined && !isObject(row)) throw new BadRequestError('`row` must be an object');
-  if (changes !== undefined && !isObject(changes)) throw new BadRequestError('`changes` must be an object');
-  if (
-    resetToDefault !== undefined &&
-    !(Array.isArray(resetToDefault) && resetToDefault.every((f) => typeof f === 'string'))
-  ) {
+  if (row !== undefined && !isJsonObject(row)) throw new BadRequestError('`row` must be an object');
+  if (changes !== undefined && !isJsonObject(changes)) throw new BadRequestError('`changes` must be an object');
+  if (resetToDefault !== undefined && !isFieldList(resetToDefault)) {
     throw new BadRequestError('`resetToDefault` must be a list of field names');
   }
-  return { row, changes, resetToDefault: resetToDefault as string[] | undefined };
+  return { row, changes, resetToDefault };
 }
 
 /** An error in the request itself, answered with 400 */

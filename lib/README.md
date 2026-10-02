@@ -196,10 +196,12 @@ not JSON objects (`unreadableLines`), and the named fields no table produced a v
 npx lines-db studio <dataDir> [--port 4848] [--open] [--write-filled-values primaryKey|all]
 ```
 
-Starts a local web UI at `http://127.0.0.1:4848` that lists the tables of `dataDir` and lets you edit a
-cell, add a row and delete a row. Every change goes through the same path as `db.update()` /
-`db.insert()` / `db.delete()` in a transaction, so a value the schema rejects is not written and its
-issues are shown next to the table; a saved change rewrites only the line it belongs to.
+Starts a local web UI at `http://127.0.0.1:4848` that lists the tables of `dataDir` with their row
+counts and shows a table as a grid. Click a cell to edit it, add records, or select rows to delete;
+the changes stay pending - highlighted in the grid - until **Save N changes** writes them all in one
+transaction through `db.update()` / `db.insert()` / `db.delete()`, or **Discard** drops them. A value
+the schema rejects writes nothing: the issues are shown with the change they came from, and the
+pending changes stay for you to fix. A saved change rewrites only the line it belongs to.
 
 - The URL printed at start-up holds a token generated for the run. Opening it signs the browser in
   with an HttpOnly, SameSite=Strict cookie; a request without the token is refused with 401.
@@ -213,10 +215,11 @@ issues are shown next to the table; a saved change rewrites only the line it bel
   without is shown read-only.
 - A table whose rows fail validation on load is left out, and the failing rows are listed at the top
   of the page. Fix them in the JSONL or schema file and click **Reload**.
-- When the files change on disk while the studio is open, the page reloads the rows on its own. A
-  save that would overwrite a file changed by something else stops with the name of that file, writes
-  nothing, and the tables are reloaded from the files. A save writes back only the table it edits, so
-  a change to another table's file does not stop it.
+- When the files change on disk while the studio is open, the page reloads the rows on its own, or,
+  with changes pending, says so. A save checks the files first: a changed schema file is loaded so the
+  save is validated against it, and a change to the edited table's own file stops the save with the
+  name of that file, writes nothing, and reloads the tables. A save writes back only the table it
+  edits, so a change to another table's file does not stop it.
 - The server only answers requests addressed to the local host, and only accepts writes sent as
   `application/json` from its own page.
 
