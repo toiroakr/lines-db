@@ -474,19 +474,20 @@ async function loadSnapshot(dataDir: string, writeFilledValues: WriteFilledValue
   };
 }
 
-/** The field of the row an issue is about, if it is about one */
 /**
  * The issues with one about several refused keys split per key. Zod reports the keys a strict object
  * refuses in one issue with an empty path and the keys beside it, which no field would be found by
  */
 function perKey(issues: readonly StandardSchemaIssue[]): StandardSchemaIssue[] {
   return issues.flatMap((issue) => {
-    const keys = (issue as { keys?: unknown }).keys;
-    if (issue.path?.length || !Array.isArray(keys) || !keys.every((key) => typeof key === 'string')) return [issue];
+    const { code, keys } = issue as { code?: unknown; keys?: unknown };
+    if (code !== 'unrecognized_keys' || issue.path?.length || !Array.isArray(keys)) return [issue];
+    if (!keys.every((key) => typeof key === 'string')) return [issue];
     return keys.map((key) => ({ ...issue, keys: [key], path: [{ key }] }));
   });
 }
 
+/** The field of the row an issue is about, if it is about one */
 function fieldOf(issue: StandardSchemaIssue): string | undefined {
   const segment = issue.path?.[0];
   if (segment === undefined) return undefined;

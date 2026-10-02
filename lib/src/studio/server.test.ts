@@ -724,6 +724,36 @@ describe('studio server', () => {
       });
     });
 
+    it('leaves an issue naming keys under another code about the row, so no field is offered for removal', async () => {
+      await studio.close();
+      await writeFile(
+        join(dataDir, 'labels.schema.ts'),
+        `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  'extra' in data
+    ? { issues: [{ code: 'custom', keys: ['extra'], path: [], message: 'Rows with extra need a reviewer' }] }
+    : { value: data },
+} };
+`,
+      );
+      await writeFile(
+        join(dataDir, 'labels.jsonl'),
+        '{"id":1,"name":"first"}\n{"id":2,"name":"second","extra":true}\n',
+      );
+      studio = await startStudioServer({ dataDir, port: 0 });
+
+      const labels = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+        (table: { name: string }) => table.name === 'labels',
+      );
+      const rows = await bodyOf(await fetch(`${studio.url}/api/tables/labels/rows`));
+
+      expect(labels.columns.find((column: { name: string }) => column.name === 'extra')).not.toMatchObject({
+        unknown: true,
+      });
+      expect(rows.issues).toEqual({
+        1: [expect.objectContaining({ message: 'Rows with extra need a reviewer', path: [] })],
+      });
+    });
+
     it('lists a field every row lacks but an issue names, so it can be filled in', async () => {
       await studio.close();
       await writeFile(join(dataDir, 'tasks.schema.ts'), NAME_REQUIRED_SCHEMA);
