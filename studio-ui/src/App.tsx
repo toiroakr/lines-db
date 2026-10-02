@@ -565,10 +565,13 @@ function Grid({ table, rows, pending, setPending, selected, setSelected, editing
                           </ul>
                         }
                       >
-                        <CircleAlert
-                          className="size-4 text-destructive"
-                          aria-label={`Row ${rowIndex + 1} fails validation`}
-                        />
+                        <button
+                          type="button"
+                          className="flex rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={`Row ${rowIndex + 1} fails validation: ${describeIssues(issues)}`}
+                        >
+                          <CircleAlert className="size-4 text-destructive" aria-hidden />
+                        </button>
                       </Tooltip>
                     )}
                   </td>
@@ -708,7 +711,7 @@ function Cell({ column, value, issues = [], state, readOnly, isEditing, onOpen, 
             </ul>
           }
         >
-          <CircleAlert className="size-3.5 shrink-0 text-destructive" aria-label={`${column.name} fails validation`} />
+          <CircleAlert className="size-3.5 shrink-0 text-destructive" aria-hidden />
         </Tooltip>
       )}
       {state === 'default' && (
@@ -738,7 +741,11 @@ function Cell({ column, value, issues = [], state, readOnly, isEditing, onOpen, 
           type="button"
           className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
           onClick={onOpen}
-          aria-label={`Edit ${column.name}`}
+          aria-label={
+            issues.length > 0
+              ? `Edit ${column.name}, which fails validation: ${describeIssues(issues)}`
+              : `Edit ${column.name}`
+          }
           aria-haspopup="dialog"
         >
           {contents}
@@ -768,4 +775,9 @@ function Cell({ column, value, issues = [], state, readOnly, isEditing, onOpen, 
       <PopoverContent onOpenAutoFocus={(event) => event.preventDefault()}>{editorOf}</PopoverContent>
     </Popover>
   );
+}
+
+/** The issues as one sentence, for a control whose tooltip lists them */
+function describeIssues(issues: Issue[]): string {
+  return issues.map((issue) => `${issuePath(issue)}: ${issue.message}`).join('; ');
 }
