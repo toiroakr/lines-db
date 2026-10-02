@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render as renderPlain, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { FormField, MIN_FORM_WIDTH, RecordDrawer, type FieldModel } from './record-form';
 import type { Column, JsonValue } from '@/lib/types';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import type { ReactElement } from 'react';
+
+const render = (ui: ReactElement) => renderPlain(ui, { wrapper: TooltipProvider });
 
 const field = (column: Column, value: JsonValue | undefined, overrides: Partial<FieldModel> = {}): FieldModel => ({
   column,
@@ -117,6 +121,67 @@ describe('FormField', () => {
     rerender(<FormField table="users" model={{ ...model, value: 'Alice' }} />);
 
     expect((screen.getByRole('textbox', { name: 'name' }) as HTMLInputElement).value).toBe('Alice');
+  });
+});
+
+describe('FormField of a JSON column', () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('edits a key inside the value as a field, handing on the whole value', () => {
+    const model = field({ name: 'metadata', type: 'JSON' }, { source: 'web', device: 'iOS' });
+    render(<FormField table="orders" model={model} />);
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'metadata.source' }), { target: { value: 'mobile' } });
+
+    expect(model.onChange).toHaveBeenLastCalledWith({ source: 'mobile', device: 'iOS' });
+  });
+
+  it('shows an issue the row was read with under the key it is about', () => {
+    const model = field(
+      { name: 'metadata', type: 'JSON' },
+      { source: '' },
+      {
+        issues: [{ message: 'Too short', path: ['metadata', 'source'] }],
+      },
+    );
+    render(<FormField table="orders" model={model} />);
+
+    const source = screen.getByRole('textbox', { name: 'metadata.source' }).closest('[data-path]') as HTMLElement;
+    expect(within(source).getByText('Too short')).toBeTruthy();
+  });
+});
+
+describe('FormField actions', () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('sets the field to null on request', async () => {
+    const model = field({ name: 'name', type: 'TEXT' }, 'Alice');
+    render(<FormField table="users" model={model} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Set name to null' }));
+
+    expect(model.onChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it('reverts a changed field on request', async () => {
+    const model = field({ name: 'name', type: 'TEXT' }, 'Alicia', { state: 'changed', canRevert: true });
+    render(<FormField table="users" model={model} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Revert name' }));
+
+    expect(model.onRevert).toHaveBeenCalled();
   });
 });
 

@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { ArrowUpRight, Eraser, Lock, RotateCcw, Trash2, X } from 'lucide-react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { ArrowUpRight, Ban, Eraser, Lock, RotateCcw, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
-import { JsonEditor } from '@/components/json-editor';
+import { Tooltip } from '@/components/ui/tooltip';
+import { ValueField } from '@/components/value-field';
 import type { Column, Issue, JsonValue, Reference } from '@/lib/types';
 import type { Batch } from '@/lib/pending';
 import { issuePath, issuesFor, segmentKey, useLiveCheck } from '@/lib/check';
-import { editableText, formatValue, isBoolean, isNumber, parseInput } from '@/lib/values';
+import { editableText, formatValue, isBoolean, isNumber, parseInput, type Parsed } from '@/lib/values';
 import { cn } from '@/lib/utils';
 
 export type FieldState = 'file' | 'default' | 'changed' | 'reset' | 'set' | 'unset';
@@ -37,39 +37,71 @@ export interface FieldModel {
 const textOf = (column: Column, value: JsonValue | undefined) =>
   isBoolean(column) ? (typeof value === 'boolean' ? String(value) : '') : editableText(column, value);
 
+/** A small button in the label row of a field */
+function FieldAction({
+  label,
+  className,
+  onClick,
+  children,
+}: {
+  label: string;
+  className?: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip content={label}>
+      <button
+        type="button"
+        aria-label={label}
+        className={cn('rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground', className)}
+        onClick={onClick}
+      >
+        {children}
+      </button>
+    </Tooltip>
+  );
+}
+
 /** One field of a row as a form edits it: changes are handed on as soon as they read as the column's type */
 export function FormField({ table, model }: { table: string; model: FieldModel }) {
   const { column, value, state, readOnly } = model;
+  const json = column.type === 'JSON' && !column.unknown;
   const [text, setText] = useState(() => textOf(column, value));
+  // Not kept across a value arriving from elsewhere: the blocks of a JSON value read its shape again
+  const [version, setVersion] = useState(0);
   // The value this field last handed on; a value arriving otherwise came from elsewhere, such as the grid
   const handed = useRef(JSON.stringify(value ?? null));
   useEffect(() => {
     if (JSON.stringify(value ?? null) === handed.current) return;
     handed.current = JSON.stringify(value ?? null);
     setText(textOf(column, value));
+    setVersion((now) => now + 1);
   }, [value, column]);
 
-  const parsed = parseInput(column, text);
-  const edited = text !== textOf(column, value) || state === 'changed';
+  const parsed: Parsed = json ? { value: value ?? null } : parseInput(column, text);
+  const edited = state === 'changed' || (!json && text !== textOf(column, value));
   const { result } = useLiveCheck(table, edited && 'value' in parsed ? model.preview(parsed.value) : undefined);
   const issues = edited ? issuesFor(column.name, result) : model.issues;
+  // Not listed under a JSON value: its blocks show those about what they hold
+  const listed = json
+    ? issues.filter((issue) => !issue.path?.length || segmentKey(issue.path[0]) !== column.name)
+    : issues;
 
+  const handValue = (next: JsonValue) => {
+    handed.current = JSON.stringify(next);
+    model.onChange(next);
+  };
   const hand = (next: string) => {
     setText(next);
     const read = parseInput(column, next);
-    if ('value' in read) {
-      handed.current = JSON.stringify(read.value);
-      model.onChange(read.value);
-    }
+    if ('value' in read) handValue(read.value);
   };
 
   return (
     <div className="grid gap-1.5" data-field={column.name}>
-      <div className="flex items-center gap-1.5 text-xs">
-        <span className="font-mono font-medium">{column.name}</span>
-        <span className="text-[10px] text-muted-foreground uppercase">
-          {isBoolean(column) ? 'boolean' : column.type.toLowerCase()}
-        </span>
+      <div className="flex min-h-5 items-center gap-1.5 text-xs">
+        <span className="font-mono font-semibold">{column.name}</span>
         {state === 'default' && (
           <Badge variant="outline" className="font-sans">
             default
@@ -80,21 +112,62 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
             not in schema
           </Badge>
         )}
-        {model.reference && model.onOpenReference && value !== undefined && value !== null && (
-          <button
-            type="button"
-            className="ml-auto inline-flex items-center gap-0.5 font-mono text-[11px] text-muted-foreground hover:text-foreground"
-            aria-label={`Open ${model.reference.table} where ${model.reference.referencedColumn} is ${formatValue(value)}`}
-            onClick={model.onOpenReference}
-          >
-            {model.reference.table} <ArrowUpRight className="size-3" />
-          </button>
-        )}
+        <span className="ml-auto flex items-center gap-1 [&_svg]:size-3.5">
+          {model.reference && model.onOpenReference && value !== undefined && value !== null ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-0.5 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+              aria-label={`Open ${model.reference.table} where ${model.reference.referencedColumn} is ${formatValue(value)}`}
+              onClick={model.onOpenReference}
+            >
+              → {model.reference.table} <ArrowUpRight className="size-3" />
+            </button>
+          ) : (
+            <span className="font-mono text-[10px] text-muted-foreground uppercase">
+              {isBoolean(column) ? 'boolean' : column.type.toLowerCase()}
+            </span>
+          )}
+          {!readOnly && model.canRevert && (
+            <FieldAction label={`Revert ${column.name}`} onClick={model.onRevert}>
+              <RotateCcw />
+            </FieldAction>
+          )}
+          {!readOnly && model.canUseDefault && state !== 'reset' && (
+            <FieldAction
+              label={`Remove ${column.name}`}
+              className={cn(column.unknown && 'text-destructive')}
+              onClick={model.onUseDefault}
+            >
+              {column.unknown ? <Trash2 /> : <Eraser />}
+            </FieldAction>
+          )}
+          {!readOnly && !column.unknown && state !== 'reset' && value !== null && (
+            <FieldAction
+              label={`Set ${column.name} to null`}
+              onClick={() => {
+                handValue(null);
+                setText('');
+                setVersion((now) => now + 1);
+              }}
+            >
+              <Ban />
+            </FieldAction>
+          )}
+        </span>
       </div>
       {state === 'reset' ? (
         <p className="text-xs text-muted-foreground italic line-through">removed</p>
       ) : column.unknown ? (
         <p className="font-mono text-xs break-all text-muted-foreground">{formatValue(value)}</p>
+      ) : json ? (
+        <ValueField
+          key={version}
+          path={[column.name]}
+          value={value ?? null}
+          issues={issues}
+          readOnly={readOnly}
+          onChange={handValue}
+        />
       ) : isBoolean(column) ? (
         <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
           {['true', 'false'].map((option) => (
@@ -113,8 +186,6 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
             </button>
           ))}
         </div>
-      ) : column.type === 'JSON' ? (
-        <JsonField column={column} text={text} readOnly={readOnly} issues={issues} onSet={hand} />
       ) : (
         <Input
           className={cn('h-8 font-mono text-xs', state === 'default' && 'text-muted-foreground')}
@@ -127,109 +198,16 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
         />
       )}
       {'error' in parsed && text !== '' && <p className="text-xs text-destructive">{parsed.error}</p>}
-      {issues.length > 0 && (
+      {listed.length > 0 && (
         <ul className="grid gap-0.5 font-mono text-xs text-destructive">
-          {issues.map((issue, index) => (
+          {listed.map((issue, index) => (
             <li key={index}>
               {issuePath(issue)}: {issue.message}
             </li>
           ))}
         </ul>
       )}
-      {!readOnly && (model.canRevert || model.canUseDefault || !column.unknown) && (
-        <div className="flex flex-wrap gap-1">
-          {model.canRevert && (
-            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={model.onRevert}>
-              <RotateCcw /> Revert
-            </Button>
-          )}
-          {model.canUseDefault && state !== 'reset' && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className={cn('h-6 px-2 text-xs', column.unknown && 'text-destructive')}
-              aria-label={`Remove ${column.name}`}
-              onClick={model.onUseDefault}
-            >
-              {column.unknown ? <Trash2 /> : <Eraser />} Remove field
-            </Button>
-          )}
-          {!column.unknown && state !== 'reset' && value !== null && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="ml-auto h-6 px-2 text-xs text-muted-foreground"
-              onClick={() => {
-                handed.current = 'null';
-                setText('');
-                model.onChange(null);
-              }}
-            >
-              <X /> Set null
-            </Button>
-          )}
-        </div>
-      )}
     </div>
-  );
-}
-
-/** A JSON value shown compact, edited in a dialog: an editor per field would crowd the form */
-function JsonField({
-  column,
-  text,
-  readOnly,
-  issues,
-  onSet,
-}: {
-  column: Column;
-  text: string;
-  readOnly: boolean;
-  issues: Issue[];
-  onSet: (text: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(text);
-  const parsed = parseInput(column, draft);
-  const set = () => {
-    if (!('value' in parsed)) return;
-    onSet(JSON.stringify(parsed.value, null, 2));
-    setOpen(false);
-  };
-  return (
-    <>
-      <button
-        type="button"
-        disabled={readOnly}
-        aria-label={column.name}
-        onClick={() => {
-          setDraft(text);
-          setOpen(true);
-        }}
-        className="truncate rounded-md border bg-muted/30 px-2 py-1.5 text-left font-mono text-xs hover:bg-accent/60 disabled:cursor-default"
-      >
-        {text === '' ? <span className="text-muted-foreground italic">null</span> : text.replace(/\s+/g, ' ')}
-      </button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogTitle className="font-mono text-sm">{column.name}</DialogTitle>
-          <DialogDescription className="sr-only">Edit the JSON value of {column.name}</DialogDescription>
-          <JsonEditor
-            label={column.name}
-            initial={draft}
-            issues={issues.filter((issue) => !issue.path?.length || segmentKey(issue.path[0]) === column.name)}
-            onChange={setDraft}
-            onSubmit={set}
-          />
-          {'error' in parsed && <p className="text-xs text-destructive">{parsed.error}</p>}
-          <div className="flex justify-end">
-            <Button size="sm" onClick={set} disabled={'error' in parsed}>
-              Set
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </>
   );
 }
 
