@@ -10,6 +10,8 @@
     "e2e": "pnpm --workspace-root build && e2e run",
     "e2e:deterministic": "pnpm e2e tests/studio.e2e.ts",
     "e2e:agent": "pnpm e2e tests/agent.e2e.ts",
+    "e2e:report": "cat .e2e/summary.md",
+    "e2e:setup": "playwright install chromium && e2e login openai",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

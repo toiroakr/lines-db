@@ -5,6 +5,7 @@ import { chatgpt } from 'e2e/oauth/chatgpt';
 export default {
   tests: 'tests/*.e2e.ts',
   workers: 1,
+  reporters: ['list', 'markdown'],
   agents: { default: { model: chatgpt('gpt-6-luna') } },
   targets: [
     {
