@@ -680,9 +680,9 @@ interface CellProps {
 function Cell({ column, value, issues = [], state, readOnly, isEditing, onOpen, onClose, ...editor }: CellProps) {
   const json = column.type === 'JSON' && !column.unknown;
   const content =
-    state === 'reset' && column.unknown ? (
+    state === 'reset' ? (
       <span className="text-muted-foreground italic line-through">removed</span>
-    ) : state === 'reset' || state === 'unset' ? (
+    ) : state === 'unset' ? (
       <span className="text-muted-foreground italic">default</span>
     ) : value === null ? (
       <span className="text-muted-foreground italic">null</span>

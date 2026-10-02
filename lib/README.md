@@ -209,8 +209,8 @@ rewrites the table's JSONL file as a whole, so the formatting of the other lines
 - A save writes the fields you wrote and leaves the values the schema fills in out of the file
   (`writeFilledValues: 'primaryKey'`, see [Values the Schema Fills In](#values-the-schema-fills-in));
   `--write-filled-values all` writes them as a sync does by default.
-- A value the schema filled in rather than the file is shown dimmed with a **default** mark. **Use
-  default** in a cell's editor removes the value from the file and leaves it to the schema; a new
+- A value the schema filled in rather than the file is shown dimmed with a **default** mark. **Remove
+  field** in a cell's editor removes the field from the line and leaves its value to the schema; a new
   row's empty field is left to the schema too.
 - A cell's editor checks the value as you type, against the schema as a save would
   (`POST /api/tables/:name/check`, which validates the change without writing it), and lists the

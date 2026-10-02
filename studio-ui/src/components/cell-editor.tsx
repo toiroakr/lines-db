@@ -1,5 +1,5 @@
 import { useMemo, useState, type KeyboardEvent } from 'react';
-import { Check, CircleAlert, LoaderCircle, RotateCcw, Sparkles, Trash2, X } from 'lucide-react';
+import { Check, CircleAlert, Eraser, LoaderCircle, RotateCcw, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +18,7 @@ export interface CellEditorProps {
   preview: (value: JsonValue) => Batch;
   /** What made the value fail validation when the row was read, shown until it is edited */
   initialIssues?: Issue[];
-  /** Offered for an existing row: hands the field back to the schema */
+  /** Removes the field from the row, leaving its value to the schema */
   canUseDefault: boolean;
   /** Offered when the cell has a pending change */
   canRevert: boolean;
@@ -145,12 +145,9 @@ export function CellEditor({
         <Button size="sm" onClick={apply} disabled={'error' in parsed}>
           <Check /> Set
         </Button>
-        <Button size="sm" variant="outline" onClick={() => onApply(null)}>
-          <X /> Set null
-        </Button>
         {canUseDefault && (
           <Button size="sm" variant="outline" onClick={onUseDefault}>
-            <Sparkles /> Use default
+            <Eraser /> Remove field
           </Button>
         )}
         {canRevert && (
@@ -158,6 +155,9 @@ export function CellEditor({
             <RotateCcw /> Revert
           </Button>
         )}
+        <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => onApply(null)}>
+          <X /> Set null
+        </Button>
       </div>
       <p className="text-[11px] text-muted-foreground">
         {json ? '⌘↵' : '↵'} to set · Esc to close · nothing is written until you save
