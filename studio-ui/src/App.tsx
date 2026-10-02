@@ -156,10 +156,20 @@ export function App() {
     setEditing(undefined);
     setSaving(true);
     try {
-      await saveChanges(table.name, toBatch(pending));
+      const { stillFailing = [] } = await saveChanges(table.name, toBatch(pending));
       setPending(emptyPending());
       setSelected(new Set());
-      setNotice({ kind: 'success', title: `Saved ${changeCount} change(s) to ${table.name}.jsonl` });
+      setNotice(
+        stillFailing.length > 0
+          ? {
+              kind: 'error',
+              title: `Saved ${changeCount} change(s) to ${table.name}.jsonl, but ${stillFailing.length} edited row(s) still fail validation`,
+              issues: stillFailing.flatMap(({ index, issues }) =>
+                issues.map((issue) => ({ ...issue, message: `row ${index + 1}: ${issue.message}` })),
+              ),
+            }
+          : { kind: 'success', title: `Saved ${changeCount} change(s) to ${table.name}.jsonl` },
+      );
       await load(table.name);
     } catch (error) {
       const failure = error as WriteError;

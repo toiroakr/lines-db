@@ -28,8 +28,13 @@ export async function fetchRows(table: string): Promise<RowsResponse> {
   return readJson(await fetch(`/api/tables/${encodeURIComponent(table)}/rows`));
 }
 
-export async function saveChanges(table: string, batch: ReturnType<typeof toBatch>): Promise<void> {
-  await readJson(
+/** The rows of a table with failing rows that a save wrote but that still fail, by their index */
+export interface SaveResult {
+  stillFailing?: Array<{ index: number; issues: Issue[] }>;
+}
+
+export async function saveChanges(table: string, batch: ReturnType<typeof toBatch>): Promise<SaveResult> {
+  return readJson<SaveResult>(
     await fetch(`/api/tables/${encodeURIComponent(table)}/changes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
