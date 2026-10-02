@@ -12,6 +12,8 @@ export interface RowsResponse {
   defaulted: string[][];
   /** The issues of each row that fails validation, by its index */
   issues?: Record<string, Issue[]>;
+  /** For a table with failing rows: the file its rows were read from, sent back with changes to it */
+  revision?: string;
 }
 
 async function readJson<T>(response: Response): Promise<T> {

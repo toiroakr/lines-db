@@ -105,6 +105,8 @@ export interface Batch {
   inserts: JsonObject[];
   updates: Array<{ key: JsonValue; changes: JsonObject; resetToDefault?: string[] }>;
   deletes: JsonValue[];
+  /** For a table with failing rows, addressed by index: the file its rows were read from */
+  revision?: string;
 }
 
 export function toBatch(pending: Pending): Batch {

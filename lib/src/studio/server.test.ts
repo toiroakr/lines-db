@@ -515,6 +515,11 @@ describe('studio server', () => {
   describe('a table with rows that fail validation', () => {
     const NOTES = '{"id":1,"name":"first"}\n\n{"id":2,"extra":true}\n{"id":3,"name":"third"}\n';
     const notesPath = () => join(dataDir, 'notes.jsonl');
+    /** Send changes as the page does, with the revision of the rows it was given */
+    const sendFix = async (table: string, resource: 'changes' | 'check', body: Record<string, unknown>) => {
+      const { revision } = await bodyOf(await fetch(`${studio.url}/api/tables/${table}/rows`));
+      return sendJsonRequest('POST', `${studio.url}/api/tables/${table}/${resource}`, { revision, ...body });
+    };
 
     beforeEach(async () => {
       await studio.close();
@@ -553,8 +558,41 @@ describe('studio server', () => {
       expect(body.issues).toEqual({ 1: [{ message: 'Name is required', path: [{ key: 'name' }] }] });
     });
 
-    it('writes a fixed row to its line only, leaving the other lines as they were, and then loads the table', async () => {
+    it('gives the revision of the file its rows were read from', async () => {
+      const first = await bodyOf(await fetch(`${studio.url}/api/tables/notes/rows`));
+      await writeFile(notesPath(), `{"id":0,"name":"zero"}\n${NOTES}`);
+      const second = await bodyOf(await fetch(`${studio.url}/api/tables/notes/rows`));
+
+      expect(first.revision).toEqual(expect.any(String));
+      expect(second.revision).not.toBe(first.revision);
+    });
+
+    it('refuses a fix made on rows read before the file changed, as their indexes may now point at other rows', async () => {
+      const { revision } = await bodyOf(await fetch(`${studio.url}/api/tables/notes/rows`));
+      const shifted = `{"id":0,"name":"zero"}\n${NOTES}`;
+      await writeFile(notesPath(), shifted);
+      await fetch(`${studio.url}/api/tables`);
+
       const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
+        revision,
+        updates: [{ key: 1, changes: { name: 'second' } }],
+      });
+
+      expect(response.status).toBe(409);
+      expect(await readFile(notesPath(), 'utf8')).toBe(shifted);
+    });
+
+    it('refuses a fix sent without the revision of its rows', async () => {
+      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
+        updates: [{ key: 1, changes: { name: 'second' } }],
+      });
+
+      expect(response.status).toBe(409);
+      expect(await readFile(notesPath(), 'utf8')).toBe(NOTES);
+    });
+
+    it('writes a fixed row to its line only, leaving the other lines as they were, and then loads the table', async () => {
+      const response = await sendFix('notes', 'changes', {
         inserts: [],
         updates: [{ key: 1, changes: { name: 'second' }, resetToDefault: ['extra'] }],
         deletes: [],
@@ -571,7 +609,7 @@ describe('studio server', () => {
     });
 
     it('applies several updates of one failing row in order, each on top of the one before', async () => {
-      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
+      const response = await sendFix('notes', 'changes', {
         inserts: [],
         updates: [
           { key: 1, changes: { name: 'second' } },
@@ -589,7 +627,7 @@ describe('studio server', () => {
     it.skipIf(process.platform === 'win32')('keeps the permissions of the file it fixes a row in', async () => {
       await chmod(notesPath(), 0o600);
 
-      await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
+      await sendFix('notes', 'changes', {
         inserts: [],
         updates: [{ key: 1, changes: { name: 'second' } }],
         deletes: [],
@@ -599,7 +637,7 @@ describe('studio server', () => {
     });
 
     it('refuses a change that leaves the row failing, with its issues, and writes nothing', async () => {
-      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
+      const response = await sendFix('notes', 'changes', {
         inserts: [],
         updates: [{ key: 1, changes: { extra: false } }],
         deletes: [],
@@ -611,7 +649,7 @@ describe('studio server', () => {
     });
 
     it('checks a change without writing it', async () => {
-      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/check`, {
+      const response = await sendFix('notes', 'check', {
         inserts: [],
         updates: [{ key: 1, changes: { name: 'second' } }],
         deletes: [],
@@ -682,7 +720,7 @@ describe('studio server', () => {
       );
       studio = await startStudioServer({ dataDir, port: 0 });
 
-      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/pets/changes`, {
+      const response = await sendFix('pets', 'changes', {
         inserts: [],
         updates: [{ key: 0, changes: { name: 'b' } }],
         deletes: [],
@@ -695,7 +733,7 @@ describe('studio server', () => {
     });
 
     it('refuses to add or delete rows until the failing rows are fixed', async () => {
-      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
+      const response = await sendFix('notes', 'changes', {
         inserts: [{ id: 4, name: 'fourth' }],
         updates: [],
         deletes: [],

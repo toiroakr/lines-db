@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { LinesDB } from '../database.js';
 import { ErrorFormatter } from '../error-formatter.js';
 import { unwrap } from '../result.js';
-import { JsonlReader } from '../jsonl-reader.js';
+import { JsonlReader, hashJsonlContent } from '../jsonl-reader.js';
 import { findSchemaFile } from '../schema-extensions.js';
 import { replaceRows } from './file-rows.js';
 import type {
@@ -234,8 +234,14 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       await reloadIfChanged();
       const invalid = snapshot.invalid.get(tableName);
       if (invalid) {
-        const rows = unwrap(await JsonlReader.read(invalid.file));
-        sendJson(res, 200, { rows, defaulted: rows.map(() => []), issues: Object.fromEntries(invalid.issues) });
+        const { rows, contentHash } = unwrap(await JsonlReader.readSnapshot(invalid.file));
+        const read = unwrap(rows);
+        sendJson(res, 200, {
+          rows: read,
+          defaulted: read.map(() => []),
+          issues: Object.fromEntries(invalid.issues),
+          revision: contentHash,
+        });
         return;
       }
       if (!snapshot.db.getSchema(tableName)) {
@@ -291,6 +297,13 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         const message = 'Fix the rows that fail validation before adding or deleting rows of this table';
         return { status: 409, body: { message } };
       }
+      const content = await readFile(file, 'utf8');
+      // Not left to the watcher: once it reloads, the file it compares against is the changed one, while
+      // the page still addresses rows by where they stood when it read them
+      if (batch.revision !== hashJsonlContent(content)) {
+        const message = `${relative(dataDir, file)} changed since its rows were read; reload the table to see them`;
+        return { status: 409, body: { message } };
+      }
       const rows = unwrap(await JsonlReader.read(file));
       const replaced = new Map<number, JsonObject>();
       for (const [index, { key, changes, resetToDefault }] of batch.updates.entries()) {
@@ -314,7 +327,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       // Not written over the file in place: a write that fails partway would leave it truncated
       const temporary = `${file}.${randomBytes(6).toString('hex')}.tmp`;
       try {
-        await writeFile(temporary, replaceRows(await readFile(file, 'utf8'), replaced), 'utf8');
+        await writeFile(temporary, replaceRows(content, replaced), 'utf8');
         // Not left to the umask: the file replaced would otherwise lose a mode such as 0600
         await chmod(temporary, (await stat(file)).mode & 0o7777);
         await rename(temporary, file);
@@ -661,6 +674,8 @@ interface ChangeBatch {
   inserts: JsonObject[];
   updates: Array<{ key: JsonValue; changes: JsonObject; resetToDefault?: string[] }>;
   deletes: JsonValue[];
+  /** For a table with failing rows, whose rows are addressed by index: the file the page read them from */
+  revision?: string;
 }
 
 /** The change of a batch the database refused */
@@ -692,10 +707,13 @@ function changeBatch(body: unknown): ChangeBatch {
   ) {
     throw new BadRequestError('`updates` must be a list of { key, changes, resetToDefault? }');
   }
+  if (body.revision !== undefined && typeof body.revision !== 'string')
+    throw new BadRequestError('`revision` must be a string');
   return {
     inserts,
     updates: updates as unknown as ChangeBatch['updates'],
     deletes,
+    revision: body.revision,
   };
 }
 

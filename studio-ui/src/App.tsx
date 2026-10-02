@@ -169,7 +169,7 @@ export function App() {
     setEditing(undefined);
     setSaving(true);
     try {
-      const { stillFailing = [] } = await saveChanges(table.name, toBatch(pending));
+      const { stillFailing = [] } = await saveChanges(table.name, { ...toBatch(pending), revision: data?.revision });
       setPending(emptyPending());
       setSelected(new Set());
       setNotice(
@@ -502,6 +502,7 @@ export function App() {
               editing={editing}
               setEditing={setEditing}
               saving={saving}
+              revision={data?.revision}
             />
           )}
         </main>
@@ -521,9 +522,21 @@ interface GridProps {
   setEditing: (editing: Editing | undefined) => void;
   /** Locks the grid: a change made now would be cleared with the ones being saved, without being saved */
   saving: boolean;
+  revision?: string;
 }
 
-function Grid({ table, rows, pending, setPending, selected, setSelected, editing, setEditing, saving }: GridProps) {
+function Grid({
+  table,
+  rows,
+  pending,
+  setPending,
+  selected,
+  setSelected,
+  editing,
+  setEditing,
+  saving,
+  revision,
+}: GridProps) {
   const primaryKey = table.primaryKey;
   // Not found by primary key in a table with failing rows: the failing field may be that key
   const byIndex = table.invalidRows > 0;
@@ -689,7 +702,7 @@ function Grid({ table, rows, pending, setPending, selected, setSelected, editing
                       table={table.name}
                       value={value}
                       issues={change ? [] : fieldIssues(column.name, issues)}
-                      preview={(next) => previewCell(pending, key, column.name, next)}
+                      preview={(next) => ({ ...previewCell(pending, key, column.name, next), revision })}
                       state={
                         change?.kind === 'set'
                           ? 'changed'
