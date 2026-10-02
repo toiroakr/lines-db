@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue, TableInfo, WriteError } from './types';
+import type { Issue, JsonObject, JsonValue, TableInfo, WriteError } from './types';
 import type { toBatch } from './pending';
 
 export interface TablesResponse {
@@ -10,6 +10,8 @@ export interface TablesResponse {
 export interface RowsResponse {
   rows: JsonObject[];
   defaulted: string[][];
+  /** The issues of each row that fails validation, by its index */
+  issues?: Record<string, Issue[]>;
 }
 
 async function readJson<T>(response: Response): Promise<T> {

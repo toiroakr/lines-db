@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  CircleAlert,
   Database,
   KeyRound,
   Lock,
@@ -43,7 +44,7 @@ import {
 import { formatValue, isBoolean } from '@/lib/values';
 import type { Column, Issue, JsonObject, JsonValue, TableInfo, WriteError } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { issuePath } from '@/lib/check';
+import { fieldIssues, issuePath } from '@/lib/check';
 
 type Notice = { kind: 'error'; title: string; issues?: Issue[] } | { kind: 'success'; title: string };
 type Editing = { row: 'existing'; key: JsonValue; column: string } | { row: 'new'; id: string; column: string };
@@ -163,7 +164,9 @@ export function App() {
       const where = !change
         ? ''
         : change.key !== undefined
-          ? ` — ${change.kind} of ${table.primaryKey} ${JSON.stringify(change.key)}`
+          ? table.invalidRows > 0
+            ? ` — row ${Number(change.key) + 1}`
+            : ` — ${change.kind} of ${table.primaryKey} ${JSON.stringify(change.key)}`
           : ` — new record #${change.index + 1}`;
       setNotice({
         kind: 'error',
@@ -187,7 +190,13 @@ export function App() {
   };
 
   const rows = useMemo(() => {
-    const all = data?.rows.map((row, index) => ({ row, defaulted: data.defaulted[index] ?? [] })) ?? [];
+    const all =
+      data?.rows.map((row, index) => ({
+        row,
+        index,
+        defaulted: data.defaulted[index] ?? [],
+        issues: data.issues?.[index] ?? [],
+      })) ?? [];
     if (!filter) return all;
     const needle = filter.toLowerCase();
     return all.filter(({ row }) => JSON.stringify(row).toLowerCase().includes(needle));
@@ -229,6 +238,11 @@ export function App() {
               >
                 <Table2 className="size-4 shrink-0 text-muted-foreground" />
                 <span className="flex-1 truncate">{candidate.name}</span>
+                {candidate.invalidRows > 0 && (
+                  <Tooltip content={`${candidate.invalidRows} row(s) fail validation`}>
+                    <AlertTriangle className="size-3.5 text-destructive" aria-label="Has rows that fail validation" />
+                  </Tooltip>
+                )}
                 {candidate.readOnlyReason && <Lock className="size-3 text-muted-foreground" />}
                 <span className="font-mono text-xs text-muted-foreground tabular-nums">{candidate.rowCount}</span>
               </button>
@@ -274,7 +288,7 @@ export function App() {
               <Button
                 size="sm"
                 variant="outline"
-                disabled={!table || Boolean(table.readOnlyReason) || saving}
+                disabled={!table || Boolean(table.readOnlyReason) || table.invalidRows > 0 || saving}
                 onClick={() => setPending(addInsert(pending, `new-${Date.now()}`))}
               >
                 <Plus /> Add record
@@ -324,10 +338,24 @@ export function App() {
           )}
 
           <div className="grid gap-2 px-4 empty:hidden [&>*]:mt-3">
-            {meta && meta.problems.length > 0 && (
+            {table && table.invalidRows > 0 && (
               <Alert variant="destructive">
                 <AlertTriangle />
-                <AlertTitle>Some tables are not shown, as rows failed validation</AlertTitle>
+                <AlertTitle>
+                  {table.invalidRows} row{table.invalidRows === 1 ? '' : 's'} of {table.name} fail validation
+                </AlertTitle>
+                <AlertDescription>
+                  <p>
+                    The table is shown as {table.name}.jsonl holds it. Fix the marked cells and save; adding and
+                    deleting rows is off until every row passes.
+                  </p>
+                </AlertDescription>
+              </Alert>
+            )}
+            {meta && meta.problems.length > 0 && meta.tables.every((candidate) => candidate.invalidRows === 0) && (
+              <Alert variant="destructive">
+                <AlertTriangle />
+                <AlertTitle>Some rows failed validation</AlertTitle>
                 <AlertDescription>
                   <ul className="list-inside list-disc font-mono text-xs">
                     {meta.problems.map((problem) => (
@@ -399,7 +427,7 @@ export function App() {
 
 interface GridProps {
   table: TableInfo;
-  rows: Array<{ row: JsonObject; defaulted: string[] }>;
+  rows: Array<{ row: JsonObject; index: number; defaulted: string[]; issues: Issue[] }>;
   pending: Pending;
   setPending: (pending: Pending) => void;
   selected: Set<string>;
@@ -412,8 +440,13 @@ interface GridProps {
 
 function Grid({ table, rows, pending, setPending, selected, setSelected, editing, setEditing, saving }: GridProps) {
   const primaryKey = table.primaryKey;
-  const writable = !table.readOnlyReason && primaryKey !== null;
-  const keys = rows.map(({ row }) => JSON.stringify(primaryKey ? keyOf(row, primaryKey) : null));
+  // Not found by primary key in a table with failing rows: the failing field may be that key
+  const byIndex = table.invalidRows > 0;
+  const writable = byIndex || (!table.readOnlyReason && primaryKey !== null);
+  const selectable = writable && !byIndex;
+  const keyOfRow = (row: JsonObject, index: number): JsonValue =>
+    byIndex ? index : primaryKey ? keyOf(row, primaryKey) : null;
+  const keys = rows.map(({ row, index }) => JSON.stringify(keyOfRow(row, index)));
   const allSelected = keys.length > 0 && keys.every((key) => selected.has(key));
 
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(keys));
@@ -429,11 +462,12 @@ function Grid({ table, rows, pending, setPending, selected, setSelected, editing
       <table className="w-max min-w-full border-separate border-spacing-0 text-sm">
         <thead className="sticky top-0 z-10 bg-background">
           <tr>
-            {writable && (
+            {selectable && (
               <th className="w-10 border-b bg-background px-3 py-2">
                 <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Select all rows" />
               </th>
             )}
+            {byIndex && <th className="w-10 border-b bg-background px-3 py-2" aria-label="Validation" />}
             {table.columns.map((column) => (
               <th
                 key={column.name}
@@ -494,13 +528,42 @@ function Grid({ table, rows, pending, setPending, selected, setSelected, editing
               ))}
             </tr>
           ))}
-          {rows.map(({ row, defaulted }, index) => {
-            const key = primaryKey ? keyOf(row, primaryKey) : null;
+          {rows.map(({ row, index: rowIndex, defaulted, issues }, index) => {
+            const key = keyOfRow(row, rowIndex);
             const rowKey = keys[index];
-            const deleted = primaryKey !== null && isDeleted(pending, key);
+            const deleted = selectable && isDeleted(pending, key);
             return (
-              <tr key={rowKey + index} className={cn('group', deleted && 'bg-removed/50 line-through opacity-70')}>
-                {writable && (
+              <tr
+                key={rowKey + index}
+                className={cn(
+                  'group',
+                  deleted && 'bg-removed/50 line-through opacity-70',
+                  issues.length > 0 && 'bg-destructive/10',
+                )}
+              >
+                {byIndex && (
+                  <td className="border-b px-3 py-1.5">
+                    {issues.length > 0 && (
+                      <Tooltip
+                        content={
+                          <ul className="grid gap-0.5 font-mono text-xs">
+                            {issues.map((issue, at) => (
+                              <li key={at}>
+                                {issuePath(issue)}: {issue.message}
+                              </li>
+                            ))}
+                          </ul>
+                        }
+                      >
+                        <CircleAlert
+                          className="size-4 text-destructive"
+                          aria-label={`Row ${rowIndex + 1} fails validation`}
+                        />
+                      </Tooltip>
+                    )}
+                  </td>
+                )}
+                {selectable && (
                   <td className="border-b px-3 py-1.5 group-hover:bg-accent/50">
                     {deleted ? (
                       <Tooltip content="Keep this row">
@@ -530,6 +593,7 @@ function Grid({ table, rows, pending, setPending, selected, setSelected, editing
                       column={column}
                       table={table.name}
                       value={value}
+                      issues={change ? [] : fieldIssues(column.name, issues)}
                       preview={(next) => previewCell(pending, key, column.name, next)}
                       state={
                         change?.kind === 'set'
@@ -548,7 +612,11 @@ function Grid({ table, rows, pending, setPending, selected, setSelected, editing
                       }
                       onOpen={() => setEditing({ row: 'existing', key, column: column.name })}
                       onClose={() => setEditing(undefined)}
-                      canUseDefault={!defaulted.includes(column.name) || change !== undefined}
+                      canUseDefault={
+                        byIndex
+                          ? Object.hasOwn(row, column.name)
+                          : !defaulted.includes(column.name) || change !== undefined
+                      }
                       canRevert={change !== undefined}
                       onApply={(next) => {
                         setPending(setCell(pending, key, column.name, next));
@@ -587,6 +655,8 @@ interface CellProps {
   table: string;
   column: Column;
   value: JsonValue | undefined;
+  /** What makes the value fail validation, marked on the cell */
+  issues?: Issue[];
   preview: (value: JsonValue) => Batch;
   state: CellState;
   readOnly?: boolean;
@@ -600,7 +670,7 @@ interface CellProps {
   onRevert: () => void;
 }
 
-function Cell({ column, value, state, readOnly, isEditing, onOpen, onClose, ...editor }: CellProps) {
+function Cell({ column, value, issues = [], state, readOnly, isEditing, onOpen, onClose, ...editor }: CellProps) {
   const json = column.type === 'JSON';
   const content =
     state === 'reset' || state === 'unset' ? (
@@ -618,6 +688,7 @@ function Cell({ column, value, state, readOnly, isEditing, onOpen, onClose, ...e
         !readOnly &&
           'cursor-pointer outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
         (state === 'changed' || state === 'reset') && 'bg-changed/60 shadow-[inset_2px_0_0_var(--changed-foreground)]',
+        issues.length > 0 && 'bg-destructive/15 shadow-[inset_0_0_0_1px_var(--destructive)]',
         isEditing && 'ring-2 ring-ring ring-inset',
       )}
       onClick={readOnly ? undefined : onOpen}
@@ -636,6 +707,24 @@ function Cell({ column, value, state, readOnly, isEditing, onOpen, onClose, ...e
     >
       <div className="flex items-center gap-1.5">
         <span className="truncate">{content}</span>
+        {issues.length > 0 && (
+          <Tooltip
+            content={
+              <ul className="grid gap-0.5 font-mono text-xs">
+                {issues.map((issue, at) => (
+                  <li key={at}>
+                    {issuePath(issue)}: {issue.message}
+                  </li>
+                ))}
+              </ul>
+            }
+          >
+            <CircleAlert
+              className="size-3.5 shrink-0 text-destructive"
+              aria-label={`${column.name} fails validation`}
+            />
+          </Tooltip>
+        )}
         {state === 'default' && (
           <Tooltip content="Filled in by the schema; not written in the file">
             <Badge variant="outline" className="font-sans">
@@ -646,7 +735,7 @@ function Cell({ column, value, state, readOnly, isEditing, onOpen, onClose, ...e
       </div>
     </td>
   );
-  const editorOf = <CellEditor column={column} value={value} onClose={onClose} {...editor} />;
+  const editorOf = <CellEditor column={column} value={value} initialIssues={issues} onClose={onClose} {...editor} />;
 
   if (json) {
     return (

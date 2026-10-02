@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { JsonEditor } from '@/components/json-editor';
-import type { Column, JsonValue } from '@/lib/types';
+import type { Column, Issue, JsonValue } from '@/lib/types';
 import type { Batch } from '@/lib/pending';
 import { issuePath, issuesFor, useLiveCheck } from '@/lib/check';
 import { editableText, isBoolean, isNumber, parseInput } from '@/lib/values';
@@ -16,6 +16,8 @@ export interface CellEditorProps {
   value: JsonValue | undefined;
   /** The changes saving would send if the cell took this value, to check before it is set */
   preview: (value: JsonValue) => Batch;
+  /** What made the value fail validation when the row was read, shown until it is edited */
+  initialIssues?: Issue[];
   /** Offered for an existing row: hands the field back to the schema */
   canUseDefault: boolean;
   /** Offered when the cell has a pending change */
@@ -31,6 +33,7 @@ export function CellEditor({
   column,
   value,
   preview,
+  initialIssues = [],
   canUseDefault,
   canRevert,
   onApply,
@@ -47,7 +50,7 @@ export function CellEditor({
   const parsed = useMemo(() => parseInput(column, text), [column, text]);
   const edited = text !== initial;
   const { result, checking } = useLiveCheck(table, edited && 'value' in parsed ? preview(parsed.value) : undefined);
-  const issues = issuesFor(column.name, result);
+  const issues = edited ? issuesFor(column.name, result) : initialIssues;
   const checkFailed = result && !result.ok && 'failed' in result ? result.failed : undefined;
   const json = column.type === 'JSON';
 

@@ -14,6 +14,11 @@ export interface TableInfo {
   columns: Column[];
   primaryKey: string | null;
   rowCount: number;
+  /**
+   * How many rows fail validation. Such a table is not loaded, and its rows are edited in the file by
+   * their index there, with adding and deleting rows off until they pass
+   */
+  invalidRows: number;
   readOnlyReason: string | null;
 }
 

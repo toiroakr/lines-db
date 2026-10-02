@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { checkChanges, issuesFor, issuePath } from './check';
+import { checkChanges, fieldIssues, issuesFor, issuePath } from './check';
 
 describe('issuesFor', () => {
   it('keeps the issues about the edited field and its nested values', () => {
@@ -65,5 +65,17 @@ describe('issuePath', () => {
   it('joins the keys of an issue path, with row for an issue about the whole row', () => {
     expect(issuePath({ message: 'x', path: [{ key: 'metadata' }, 'source', 0] })).toBe('metadata.source.0');
     expect(issuePath({ message: 'x' })).toBe('row');
+  });
+});
+
+describe('fieldIssues', () => {
+  const issues = [
+    { message: 'Invalid key', path: [{ key: 'items' }, 1, { key: 'hoge' }] },
+    { message: 'Unique constraint failed' },
+  ];
+
+  it('gives a cell the issues about its field, nested values included', () => {
+    expect(fieldIssues('items', issues)).toEqual([issues[0]]);
+    expect(fieldIssues('name', issues)).toEqual([]);
   });
 });

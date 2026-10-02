@@ -16,6 +16,11 @@ export function issuePath(issue: Issue): string {
   return (issue.path ?? []).map(segmentKey).join('.') || 'row';
 }
 
+/** The issues about a field, nested values included */
+export function fieldIssues(field: string, issues: Issue[]): Issue[] {
+  return issues.filter((issue) => issue.path?.length && segmentKey(issue.path[0]) === field);
+}
+
 /** The issues about a field, nested values included, and those about no field in particular */
 export function issuesFor(field: string, result: CheckResult | undefined): Issue[] {
   if (!result || result.ok || !('issues' in result)) return [];
