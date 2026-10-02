@@ -285,7 +285,11 @@ export function App() {
                   variant="ghost"
                   className="size-7"
                   aria-label="Reload from the files"
-                  onClick={() => (dirty ? discard() : void load(current))}
+                  onClick={() => {
+                    setEditing(undefined);
+                    if (dirty) discard();
+                    else void load(current);
+                  }}
                   disabled={saving}
                 >
                   <RefreshCw className="size-4" />

@@ -114,7 +114,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     if (req.method === 'GET' && url.pathname === '/' && presented !== null && sameToken(presented, token)) {
       res.writeHead(303, {
         Location: '/',
-        'Set-Cookie': `${TOKEN_COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/`,
+        'Set-Cookie': `${tokenCookie(req)}=${token}; HttpOnly; SameSite=Strict; Path=/`,
       });
       res.end();
       return;
@@ -345,7 +345,8 @@ function describeProblems(dataDir: string, errors: ValidationErrorDetail[]): str
   });
 }
 
-const TOKEN_COOKIE = 'lines_db_studio_token';
+/** Not one fixed name: a browser keeps cookies by host, not port, so studios on other ports would overwrite it */
+const tokenCookie = (req: IncomingMessage) => `lines_db_studio_token_${req.socket.localPort}`;
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -406,7 +407,7 @@ function presentedToken(req: IncomingMessage): string | undefined {
   if (bearer) return bearer;
   for (const part of (req.headers.cookie ?? '').split(';')) {
     const [name, ...value] = part.trim().split('=');
-    if (name === TOKEN_COOKIE) return value.join('=');
+    if (name === tokenCookie(req)) return value.join('=');
   }
   return undefined;
 }

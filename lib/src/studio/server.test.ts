@@ -327,6 +327,22 @@ describe('studio server', () => {
     expect(response.status).toBe(200);
   });
 
+  it('keeps a page signed in after another studio on the same host signs in, as cookies are not kept apart by port', async () => {
+    const other = await startStudioServer({ dataDir, port: 0 });
+    try {
+      const cookieOf = async (loginUrl: string) =>
+        ((await globalThis.fetch(loginUrl, { redirect: 'manual' })).headers.get('set-cookie') ?? '').split(';')[0];
+      const cookies = `${await cookieOf(studio.loginUrl)}; ${await cookieOf(other.loginUrl)}`;
+
+      const first = await globalThis.fetch(`${studio.url}/api/tables`, { headers: { Cookie: cookies } });
+      const second = await globalThis.fetch(`${other.url}/api/tables`, { headers: { Cookie: cookies } });
+
+      expect([first.status, second.status]).toEqual([200, 200]);
+    } finally {
+      await other.close();
+    }
+  });
+
   it('answers a write whose body is not JSON with 400, as the request is at fault', async () => {
     const response = await fetch(rowUrl('users', 1), {
       method: 'PATCH',
