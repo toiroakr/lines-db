@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { DirectoryScanner } from './directory-scanner.js';
-import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { writeFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -8,8 +8,7 @@ describe('DirectoryScanner', () => {
   let testDir: string;
 
   beforeEach(async () => {
-    testDir = join(tmpdir(), `scanner-test-${Date.now()}`);
-    await mkdir(testDir, { recursive: true });
+    testDir = await mkdtemp(join(tmpdir(), 'scanner-test-'));
   });
 
   afterEach(async () => {
