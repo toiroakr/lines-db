@@ -291,6 +291,43 @@ describe('LinesDB.transaction write-back', () => {
     expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
   });
 
+  it('refuses a write made while a transaction is starting, as its write-back would read the transaction', async () => {
+    const started = db.transaction((tx) => void unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+    const early = db.insert('tags', { id: 2, label: 'early' });
+    unwrap(await started);
+
+    expect(early.ok).toBe(false);
+  });
+
+  it('refuses a statement prepared in a transaction when it runs while the files are written back', async () => {
+    let statement: { run(...params: unknown[]): unknown } | undefined;
+    let late: unknown;
+    const write = JsonlWriter.write.bind(JsonlWriter);
+    const spy = vi.spyOn(JsonlWriter, 'write').mockImplementation(async (path, rows) => {
+      if (late === undefined) {
+        try {
+          late = statement?.run('Z');
+        } catch (error) {
+          late = error;
+        }
+      }
+      return write(path, rows);
+    });
+    try {
+      unwrap(
+        await db.transaction((tx) => {
+          statement = tx.getDb().prepare('UPDATE tags SET label = ?');
+          unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+        }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(late).toBeInstanceOf(Error);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
   it('refuses a sync inside a transaction, as it would write rows the transaction may roll back', async () => {
     const result = await db.transaction(async (tx) => {
       unwrap(tx.update('items', { name: 'A' }, { id: 1 }));

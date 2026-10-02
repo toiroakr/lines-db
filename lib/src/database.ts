@@ -1099,7 +1099,7 @@ export class LinesDB<Tables extends TableDefs> {
     try {
       this.enforceReadOnlySql();
       this.refuseTransactionControl(sql);
-      if (this.transactionClosing) throw new Error('Cannot run SQL while a transaction writes its files back');
+      this.refuseWhileTransactionSettles('run SQL');
       return ok(this.trackRawSql(() => this.executeInternal(sql, params)));
     } catch (error) {
       return err(toError(error));
@@ -1970,9 +1970,21 @@ export class LinesDB<Tables extends TableDefs> {
   /** Writable, and not while a transaction writes back the rows it has already read */
   private assertMutable(tableName: string): void {
     this.assertWritable(tableName);
+    this.refuseWhileTransactionSettles(`write to table '${tableName}'`);
+  }
+
+  /**
+   * Refuse a change while a transaction starts or writes its files back: one made while it starts would
+   * be written back with rows the transaction may roll back, and one made while it closes would be
+   * committed without reaching the files
+   */
+  private refuseWhileTransactionSettles(action: string): void {
+    if (this.transactionStarting) {
+      throw new Error(`Cannot ${action} while a transaction is starting; ${action.split(' ')[0]} once it has finished`);
+    }
     if (this.transactionClosing) {
       throw new Error(
-        `Cannot write to table '${tableName}' while a transaction writes its files back; write once it has finished`,
+        `Cannot ${action} while a transaction writes its files back; ${action.split(' ')[0]} once it has finished`,
       );
     }
   }
@@ -2584,6 +2596,7 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   private async syncInternal(tableName?: string, options?: SyncOptions): Promise<void> {
+    this.refuseWhileTransactionSettles('sync');
     this.assertWritable(tableName);
     if (this.inTransaction) {
       throw new Error(
@@ -2720,14 +2733,20 @@ export class LinesDB<Tables extends TableDefs> {
       prepare: (sql: string) => {
         guard(sql);
         const statement = this.db.prepare(sql);
+        // Not checked only when prepared: a statement kept by the callback can run after it returned
+        const settled = <T>(run: () => T): T => {
+          this.refuseWhileTransactionSettles('run SQL');
+          return this.trackRawSql(run);
+        };
         return {
-          run: (...params: unknown[]) => this.trackRawSql(() => statement.run(...params)),
-          get: (...params: unknown[]) => this.trackRawSql(() => statement.get(...params)),
-          all: (...params: unknown[]) => this.trackRawSql(() => statement.all(...params)),
+          run: (...params: unknown[]) => settled(() => statement.run(...params)),
+          get: (...params: unknown[]) => settled(() => statement.get(...params)),
+          all: (...params: unknown[]) => settled(() => statement.all(...params)),
         };
       },
       exec: (sql: string) => {
         guard(sql);
+        this.refuseWhileTransactionSettles('run SQL');
         this.trackRawSql(() => this.db.exec(sql));
       },
       close: () => this.db.close(),
