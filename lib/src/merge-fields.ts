@@ -93,11 +93,12 @@ export function mergeFields(
 export function keepUnknownFields(line: JsonObject, row: JsonObject, columns: ReadonlySet<string>): JsonObject {
   const unknown = Object.keys(line).filter((key) => !columns.has(key) && !Object.hasOwn(row, key));
   if (unknown.length === 0) return row;
-  const kept: JsonObject = {};
+  const entries: Array<[string, JsonValue]> = [];
   for (const key of Object.keys(line)) {
-    if (Object.hasOwn(row, key)) kept[key] = row[key];
-    else if (unknown.includes(key)) kept[key] = line[key];
+    if (Object.hasOwn(row, key)) entries.push([key, row[key]]);
+    else if (unknown.includes(key)) entries.push([key, line[key]]);
   }
-  for (const key of Object.keys(row)) if (!Object.hasOwn(kept, key)) kept[key] = row[key];
-  return kept;
+  for (const key of Object.keys(row)) if (!Object.hasOwn(line, key)) entries.push([key, row[key]]);
+  // Not assigned to an object literal: a key named `__proto__` would set the prototype instead
+  return Object.fromEntries(entries);
 }
