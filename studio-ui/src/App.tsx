@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   CircleAlert,
   Database,
+  FileCode,
   KeyRound,
   Lock,
   Plus,
@@ -22,6 +23,7 @@ import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CellEditor } from '@/components/cell-editor';
+import { SchemaDialog } from '@/components/schema-viewer';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { fetchRows, fetchTables, keyOf, saveChanges, type RowsResponse, type TablesResponse } from '@/lib/api';
 import {
@@ -60,6 +62,7 @@ export function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Editing>();
   const [filter, setFilter] = useState('');
+  const [schemaShown, setSchemaShown] = useState(false);
   const [tableFilter, setTableFilter] = useState('');
   const [notice, setNotice] = useState<Notice>();
   const [filesChanged, setFilesChanged] = useState(false);
@@ -287,6 +290,11 @@ export function App() {
               />
             </div>
             <div className="ml-auto flex items-center gap-2">
+              {table?.schemaFile && (
+                <Button size="sm" variant="outline" onClick={() => setSchemaShown(true)}>
+                  <FileCode /> Schema
+                </Button>
+              )}
               {selected.size > 0 && (
                 <Button
                   size="sm"
@@ -324,6 +332,9 @@ export function App() {
               </Tooltip>
             </div>
           </header>
+          {schemaShown && table?.schemaFile && (
+            <SchemaDialog table={table.name} file={table.schemaFile} onClose={() => setSchemaShown(false)} />
+          )}
 
           {dirty && (
             <div

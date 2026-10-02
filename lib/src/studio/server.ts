@@ -9,6 +9,7 @@ import { LinesDB } from '../database.js';
 import { ErrorFormatter } from '../error-formatter.js';
 import { unwrap } from '../result.js';
 import { JsonlReader } from '../jsonl-reader.js';
+import { findSchemaFile } from '../schema-extensions.js';
 import { replaceRows } from './file-rows.js';
 import type {
   JsonlConflictError,
@@ -160,7 +161,15 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         const rowCount =
           unwrap(snapshot.db.queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM "${name.replaceAll('"', '""')}"`))?.n ??
           0;
-        return { name, columns, primaryKey, rowCount, invalidRows: 0, readOnlyReason: whyReadOnly(snapshot.db, name) };
+        return {
+          name,
+          columns,
+          primaryKey,
+          rowCount,
+          invalidRows: 0,
+          readOnlyReason: whyReadOnly(snapshot.db, name),
+          schemaFile: null as string | null,
+        };
       });
       for (const [name, { file, issues }] of snapshot.invalid) {
         const rows = unwrap(await JsonlReader.read(file));
@@ -182,7 +191,12 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           rowCount: rows.length,
           invalidRows: issues.size,
           readOnlyReason: null,
+          schemaFile: null,
         });
+      }
+      for (const table of tables) {
+        const schemaPath = await findSchemaFile(dataDir, table.name);
+        table.schemaFile = schemaPath ? basename(schemaPath) : null;
       }
       tables.sort((a, b) => a.name.localeCompare(b.name));
       sendJson(res, 200, { dataDir: resolvePath(dataDir), tables, problems: snapshot.problems });
@@ -190,6 +204,21 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     }
 
     const [, , tableName, resource, encodedKey] = segments;
+    if (segments[0] === 'api' && segments[1] === 'tables' && resource === 'schema' && segments.length === 4) {
+      if (req.method !== 'GET') {
+        sendJson(res, 405, { message: 'Method not allowed' });
+        return;
+      }
+      // Not looked up for a name that is not a table: the name would otherwise reach the file system as is
+      const known = Boolean(snapshot.db.getSchema(tableName)) || snapshot.invalid.has(tableName);
+      const schemaPath = known ? await findSchemaFile(dataDir, tableName) : undefined;
+      if (!schemaPath) {
+        sendJson(res, 404, { message: `Table '${tableName}' has no schema file` });
+        return;
+      }
+      sendJson(res, 200, { file: basename(schemaPath), source: await readFile(schemaPath, 'utf-8') });
+      return;
+    }
     const isRows = segments[0] === 'api' && segments[1] === 'tables' && resource === 'rows' && segments.length <= 5;
     const isChanges =
       segments[0] === 'api' &&

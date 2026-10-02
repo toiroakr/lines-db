@@ -222,6 +222,7 @@ rewrites the table's JSONL file as a whole, so the formatting of the other lines
   error is marked where it is. Comments and trailing commas are accepted there and dropped when the
   value is set, as it is saved as plain JSON. **Set** puts the value among the pending changes; nothing is written
   until you save.
+- **Schema** shows the table's schema file (`<table>.schema.ts` and the like) as it is on disk, highlighted.
 - A table needs a primary key (an `id` column, or `primaryKey` in its schema file) with a value on every row to be edited; one
   without is shown read-only.
 - A table whose rows fail validation on load is shown as its JSONL file holds it, with the failing

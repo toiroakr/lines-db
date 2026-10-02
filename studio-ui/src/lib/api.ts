@@ -24,6 +24,15 @@ export async function fetchTables(): Promise<TablesResponse> {
   return readJson(await fetch('/api/tables'));
 }
 
+export interface SchemaResponse {
+  file: string;
+  source: string;
+}
+
+export async function fetchSchema(table: string): Promise<SchemaResponse> {
+  return readJson(await fetch(`/api/tables/${encodeURIComponent(table)}/schema`));
+}
+
 export async function fetchRows(table: string): Promise<RowsResponse> {
   return readJson(await fetch(`/api/tables/${encodeURIComponent(table)}/rows`));
 }

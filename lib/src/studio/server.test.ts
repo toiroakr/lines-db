@@ -422,6 +422,37 @@ describe('studio server', () => {
     expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toContain('"name":"Alice"');
   });
 
+  it('lists the schema file of each table, or null for a table without one', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'notes.jsonl'), '{"title":"first"}\n');
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const body = await bodyOf(await fetch(`${studio.url}/api/tables`));
+
+    expect(
+      body.tables.map((table: { name: string; schemaFile: string | null }) => [table.name, table.schemaFile]),
+    ).toEqual([
+      ['notes', null],
+      ['users', 'users.schema.ts'],
+    ]);
+  });
+
+  it('gives the source of a table schema file as it is on disk', async () => {
+    const response = await fetch(`${studio.url}/api/tables/users/schema`);
+
+    expect(response.status).toBe(200);
+    expect(await bodyOf(response)).toEqual({ file: 'users.schema.ts', source: NAME_REQUIRED_SCHEMA });
+  });
+
+  it('answers 404 for the schema of a table without a schema file, or of a table that does not exist', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'notes.jsonl'), '{"title":"first"}\n');
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    expect((await fetch(`${studio.url}/api/tables/notes/schema`)).status).toBe(404);
+    expect((await fetch(`${studio.url}/api/tables/missing/schema`)).status).toBe(404);
+  });
+
   it('lists how many rows each table holds', async () => {
     const body = await bodyOf(await fetch(`${studio.url}/api/tables`));
 
@@ -499,6 +530,16 @@ describe('studio server', () => {
 
       expect(notes).toMatchObject({ name: 'notes', primaryKey: null, rowCount: 3, invalidRows: 1 });
       expect(notes.columns.map((column: { name: string }) => column.name)).toEqual(['id', 'name', 'extra']);
+    });
+
+    it('gives its schema file too, as the schema says why its rows fail', async () => {
+      const notes = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+        (table: { name: string }) => table.name === 'notes',
+      );
+      const schema = await bodyOf(await fetch(`${studio.url}/api/tables/notes/schema`));
+
+      expect(notes.schemaFile).toBe('notes.schema.ts');
+      expect(schema).toEqual({ file: 'notes.schema.ts', source: NAME_REQUIRED_SCHEMA });
     });
 
     it('gives its rows as the file holds them, with the issues of each failing row by its index', async () => {

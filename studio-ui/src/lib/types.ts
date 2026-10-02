@@ -22,6 +22,8 @@ export interface TableInfo {
    */
   invalidRows: number;
   readOnlyReason: string | null;
+  /** The name of the table's schema file in the data directory, or null when it has none */
+  schemaFile: string | null;
 }
 
 export interface Issue {
