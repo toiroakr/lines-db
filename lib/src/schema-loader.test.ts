@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SchemaLoader } from './schema-loader.js';
-import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { writeFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -8,8 +8,7 @@ describe('SchemaLoader', () => {
   let testDir: string;
 
   beforeEach(async () => {
-    testDir = join(tmpdir(), `schema-loader-test-${Date.now()}`);
-    await mkdir(testDir, { recursive: true });
+    testDir = await mkdtemp(join(tmpdir(), 'schema-loader-test-'));
   });
 
   afterEach(async () => {
