@@ -150,10 +150,15 @@
   #root {
     @apply h-full;
   }
-  /* Not bounced at the ends of a scroll: the grid and the page are panes, not a document */
-  html,
-  body {
-    @apply overscroll-none;
+  /*
+   * Not bounced at the ends of a scroll with a mouse or trackpad: the grid and the page are panes, not a
+   * document. Left to a touch screen, where pulling past the end is how a page is moved or reloaded
+   */
+  @media (pointer: fine) {
+    html,
+    body {
+      overscroll-behavior: none;
+    }
   }
   body {
     @apply bg-background text-foreground antialiased;
