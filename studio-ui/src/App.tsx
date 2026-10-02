@@ -24,6 +24,7 @@ import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CellEditor } from '@/components/cell-editor';
 import { SchemaDialog } from '@/components/schema-viewer';
+import { CopyPath } from '@/components/copy-path';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { fetchRows, fetchTables, keyOf, saveChanges, type RowsResponse, type TablesResponse } from '@/lib/api';
 import {
@@ -264,12 +265,7 @@ export function App() {
               </button>
             ))}
           </nav>
-          <div
-            className="truncate border-t px-4 py-2 font-mono text-[11px] text-muted-foreground"
-            title={meta?.dataDir}
-          >
-            {meta?.dataDir}
-          </div>
+          {meta && <CopyPath path={meta.dataDir} />}
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col">
