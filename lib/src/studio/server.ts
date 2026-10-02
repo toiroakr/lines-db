@@ -265,7 +265,8 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       const rows = unwrap(await JsonlReader.read(file));
       const replaced = new Map<number, JsonObject>();
       for (const [index, { key, changes, resetToDefault }] of batch.updates.entries()) {
-        const base = typeof key === 'number' ? rows[key] : undefined;
+        // An earlier update of the same row in the batch is built on, as a transaction would apply it
+        const base = typeof key === 'number' ? (replaced.get(key) ?? rows[key]) : undefined;
         if (!base)
           return { status: 400, body: { message: `No row ${JSON.stringify(key)} in ${relative(dataDir, file)}` } };
         const next: JsonObject = { ...base, ...changes };

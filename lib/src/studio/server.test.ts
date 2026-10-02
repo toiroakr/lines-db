@@ -529,6 +529,22 @@ describe('studio server', () => {
       expect(notes).toMatchObject({ primaryKey: 'id', invalidRows: 0 });
     });
 
+    it('applies several updates of one failing row in order, each on top of the one before', async () => {
+      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
+        inserts: [],
+        updates: [
+          { key: 1, changes: { name: 'second' } },
+          { key: 1, changes: { extra: false } },
+        ],
+        deletes: [],
+      });
+
+      expect([response.status, await bodyOf(response)]).toEqual([200, { ok: true }]);
+      expect(await readFile(notesPath(), 'utf8')).toBe(
+        '{"id":1,"name":"first"}\n\n{"id":2,"extra":false,"name":"second"}\n{"id":3,"name":"third"}\n',
+      );
+    });
+
     it('refuses a change that leaves the row failing, with its issues, and writes nothing', async () => {
       const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
         inserts: [],
