@@ -10,7 +10,8 @@ export function hashJsonlContent(content: string): string {
 }
 
 export interface JsonlSnapshot {
-  rows: JsonObject[];
+  /** The rows the content parses into, or why it does not parse */
+  rows: Result<JsonObject[], JsonlParseError>;
   /** Undefined when the rows come from an override rather than the file */
   contentHash: string | undefined;
 }
@@ -43,18 +44,19 @@ export class JsonlReader {
    */
   static async read(filePath: string): Promise<Result<JsonObject[], JsonlParseError | Error>> {
     const result = await this.readSnapshot(filePath);
-    return result.ok ? ok(result.value.rows) : result;
+    return result.ok ? result.value.rows : result;
   }
 
   /**
-   * Read JSONL file like {@link read}, along with a hash of the content the rows were parsed from
+   * Read JSONL file like {@link read}, along with a hash of the content the rows were parsed from.
+   * The hash is there even when the content does not parse.
    */
-  static async readSnapshot(filePath: string): Promise<Result<JsonlSnapshot, JsonlParseError | Error>> {
+  static async readSnapshot(filePath: string): Promise<Result<JsonlSnapshot, Error>> {
     const overrideRows = this.overrides?.get(normalize(filePath));
     if (overrideRows) {
       // Return clones to avoid accidental mutations from consumers
       return ok({
-        rows: overrideRows.map((row) => JSON.parse(JSON.stringify(row)) as JsonObject),
+        rows: ok(overrideRows.map((row) => JSON.parse(JSON.stringify(row)) as JsonObject)),
         contentHash: undefined,
       });
     }
@@ -66,6 +68,10 @@ export class JsonlReader {
       return err(toError(error));
     }
 
+    return ok({ rows: this.parse(filePath, content), contentHash: hashJsonlContent(content) });
+  }
+
+  private static parse(filePath: string, content: string): Result<JsonObject[], JsonlParseError> {
     const rawLines = (content.startsWith('\u{feff}') ? content.slice(1) : content).split('\n');
 
     const rows: JsonObject[] = [];
@@ -84,7 +90,7 @@ export class JsonlReader {
       }
     }
 
-    return ok({ rows, contentHash: hashJsonlContent(content) });
+    return ok(rows);
   }
 
   /**

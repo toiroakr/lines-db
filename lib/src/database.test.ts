@@ -563,6 +563,35 @@ export const schema = defineSchema(rawSchema);
       expect(error.file).toBe(itemsPath);
     });
 
+    it('fails the write with a JsonlConflictError when the file was edited into invalid JSON after loading', async () => {
+      const itemsPath = join(dataDir, 'items.jsonl');
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n');
+      const db = LinesDB.create({ dataDir });
+      unwrap(await db.initialize());
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n{"id":2, broken\n');
+
+      const result = await db.transaction((tx) => unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+      await db.close();
+
+      expect(result.ok).toBe(false);
+      expect((result as { ok: false; error: Error }).error.name).toBe('JsonlConflictError');
+    });
+
+    it('keeps the changed file when loading it again into the same database fails', async () => {
+      const itemsPath = join(dataDir, 'items.jsonl');
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n');
+      const db = LinesDB.create({ dataDir });
+      unwrap(await db.initialize());
+      await writeFile(itemsPath, '{"id":1,"name":"edited-in-editor"}\n');
+
+      const reload = await db.initialize();
+      await db.sync();
+      await db.close();
+
+      expect(reload.ok).toBe(false);
+      expect(await readFile(itemsPath, 'utf-8')).toBe('{"id":1,"name":"edited-in-editor"}\n');
+    });
+
     it('keeps a value changed in the file after loading when the table is written back', async () => {
       const itemsPath = join(dataDir, 'items.jsonl');
       await writeFile(itemsPath, '{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n');

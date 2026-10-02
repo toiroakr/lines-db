@@ -411,15 +411,20 @@ export class LinesDB<Tables extends TableDefs> {
     // Read every JSONL file of the table, remembering where each row came from
     let data: JsonObject[] = [];
     const origins: RowOrigin[] = [];
+    const contentHashes = new Map<string, string>();
     for (const jsonlPath of config.jsonlPaths ?? [config.jsonlPath]) {
       const readResult = await JsonlReader.readSnapshot(jsonlPath);
       if (!readResult.ok) {
         throw readResult.error;
       }
-      if (readResult.value.contentHash !== undefined) {
-        this.fileHashes.set(jsonlPath, readResult.value.contentHash);
+      const { rows, contentHash } = readResult.value;
+      if (!rows.ok) {
+        throw rows.error;
       }
-      readResult.value.rows.forEach((row, rowIndex) => {
+      if (contentHash !== undefined) {
+        contentHashes.set(jsonlPath, contentHash);
+      }
+      rows.value.forEach((row, rowIndex) => {
         data.push(row);
         origins.push({ file: jsonlPath, rowIndex });
       });
@@ -631,6 +636,9 @@ export class LinesDB<Tables extends TableDefs> {
       this.insertData(tableName, schema, validatedData);
     }
 
+    for (const [jsonlPath, contentHash] of contentHashes) {
+      this.fileHashes.set(jsonlPath, contentHash);
+    }
     return { loaded: true, rowCount: data.length, errors: [] };
   }
 
@@ -1938,7 +1946,7 @@ export class LinesDB<Tables extends TableDefs> {
     if (!result.ok && (result.error as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw result.error;
     }
-    const snapshot = result.ok ? result.value : { rows: [], contentHash: undefined };
+    const snapshot = result.ok ? result.value : { rows: ok<JsonObject[]>([]), contentHash: undefined };
 
     const knownHash = this.fileHashes.get(jsonlPath);
     if (knownHash !== undefined && snapshot.contentHash !== knownHash) {
@@ -1951,7 +1959,7 @@ export class LinesDB<Tables extends TableDefs> {
       throw conflictError;
     }
 
-    return snapshot.rows;
+    return unwrap(snapshot.rows);
   }
 
   /**
