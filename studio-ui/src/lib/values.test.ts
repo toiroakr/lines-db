@@ -36,3 +36,23 @@ describe('formatValue', () => {
     expect(formatValue('text')).toBe('text');
   });
 });
+
+describe('parseInput with trailing commas', () => {
+  it('reads a JSON value whose arrays and objects end with a comma', () => {
+    expect(parseInput(column('JSON'), '{"items": [1, 2,],\n}')).toEqual({ value: { items: [1, 2] } });
+  });
+
+  it('keeps a comma inside a string', () => {
+    expect(parseInput(column('JSON'), '["a,]", "b\\",}",]')).toEqual({ value: ['a,]', 'b",}'] });
+  });
+
+  it('reads a JSON value with comments, leaving them out of the value', () => {
+    expect(parseInput(column('JSON'), '{\n  // where it came from\n  "source": "web" /* default */\n}')).toEqual({
+      value: { source: 'web' },
+    });
+  });
+
+  it('still refuses a comma with no value before it', () => {
+    expect(parseInput(column('JSON'), '[,]')).toHaveProperty('error');
+  });
+});

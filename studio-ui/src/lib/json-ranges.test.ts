@@ -1,19 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { EditorState } from '@codemirror/state';
-import { ensureSyntaxTree } from '@codemirror/language';
-import { json } from '@codemirror/lang-json';
-import { rangeOfPath, visibleRange } from './json-ranges';
+import { rangeOfPath, syntaxErrors } from './json-ranges';
 
-const marked = (doc: string, keys: string[]) => {
-  const state = EditorState.create({ doc, extensions: [json()] });
-  ensureSyntaxTree(state, doc.length);
-  const { from, to } = rangeOfPath(state, keys);
-  return doc.slice(from, to);
+const marked = (text: string, keys: string[]) => {
+  const { from, to } = rangeOfPath(text, keys);
+  return text.slice(from, to);
 };
 
 describe('rangeOfPath', () => {
   it('points at the value the keys lead to, through objects and arrays', () => {
-    expect(marked('[{"name":"a","quantity":-1}]', ['0', 'quantity'])).toBe('-1');
+    expect(marked('[{"name":"a","quantity":-1,}]', ['0', 'quantity'])).toBe('-1');
   });
 
   it('points at the first character of the deepest value found when a key is missing', () => {
@@ -25,16 +20,23 @@ describe('rangeOfPath', () => {
   });
 });
 
-describe('visibleRange', () => {
-  it('widens an error between two characters to the character after it', () => {
-    expect(visibleRange(3, 3, 10)).toEqual({ from: 3, to: 4 });
+describe('syntaxErrors', () => {
+  it('finds nothing wrong with trailing commas or comments', () => {
+    expect(syntaxErrors('[1, 2, /* more */]')).toEqual([]);
   });
 
-  it('widens an error at the end of the text to its last character', () => {
-    expect(visibleRange(10, 10, 10)).toEqual({ from: 9, to: 10 });
+  it('marks the character an error is at, so it can be underlined', () => {
+    const text = '[1 2]';
+    const [error] = syntaxErrors(text);
+
+    expect(text.slice(error.from, error.to)).toBe('2');
+    expect(error.message).toBe('Comma expected');
   });
 
-  it('keeps a range that already has width', () => {
-    expect(visibleRange(2, 5, 10)).toEqual({ from: 2, to: 5 });
+  it('marks the last character for an error at the end of the text, which has no width', () => {
+    const text = '[1, 2';
+    const [error] = syntaxErrors(text);
+
+    expect(text.slice(error.from, error.to)).toBe('2');
   });
 });

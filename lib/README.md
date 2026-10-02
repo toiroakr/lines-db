@@ -215,7 +215,8 @@ rewrites the table's JSONL file as a whole, so the formatting of the other lines
 - A cell's editor checks the value as you type, against the schema as a save would
   (`POST /api/tables/:name/check`, which validates the change without writing it), and lists the
   issues under the field. A JSON column opens in a dialog with syntax highlighting, and a syntax
-  error is marked where it is. **Set** puts the value among the pending changes; nothing is written
+  error is marked where it is. Comments and trailing commas are accepted there and dropped when the
+  value is set, as it is saved as plain JSON. **Set** puts the value among the pending changes; nothing is written
   until you save.
 - A table needs a primary key (an `id` column, or `primaryKey` in its schema file) with a value on every row to be edited; one
   without is shown read-only.

@@ -1,4 +1,5 @@
 import type { Column, JsonValue } from './types';
+import { readJsonc } from './json-ranges';
 
 export type Parsed = { value: JsonValue } | { error: string };
 
@@ -14,11 +15,8 @@ export function isNumber(column: Pick<Column, 'type' | 'valueType'>): boolean {
 export function parseInput(column: Pick<Column, 'type' | 'valueType'>, text: string): Parsed {
   if (isBoolean(column)) return { value: text === 'true' };
   if (column.type === 'JSON') {
-    try {
-      return { value: JSON.parse(text) as JsonValue };
-    } catch (error) {
-      return { error: `Not valid JSON: ${(error as Error).message}` };
-    }
+    const read = readJsonc(text);
+    return 'error' in read ? { error: `Not valid JSON: ${read.error}` } : { value: read.value as JsonValue };
   }
   if (isNumber(column)) {
     const number = Number(text);

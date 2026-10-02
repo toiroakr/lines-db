@@ -2,13 +2,13 @@ import { useEffect, useRef } from 'react';
 import { EditorView, basicSetup } from 'codemirror';
 import { keymap } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
-import { json, jsonParseLinter } from '@codemirror/lang-json';
+import { json } from '@codemirror/lang-json';
 import { linter, lintGutter, setDiagnostics, type Diagnostic } from '@codemirror/lint';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import type { Issue } from '@/lib/types';
 import { segmentKey } from '@/lib/check';
-import { rangeOfPath, visibleRange } from '@/lib/json-ranges';
+import { rangeOfPath, syntaxErrors } from '@/lib/json-ranges';
 
 const cspNonce = () => document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content ?? '';
 
@@ -43,13 +43,9 @@ const theme = EditorView.theme({
   },
 });
 
-/** The syntax errors, each over a range that can be underlined: one at the end of the text has no width */
+/** Read as JSON with comments and trailing commas, as saving reads it */
 function parseErrors(view: EditorView): Diagnostic[] {
-  const length = view.state.doc.length;
-  return jsonParseLinter()(view).map((diagnostic) => ({
-    ...diagnostic,
-    ...visibleRange(diagnostic.from, diagnostic.to, length),
-  }));
+  return syntaxErrors(view.state.doc.toString()).map((error) => ({ ...error, severity: 'error' as const }));
 }
 
 export interface JsonEditorProps {
@@ -100,7 +96,7 @@ export function JsonEditor({ initial, issues, onChange, onSubmit }: JsonEditorPr
     const editor = view.current;
     if (!editor || parseErrors(editor).length > 0) return;
     const diagnostics = issues.map((issue) => ({
-      ...rangeOfPath(editor.state, (issue.path ?? []).slice(1).map(segmentKey)),
+      ...rangeOfPath(editor.state.doc.toString(), (issue.path ?? []).slice(1).map(segmentKey)),
       severity: 'error' as const,
       message: issue.message,
     }));
