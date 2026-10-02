@@ -208,7 +208,7 @@ describe('studio server', () => {
     expect(response.status).toBe(200);
   });
 
-  it('reports the rows that failed validation on load, since their table is left out of the list', async () => {
+  it('reports the rows that failed validation on load, and lists their table as having failing rows', async () => {
     await studio.close();
     await writeFile(
       join(dataDir, 'users.jsonl'),
@@ -218,7 +218,7 @@ describe('studio server', () => {
 
     const body = await bodyOf(await fetch(`${studio.url}/api/tables`));
 
-    expect(body.tables).toEqual([]);
+    expect(body.tables).toEqual([expect.objectContaining({ name: 'users', invalidRows: 1 })]);
     expect(body.problems).toEqual([expect.stringMatching(/users\.jsonl:2 .* name: Name is required/)]);
   });
 
@@ -479,6 +479,89 @@ describe('studio server', () => {
     expect(await bodyOf(accepted)).toEqual({ ok: true });
     expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toBe(before);
     expect((await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`))).rows[0].name).toBe('Alice');
+  });
+
+  describe('a table with rows that fail validation', () => {
+    const NOTES = '{"id":1,"name":"first"}\n\n{"id":2,"extra":true}\n{"id":3,"name":"third"}\n';
+    const notesPath = () => join(dataDir, 'notes.jsonl');
+
+    beforeEach(async () => {
+      await studio.close();
+      await writeFile(notesPath(), NOTES);
+      await writeFile(join(dataDir, 'notes.schema.ts'), NAME_REQUIRED_SCHEMA);
+      studio = await startStudioServer({ dataDir, port: 0 });
+    });
+
+    it('is listed with how many of its rows fail, and columns read from the file', async () => {
+      const notes = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+        (table: { name: string }) => table.name === 'notes',
+      );
+
+      expect(notes).toMatchObject({ name: 'notes', primaryKey: null, rowCount: 3, invalidRows: 1 });
+      expect(notes.columns.map((column: { name: string }) => column.name)).toEqual(['id', 'name', 'extra']);
+    });
+
+    it('gives its rows as the file holds them, with the issues of each failing row by its index', async () => {
+      const body = await bodyOf(await fetch(`${studio.url}/api/tables/notes/rows`));
+
+      expect(body.rows).toEqual([
+        { id: 1, name: 'first' },
+        { id: 2, extra: true },
+        { id: 3, name: 'third' },
+      ]);
+      expect(body.issues).toEqual({ 1: [{ message: 'Name is required', path: [{ key: 'name' }] }] });
+    });
+
+    it('writes a fixed row to its line only, leaving the other lines as they were, and then loads the table', async () => {
+      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
+        inserts: [],
+        updates: [{ key: 1, changes: { name: 'second' }, resetToDefault: ['extra'] }],
+        deletes: [],
+      });
+
+      expect(response.status).toBe(200);
+      expect(await readFile(notesPath(), 'utf8')).toBe(
+        '{"id":1,"name":"first"}\n\n{"id":2,"name":"second"}\n{"id":3,"name":"third"}\n',
+      );
+      const notes = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+        (table: { name: string }) => table.name === 'notes',
+      );
+      expect(notes).toMatchObject({ primaryKey: 'id', invalidRows: 0 });
+    });
+
+    it('refuses a change that leaves the row failing, with its issues, and writes nothing', async () => {
+      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
+        inserts: [],
+        updates: [{ key: 1, changes: { extra: false } }],
+        deletes: [],
+      });
+
+      expect(response.status).toBe(400);
+      expect((await bodyOf(response)).issues).toEqual([{ message: 'Name is required', path: [{ key: 'name' }] }]);
+      expect(await readFile(notesPath(), 'utf8')).toBe(NOTES);
+    });
+
+    it('checks a change without writing it', async () => {
+      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/check`, {
+        inserts: [],
+        updates: [{ key: 1, changes: { name: 'second' } }],
+        deletes: [],
+      });
+
+      expect(await bodyOf(response)).toEqual({ ok: true });
+      expect(await readFile(notesPath(), 'utf8')).toBe(NOTES);
+    });
+
+    it('refuses to add or delete rows until the failing rows are fixed', async () => {
+      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
+        inserts: [{ id: 4, name: 'fourth' }],
+        updates: [],
+        deletes: [],
+      });
+
+      expect(response.status).toBe(409);
+      expect(await readFile(notesPath(), 'utf8')).toBe(NOTES);
+    });
   });
 
   describe('the built page', () => {

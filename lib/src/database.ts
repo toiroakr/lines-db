@@ -1868,6 +1868,19 @@ export class LinesDB<Tables extends TableDefs> {
   /**
    * Get table schema
    */
+  /**
+   * Validate a row against a table's schema, also for a table left out on load because rows failed
+   * validation, so a fix can be checked before it is written to the file
+   */
+  validateRow(tableName: string, row: JsonObject): Result<JsonObject, ValidationError> {
+    try {
+      return ok(this.validateAndTransform(tableName, row));
+    } catch (error) {
+      if (error instanceof Error && error.name === 'ValidationError') return err(error as ValidationError);
+      throw error;
+    }
+  }
+
   getSchema(tableName: string): TableSchema | undefined {
     return this.schemas.get(tableName);
   }

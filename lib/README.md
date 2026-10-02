@@ -220,8 +220,11 @@ rewrites the table's JSONL file as a whole, so the formatting of the other lines
   until you save.
 - A table needs a primary key (an `id` column, or `primaryKey` in its schema file) with a value on every row to be edited; one
   without is shown read-only.
-- A table whose rows fail validation on load is left out, and the failing rows are listed at the top
-  of the page. Fix them in the JSONL or schema file and click **Reload**.
+- A table whose rows fail validation on load is shown as its JSONL file holds it, with the failing
+  rows and cells marked and their issues listed. Fix a cell and save: the fix is checked against the
+  schema with `validateRow()` and written to that row's line only, the other lines staying as they
+  were, and the table is loaded as usual once every row passes. Adding and deleting rows is off until
+  then.
 - When the files change on disk while the studio is open, the page reloads the rows on its own, or,
   with changes pending, says so. A save checks the files first: a changed schema file is loaded so the
   save is validated against it, and a change to the edited table's own file stops the save with the
@@ -377,6 +380,7 @@ and `getDb` return their value directly since they cannot fail.
 - `transaction(fn)` - Execute operations in a transaction
 - `sync(table?, options?)` - Write changes back to the JSONL file(s)
 - `getSchema(table)` - Get table schema (returns `TableSchema | undefined`, not a `Result`)
+- `validateRow(table, row)` - Validate a row against the table's schema, also for a table left out on load because rows failed validation (returns `Result<JsonObject, ValidationError>`)
 - `getTableNames()` - Get all table names (returns `string[]`, not a `Result`)
 
 **Where Conditions:**

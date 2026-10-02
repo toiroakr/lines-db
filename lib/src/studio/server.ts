@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { watch } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, extname, join, relative, resolve as resolvePath } from 'node:path';
@@ -8,11 +8,14 @@ import { fileURLToPath } from 'node:url';
 import { LinesDB } from '../database.js';
 import { ErrorFormatter } from '../error-formatter.js';
 import { unwrap } from '../result.js';
+import { JsonlReader } from '../jsonl-reader.js';
+import { replaceRows } from './file-rows.js';
 import type {
   JsonlConflictError,
   JsonlParseError,
   JsonObject,
   JsonValue,
+  StandardSchemaIssue,
   TableDefs,
   ValidationError,
   ValidationErrorDetail,
@@ -42,6 +45,17 @@ interface Snapshot {
   db: LinesDB<TableDefs>;
   /** Rows that failed validation on load, whose table is therefore left out */
   problems: string[];
+  /**
+   * The tables left out because rows failed validation, edited in their file instead: the database
+   * holds only rows that passed, so a failing row cannot be fixed through it
+   */
+  invalid: Map<string, InvalidTable>;
+}
+
+interface InvalidTable {
+  file: string;
+  /** The issues of each failing row, by its index among the rows of the file */
+  issues: Map<number, StandardSchemaIssue[]>;
 }
 
 export async function startStudioServer(options: StudioServerOptions): Promise<StudioServer> {
@@ -146,8 +160,24 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         const rowCount =
           unwrap(snapshot.db.queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM "${name.replaceAll('"', '""')}"`))?.n ??
           0;
-        return { name, columns, primaryKey, rowCount, readOnlyReason: whyReadOnly(snapshot.db, name) };
+        return { name, columns, primaryKey, rowCount, invalidRows: 0, readOnlyReason: whyReadOnly(snapshot.db, name) };
       });
+      for (const [name, { file, issues }] of snapshot.invalid) {
+        const rows = unwrap(await JsonlReader.read(file));
+        const columns = unwrap(JsonlReader.inferSchema(name, rows)).columns.map((column) => ({
+          ...column,
+          primaryKey: false,
+        }));
+        tables.push({
+          name,
+          columns,
+          primaryKey: null,
+          rowCount: rows.length,
+          invalidRows: issues.size,
+          readOnlyReason: null,
+        });
+      }
+      tables.sort((a, b) => a.name.localeCompare(b.name));
       sendJson(res, 200, { dataDir: resolvePath(dataDir), tables, problems: snapshot.problems });
       return;
     }
@@ -166,6 +196,12 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
     if (isRows && req.method === 'GET' && encodedKey === undefined) {
       await reloadIfChanged();
+      const invalid = snapshot.invalid.get(tableName);
+      if (invalid) {
+        const rows = unwrap(await JsonlReader.read(invalid.file));
+        sendJson(res, 200, { rows, defaulted: rows.map(() => []), issues: Object.fromEntries(invalid.issues) });
+        return;
+      }
       if (!snapshot.db.getSchema(tableName)) {
         sendJson(res, 404, { message: `Table '${tableName}' does not exist` });
         return;
@@ -212,7 +248,38 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
             };
     }
 
-    const outcome = await serialize(async (): Promise<{ status: number; body: unknown; changed?: boolean }> => {
+    type Outcome = { status: number; body: unknown; changed?: boolean };
+    /** Apply the updates to the rows of the file, and write them only once every edited row passes */
+    const writeInvalidTable = async ({ file }: InvalidTable): Promise<Outcome> => {
+      if (batch.inserts.length > 0 || batch.deletes.length > 0) {
+        const message = 'Fix the rows that fail validation before adding or deleting rows of this table';
+        return { status: 409, body: { message } };
+      }
+      const rows = unwrap(await JsonlReader.read(file));
+      const replaced = new Map<number, JsonObject>();
+      for (const [index, { key, changes, resetToDefault }] of batch.updates.entries()) {
+        const base = typeof key === 'number' ? rows[key] : undefined;
+        if (!base)
+          return { status: 400, body: { message: `No row ${JSON.stringify(key)} in ${relative(dataDir, file)}` } };
+        const next: JsonObject = { ...base, ...changes };
+        for (const field of resetToDefault ?? []) delete next[field];
+        const validated = snapshot.db.validateRow(tableName, next);
+        if (!validated.ok) {
+          const change: FailedChange = { kind: 'update', index, key };
+          const failure = { message: validated.error.message, issues: validated.error.issues, change };
+          return write.kind === 'check'
+            ? { status: 200, body: { ok: false, ...failure } }
+            : { status: 400, body: failure };
+        }
+        replaced.set(key as number, next);
+      }
+      if (write.kind === 'check') return { status: 200, body: { ok: true } };
+      await writeFile(file, replaceRows(await readFile(file, 'utf8'), replaced), 'utf8');
+      await reloadUnlocked();
+      return { status: 200, body: { ok: true }, changed: true };
+    };
+
+    const outcome = await serialize(async (): Promise<Outcome> => {
       // Not left to the watcher: its event may not have fired yet, and a changed schema file is no
       // conflict a write-back detects, so the rows would be validated against the old schema
       const changedFiles = unwrap(await snapshot.db.findExternalChanges());
@@ -233,6 +300,8 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         }
       }
       const { db } = snapshot;
+      const invalid = snapshot.invalid.get(tableName);
+      if (invalid) return writeInvalidTable(invalid);
       const schema = db.getSchema(tableName);
       if (!schema) return { status: 404, body: { message: `Table '${tableName}' does not exist` } };
       const primaryKey = schema.columns.find((column) => column.primaryKey)?.name;
@@ -331,7 +400,37 @@ async function loadSnapshot(dataDir: string, writeFilledValues: WriteFilledValue
     }
     throw loaded.error;
   }
-  return { db, problems: describeProblems(dataDir, loaded.value.errors) };
+  return {
+    db,
+    problems: describeProblems(dataDir, loaded.value.errors),
+    invalid: invalidTables(loaded.value.errors),
+  };
+}
+
+/** The tables whose failing rows all come from one file, which can then be edited line by line */
+function invalidTables(errors: ValidationErrorDetail[]): Map<string, InvalidTable> {
+  const tables = new Map<string, InvalidTable | null>();
+  for (const error of errors) {
+    const known = tables.get(error.tableName);
+    if (known === null) continue;
+    if (known && known.file !== error.file) {
+      tables.set(error.tableName, null);
+      continue;
+    }
+    const table = known ?? { file: error.file, issues: new Map() };
+    const foreignKey = error.foreignKeyError;
+    const issues: StandardSchemaIssue[] = foreignKey
+      ? [
+          {
+            message: `No ${foreignKey.referencedTable} row has ${foreignKey.referencedColumn} ${JSON.stringify(foreignKey.value)}`,
+            path: [{ key: foreignKey.column }],
+          },
+        ]
+      : [...error.issues];
+    table.issues.set(error.rowIndex, [...(table.issues.get(error.rowIndex) ?? []), ...issues]);
+    tables.set(error.tableName, table);
+  }
+  return new Map([...tables].filter((entry): entry is [string, InvalidTable] => entry[1] !== null));
 }
 
 function describeProblems(dataDir: string, errors: ValidationErrorDetail[]): string[] {
