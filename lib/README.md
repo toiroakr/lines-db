@@ -170,6 +170,8 @@ that gains nothing is left byte for byte, its line separator included; a line th
 is written with its keys in the order the schema lists them. Every value is computed before any file
 is written, and a row the schema rejects gains nothing. A file saved by another tool after the fill
 read it stops the fill with a `JsonlConflictError` naming the file, before any file is written.
+Fields are named as the file holds them: for a schema whose `backward` renames the primary key, name
+the file's field with `--fields`, since the default is the primary key as the database calls it.
 
 The same runs from code with `fillFields()`, which also takes the function that computes a row's
 values, for a table whose create-time values come from something other than its validation schema:
