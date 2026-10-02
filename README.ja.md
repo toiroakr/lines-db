@@ -111,6 +111,21 @@ pnpm run build
 pnpm test
 ```
 
+studio の E2E テストは `e2e/` にあり、[TesterArmy e2e](https://e2e.tester.army) で実行します。AI エージェントのテストは ChatGPT サブスクリプション経由でブラウザを操作するため、CI では実行せずローカルで実行します。
+
+```bash
+# 初回のみ: テスト用の Chromium をインストールし、ChatGPT にログイン
+pnpm e2e:setup
+
+# ビルドしてから、全テスト・手順を書いたテストのみ・AI エージェントのテストのみを実行
+pnpm e2e
+pnpm e2e:deterministic
+pnpm e2e:agent
+
+# 最後に実行したテストの結果を表示（スクリーンショットと trace は e2e/.e2e/artifacts/ にある）
+pnpm e2e:report
+```
+
 ### その他のコマンド
 
 ```bash
