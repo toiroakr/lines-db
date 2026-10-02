@@ -201,6 +201,30 @@ describe('LinesDB.transaction write-back', () => {
     }
   });
 
+  it('refuses SQL that would end the transaction early, as the files are written back before it commits', async () => {
+    const result = await db.transaction((tx) => {
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      expect(tx.execute('COMMIT').ok).toBe(false);
+      expect(tx.execute(' end transaction').ok).toBe(false);
+      expect(tx.query('ROLLBACK').ok).toBe(false);
+    });
+
+    expect(result.ok).toBe(true);
+    expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"A"}\n');
+  });
+
+  it('fails without writing a file when SQL run through getDb() ended the transaction', async () => {
+    const write = vi.spyOn(JsonlWriter, 'write');
+    const result = await db.transaction((tx) => {
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      tx.getDb().exec('COMMIT');
+    });
+
+    expect(!result.ok && result.error.message).toContain('getDb()');
+    expect(write).not.toHaveBeenCalled();
+    write.mockRestore();
+  });
+
   it('refuses a sync inside a transaction, as it would write rows the transaction may roll back', async () => {
     const result = await db.transaction(async (tx) => {
       unwrap(tx.update('items', { name: 'A' }, { id: 1 }));

@@ -1038,6 +1038,7 @@ export class LinesDB<Tables extends TableDefs> {
   query<T = unknown>(sql: string, params: (string | number | bigint | null | Uint8Array)[] = []): Result<T[], Error> {
     try {
       this.enforceReadOnlySql();
+      this.refuseTransactionControl(sql);
       return ok(this.trackRawSql(() => this.queryInternal<T>(sql, params)));
     } catch (error) {
       return err(toError(error));
@@ -1058,6 +1059,7 @@ export class LinesDB<Tables extends TableDefs> {
   ): Result<T | null, Error> {
     try {
       this.enforceReadOnlySql();
+      this.refuseTransactionControl(sql);
       return ok(this.trackRawSql(() => this.queryOneInternal<T>(sql, params)));
     } catch (error) {
       return err(toError(error));
@@ -1082,6 +1084,7 @@ export class LinesDB<Tables extends TableDefs> {
   ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
     try {
       this.enforceReadOnlySql();
+      this.refuseTransactionControl(sql);
       return ok(this.trackRawSql(() => this.executeInternal(sql, params)));
     } catch (error) {
       return err(toError(error));
@@ -1888,6 +1891,19 @@ export class LinesDB<Tables extends TableDefs> {
    * Turn query_only back on before running a caller's SQL, since an earlier call may have run
    * `PRAGMA query_only = OFF`
    */
+  /**
+   * Refuse SQL that would end a transaction() before it writes the files back: committed early, the
+   * change could no longer be rolled back when the write-back fails
+   */
+  private refuseTransactionControl(sql: string): void {
+    if (!this.inTransaction) return;
+    if (/^\s*(BEGIN|COMMIT|END|ROLLBACK(?!\s+(TRANSACTION\s+)?TO\b))\b/i.test(sql)) {
+      throw new Error(
+        `'${sql.trim()}' would end the transaction before its files are written back; return from the callback to commit, or throw to roll back`,
+      );
+    }
+  }
+
   private enforceReadOnlySql(): void {
     if (this.hasSeveralDataDirs()) {
       this.db.exec('PRAGMA query_only = ON');
@@ -2534,6 +2550,9 @@ export class LinesDB<Tables extends TableDefs> {
 
       // Written back before COMMIT, so a failed write-back rolls the change back instead of leaving the
       // database holding rows its files do not; a read-only database has no changes to write back
+      if (this.db.isTransaction() === false) {
+        throw new Error('The transaction was ended by SQL run through getDb() before its files were written back');
+      }
       if (!this.hasSeveralDataDirs()) {
         written = await this.writeBackTogether(this.tablesChangedInTransaction());
       }
