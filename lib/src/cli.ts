@@ -376,9 +376,9 @@ const studioCommand = defineCommand({
       process.exit(1);
     }
 
-    console.log(`lines-db studio is running at ${styleText('cyan', studio.loginUrl)}`);
-    console.log('Open this URL to sign in; it holds a token generated for this run. Press Ctrl+C to stop.');
-    if (args.open) openInBrowser(studio.loginUrl);
+    console.log(`lines-db studio is running at ${styleText('cyan', studio.url)}`);
+    console.log('The first tab to open it holds it for this run. Press Ctrl+C to stop.');
+    if (args.open) openInBrowser(studio.url);
 
     // Not resolving once the server listens: runMain exits the process as soon as run resolves.
     // Ctrl+C is handled by runMain, which awaits cleanup before it exits.

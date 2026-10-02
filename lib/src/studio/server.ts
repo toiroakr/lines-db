@@ -35,10 +35,8 @@ export interface StudioServerOptions {
 
 export interface StudioServer {
   url: string;
-  /** The token every request presents, generated at start-up */
+  /** The token every API request presents, generated at start-up and handed to the first page served */
   token: string;
-  /** The URL that logs a browser in with the token */
-  loginUrl: string;
   close(): Promise<void>;
 }
 
@@ -64,6 +62,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const host = options.host ?? '127.0.0.1';
   const uiDir = options.uiDir ?? (await shippedUiDir());
   const token = randomBytes(24).toString('base64url');
+  let tokenClaimed = false;
   const writeFilledValues = options.writeFilledValues ?? 'primaryKey';
   const load = () => loadSnapshot(dataDir, writeFilledValues);
   let snapshot = await load();
@@ -125,25 +124,22 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
     const url = new URL(req.url ?? '/', 'http://localhost');
 
-    const presented = url.searchParams.get('token');
-    if (req.method === 'GET' && url.pathname === '/' && presented !== null && sameToken(presented, token)) {
-      res.writeHead(303, {
-        Location: '/',
-        'Set-Cookie': `${tokenCookie(req)}=${token}; HttpOnly; SameSite=Strict; Path=/`,
-      });
-      res.end();
+    // Not behind the token: the page has to load before it holds one, and holds no data itself
+    if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
+      const served = await servePage(res, uiDir, url.pathname, tokenClaimed ? undefined : token);
+      if (served && url.pathname === '/') tokenClaimed = true;
       return;
     }
-    if (!sameToken(presentedToken(req) ?? '', token)) {
-      sendJson(res, 401, { message: 'Open the URL lines-db studio printed when it started' });
+    // Not taken from the query elsewhere: an event source cannot send headers, but a fetch can
+    const presented = bearerToken(req) ?? (url.pathname === '/api/events' ? url.searchParams.get('token') : null) ?? '';
+    if (!sameToken(presented, token)) {
+      sendJson(res, 401, {
+        message:
+          'lines-db studio is open in another tab, which holds its token. Close it and restart the studio to open it here.',
+      });
       return;
     }
     const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
-
-    if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
-      await servePage(res, uiDir, url.pathname);
-      return;
-    }
 
     if (req.method === 'GET' && url.pathname === '/api/events') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
@@ -446,7 +442,6 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   return {
     url,
     token,
-    loginUrl: `${url}/?token=${token}`,
     close: async () => {
       watcher.close();
       clearTimeout(watchTimer);
@@ -560,9 +555,6 @@ function describeProblems(dataDir: string, errors: ValidationErrorDetail[]): str
   });
 }
 
-/** Not one fixed name: a browser keeps cookies by host, not port, so studios on other ports would overwrite it */
-const tokenCookie = (req: IncomingMessage) => `lines_db_studio_token_${req.socket.localPort}`;
-
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -583,11 +575,17 @@ async function shippedUiDir(): Promise<string> {
   return candidates[0];
 }
 
-async function servePage(res: ServerResponse, uiDir: string, pathname: string): Promise<void> {
+/** Serve a file of the built page; true when it was served. The page carries the token when one is given */
+async function servePage(
+  res: ServerResponse,
+  uiDir: string,
+  pathname: string,
+  token: string | undefined,
+): Promise<boolean> {
   const file = resolvePath(uiDir, `.${pathname === '/' ? '/index.html' : pathname}`);
   if (relative(uiDir, file).startsWith('..')) {
     sendJson(res, 404, { message: 'Not found' });
-    return;
+    return false;
   }
   const content = await readFile(file).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT' || error.code === 'EISDIR') return undefined;
@@ -597,16 +595,23 @@ async function servePage(res: ServerResponse, uiDir: string, pathname: string): 
     if (pathname === '/') {
       res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('The studio page has not been built. Run `pnpm build` in the lines-db repository.');
-      return;
+      return false;
     }
     sendJson(res, 404, { message: 'Not found' });
-    return;
+    return false;
   }
   // Not 'unsafe-inline' for styles: the editor injects its styles, and a nonce allows only those
   const nonce = randomBytes(18).toString('base64');
   const body =
     pathname === '/'
-      ? Buffer.from(content.toString('utf8').replace('</head>', `<meta name="csp-nonce" content="${nonce}"></head>`))
+      ? Buffer.from(
+          content
+            .toString('utf8')
+            .replace(
+              '</head>',
+              `<meta name="csp-nonce" content="${nonce}">${token ? `<meta name="studio-token" content="${token}">` : ''}</head>`,
+            ),
+        )
       : content;
   res.writeHead(200, {
     'Content-Type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream',
@@ -615,16 +620,11 @@ async function servePage(res: ServerResponse, uiDir: string, pathname: string): 
     'X-Content-Type-Options': 'nosniff',
   });
   res.end(body);
+  return true;
 }
 
-function presentedToken(req: IncomingMessage): string | undefined {
-  const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
-  if (bearer) return bearer;
-  for (const part of (req.headers.cookie ?? '').split(';')) {
-    const [name, ...value] = part.trim().split('=');
-    if (name === tokenCookie(req)) return value.join('=');
-  }
-  return undefined;
+function bearerToken(req: IncomingMessage): string | undefined {
+  return /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
 }
 
 function sameToken(presented: string, token: string): boolean {

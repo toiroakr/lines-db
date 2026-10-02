@@ -62,6 +62,7 @@ import { formatValue, isBoolean } from '@/lib/values';
 import type { Column, Issue, JsonObject, JsonValue, TableInfo } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { fieldIssues, issuePath } from '@/lib/check';
+import { eventsUrl } from '@/lib/session';
 
 type Notice = { kind: 'error'; title: string; issues?: Issue[] } | { kind: 'success'; title: string };
 type Editing = { row: 'existing'; key: JsonValue; column: string } | { row: 'new'; id: string; column: string };
@@ -141,7 +142,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const events = new EventSource('/api/events');
+    const events = new EventSource(eventsUrl());
     let connectedBefore = false;
     const refresh = () => {
       if (stateRef.current.dirty || stateRef.current.editing) setFilesChanged(true);

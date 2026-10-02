@@ -1,5 +1,6 @@
 import type { Issue, JsonObject, JsonValue, TableInfo, WriteError } from './types';
 import type { toBatch } from './pending';
+import { authorized } from './session';
 
 export interface TablesResponse {
   dataDir: string;
@@ -30,7 +31,7 @@ export function toWriteError(error: unknown): WriteError {
 }
 
 export async function fetchTables(): Promise<TablesResponse> {
-  return readJson(await fetch('/api/tables'));
+  return readJson(await fetch('/api/tables', authorized()));
 }
 
 export interface SchemaResponse {
@@ -39,11 +40,11 @@ export interface SchemaResponse {
 }
 
 export async function fetchSchema(table: string): Promise<SchemaResponse> {
-  return readJson(await fetch(`/api/tables/${encodeURIComponent(table)}/schema`));
+  return readJson(await fetch(`/api/tables/${encodeURIComponent(table)}/schema`, authorized()));
 }
 
 export async function fetchRows(table: string): Promise<RowsResponse> {
-  return readJson(await fetch(`/api/tables/${encodeURIComponent(table)}/rows`));
+  return readJson(await fetch(`/api/tables/${encodeURIComponent(table)}/rows`, authorized()));
 }
 
 /** The rows of a table with failing rows that a save wrote but that still fail, by their index */
@@ -53,11 +54,10 @@ export interface SaveResult {
 
 export async function saveChanges(table: string, batch: ReturnType<typeof toBatch>): Promise<SaveResult> {
   return readJson<SaveResult>(
-    await fetch(`/api/tables/${encodeURIComponent(table)}/changes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(batch),
-    }),
+    await fetch(
+      `/api/tables/${encodeURIComponent(table)}/changes`,
+      authorized({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(batch) }),
+    ),
   );
 }
 

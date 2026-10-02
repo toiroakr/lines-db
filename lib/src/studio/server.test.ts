@@ -315,32 +315,20 @@ describe('studio server', () => {
     expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toBe(before);
   });
 
-  it('logs in from the printed URL with a cookie the page then presents, and drops the token from the address', async () => {
-    const login = await globalThis.fetch(studio.loginUrl, { redirect: 'manual' });
-    const cookie = login.headers.get('set-cookie') ?? '';
+  it('accepts the token in the query of the event stream, as a browser cannot give an event source headers', async () => {
+    const controller = new AbortController();
+    const response = await globalThis.fetch(`${studio.url}/api/events?token=${studio.token}`, {
+      signal: controller.signal,
+    });
+    controller.abort();
 
-    expect(login.status).toBe(303);
-    expect(login.headers.get('location')).toBe('/');
-    expect(cookie).toMatch(/HttpOnly/);
-    expect(cookie).toMatch(/SameSite=Strict/);
-    const response = await globalThis.fetch(`${studio.url}/api/tables`, { headers: { Cookie: cookie.split(';')[0] } });
     expect(response.status).toBe(200);
   });
 
-  it('keeps a page signed in after another studio on the same host signs in, as cookies are not kept apart by port', async () => {
-    const other = await startStudioServer({ dataDir, port: 0 });
-    try {
-      const cookieOf = async (loginUrl: string) =>
-        ((await globalThis.fetch(loginUrl, { redirect: 'manual' })).headers.get('set-cookie') ?? '').split(';')[0];
-      const cookies = `${await cookieOf(studio.loginUrl)}; ${await cookieOf(other.loginUrl)}`;
+  it('refuses the token in the query of anything but the event stream', async () => {
+    const response = await globalThis.fetch(`${studio.url}/api/tables?token=${studio.token}`);
 
-      const first = await globalThis.fetch(`${studio.url}/api/tables`, { headers: { Cookie: cookies } });
-      const second = await globalThis.fetch(`${other.url}/api/tables`, { headers: { Cookie: cookies } });
-
-      expect([first.status, second.status]).toEqual([200, 200]);
-    } finally {
-      await other.close();
-    }
+    expect(response.status).toBe(401);
   });
 
   it('answers a write whose body is not JSON with 400, as the request is at fault', async () => {
@@ -788,6 +776,21 @@ describe('studio server', () => {
 
     afterEach(async () => {
       await rm(uiDir, { recursive: true, force: true });
+    });
+
+    it('hands the token to the first page it serves only, so a page opened after it gets none', async () => {
+      const first = await (await globalThis.fetch(`${studio.url}/`)).text();
+      const second = await (await globalThis.fetch(`${studio.url}/`)).text();
+
+      expect(first).toContain(`<meta name="studio-token" content="${studio.token}">`);
+      expect(second).not.toContain('studio-token');
+    });
+
+    it('serves the page and its assets without the token, as the page loads before it holds one', async () => {
+      const page = await globalThis.fetch(`${studio.url}/`);
+      const asset = await globalThis.fetch(`${studio.url}/assets/app.js`);
+
+      expect([page.status, asset.status]).toEqual([200, 200]);
     });
 
     it('hands the page a nonce its CSP allows styles with, for an editor that injects its styles', async () => {

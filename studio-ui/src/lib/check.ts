@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Issue } from './types';
 import type { Batch } from './pending';
+import { authorized } from './session';
 
 export type CheckResult =
   | { ok: true }
@@ -32,12 +33,15 @@ export function issuesFor(field: string, result: CheckResult | undefined): Issue
 }
 
 export async function checkChanges(table: string, batch: Batch, signal: AbortSignal): Promise<CheckResult> {
-  const response = await fetch(`/api/tables/${encodeURIComponent(table)}/check`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(batch),
-    signal,
-  });
+  const response = await fetch(
+    `/api/tables/${encodeURIComponent(table)}/check`,
+    authorized({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(batch),
+      signal,
+    }),
+  );
   const body = (await response.json().catch(() => ({}))) as { ok?: boolean; message?: string; issues?: Issue[] };
   if (response.ok && body.ok === true) return { ok: true };
   if (response.ok && body.ok === false) return { ok: false, message: body.message, issues: body.issues ?? [] };

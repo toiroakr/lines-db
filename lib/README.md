@@ -210,8 +210,10 @@ the schema rejects writes nothing: the issues are shown with the change they cam
 pending changes stay for you to fix. A save changes the values of the rows it edits only, but
 rewrites the table's JSONL file as a whole, so the formatting of the other lines can change too.
 
-- The URL printed at start-up holds a token generated for the run. Opening it signs the browser in
-  with an HttpOnly, SameSite=Strict cookie; a request without the token is refused with 401.
+- The first tab to open the studio holds it for the run: the server hands the token it generates at
+  start-up to the first page it serves only, which keeps it in `sessionStorage` and sends it with each
+  request; a request without it is refused with 401. A reload of that tab keeps working; another tab,
+  or the same one once closed, gets no token until the studio is restarted.
 - A save writes the fields you wrote and leaves the values the schema fills in out of the file
   (`writeFilledValues: 'primaryKey'`, see [Values the Schema Fills In](#values-the-schema-fills-in));
   `--write-filled-values all` writes them as a sync does by default.
