@@ -123,6 +123,11 @@ export function App() {
     void load(current);
   }, [current, load]);
 
+  // Reloaded once nothing is being edited: rows that changed on disk meanwhile were left out until then
+  useEffect(() => {
+    if (filesChanged && !dirty && !editing) void load(current);
+  }, [filesChanged, dirty, editing, current, load]);
+
   const selectRef = useRef<(name: string) => boolean>(() => false);
   useEffect(() => {
     const onHash = () => {
@@ -176,7 +181,6 @@ export function App() {
     setPending(emptyPending());
     setEditing(undefined);
     setNotice(undefined);
-    if (filesChanged) void load(current);
   };
 
   const save = async () => {
@@ -256,7 +260,8 @@ export function App() {
         <aside
           className={cn(
             'fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r bg-sidebar transition-transform md:static md:w-60 md:translate-x-0 md:transition-none',
-            drawerOpen ? 'translate-x-0' : '-translate-x-full',
+            // Not only moved off screen when closed: its controls would still take keyboard focus
+            drawerOpen ? 'translate-x-0' : 'invisible -translate-x-full md:visible',
             sidebarCollapsed && 'md:hidden',
           )}
           onKeyDown={(event) => event.key === 'Escape' && setDrawerOpen(false)}
@@ -291,6 +296,7 @@ export function App() {
               <Input
                 className="h-8 pl-8"
                 placeholder="Search tables"
+                aria-label="Search tables"
                 value={tableFilter}
                 onChange={(event) => setTableFilter(event.target.value)}
               />
@@ -357,6 +363,7 @@ export function App() {
               <Input
                 className="h-8 pl-8"
                 placeholder="Filter rows"
+                aria-label="Filter rows"
                 value={filter}
                 onChange={(event) => setFilter(event.target.value)}
               />
