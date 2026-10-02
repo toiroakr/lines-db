@@ -164,9 +164,11 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       });
       for (const [name, { file, issues }] of snapshot.invalid) {
         const rows = unwrap(await JsonlReader.read(file));
+        const unknown = unknownFields(snapshot.db, name, rows, issues);
         const columns = unwrap(JsonlReader.inferSchema(name, rows)).columns.map((column) => ({
           ...column,
           primaryKey: false,
+          ...(unknown.has(column.name) ? { unknown: true } : {}),
         }));
         tables.push({
           name,
@@ -405,6 +407,52 @@ async function loadSnapshot(dataDir: string, writeFilledValues: WriteFilledValue
     problems: describeProblems(dataDir, loaded.value.errors),
     invalid: invalidTables(loaded.value.errors),
   };
+}
+
+/** The field of the row an issue is about, if it is about one */
+function fieldOf(issue: StandardSchemaIssue): string | undefined {
+  const segment = issue.path?.[0];
+  if (segment === undefined) return undefined;
+  return typeof segment === 'object' && segment !== null && 'key' in segment ? String(segment.key) : String(segment);
+}
+
+/**
+ * The fields of a table's rows its schema refuses as keys, which a fix can only remove. A schema does
+ * not list its keys, so a field counts when removing it from each row it fails on clears its issues,
+ * and no row that passes keeps it: removing a known optional field holding a wrong value clears its
+ * issue too, but a passing row then has it
+ */
+function unknownFields(
+  db: LinesDB<TableDefs>,
+  tableName: string,
+  rows: JsonObject[],
+  issues: Map<number, StandardSchemaIssue[]>,
+): Set<string> {
+  const failingOn = new Map<string, number[]>();
+  for (const [index, rowIssues] of issues) {
+    for (const issue of rowIssues) {
+      const key = fieldOf(issue);
+      if (key !== undefined && Object.hasOwn(rows[index] ?? {}, key))
+        failingOn.set(key, [...(failingOn.get(key) ?? []), index]);
+    }
+  }
+  const kept = new Set<string>();
+  rows.forEach((row, index) => {
+    if (issues.has(index)) return;
+    const validated = db.validateRow(tableName, row);
+    if (validated.ok) for (const key of Object.keys(validated.value)) kept.add(key);
+  });
+  const unknown = new Set<string>();
+  for (const [key, indexes] of failingOn) {
+    if (kept.has(key)) continue;
+    const clears = indexes.every((index) => {
+      const { [key]: _removed, ...rest } = rows[index];
+      const result = db.validateRow(tableName, rest);
+      return result.ok || !result.error.issues.some((issue) => fieldOf(issue) === key);
+    });
+    if (clears) unknown.add(key);
+  }
+  return unknown;
 }
 
 /** The tables whose failing rows all come from one file, which can then be edited line by line */

@@ -552,6 +552,40 @@ describe('studio server', () => {
       expect(await readFile(notesPath(), 'utf8')).toBe(NOTES);
     });
 
+    it('marks a column the schema refuses as a key, which can only be removed, apart from a column holding a wrong value', async () => {
+      await studio.close();
+      await writeFile(
+        join(dataDir, 'labels.schema.ts'),
+        `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+  const issues = Object.keys(data).filter((key) => !['id', 'name', 'size'].includes(key)).map((key) => ({ message: 'Invalid key', path: [{ key }] }));
+  if (typeof data.name !== 'string') issues.push({ message: 'Name is required', path: [{ key: 'name' }] });
+  if (data.size !== undefined && typeof data.size !== 'number') issues.push({ message: 'Expected number', path: [{ key: 'size' }] });
+  return issues.length > 0 ? { issues } : { value: data };
+} } };
+`,
+      );
+      await writeFile(
+        join(dataDir, 'labels.jsonl'),
+        '{"id":1,"name":"first","size":1}\n{"id":2,"name":"second","extra":true,"size":"big"}\n',
+      );
+      studio = await startStudioServer({ dataDir, port: 0 });
+
+      const labels = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+        (table: { name: string }) => table.name === 'labels',
+      );
+
+      expect(
+        Object.fromEntries(
+          labels.columns.map((column: { name: string; unknown?: boolean }) => [column.name, Boolean(column.unknown)]),
+        ),
+      ).toEqual({
+        id: false,
+        name: false,
+        size: false,
+        extra: true,
+      });
+    });
+
     it('refuses to add or delete rows until the failing rows are fixed', async () => {
       const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
         inserts: [{ id: 4, name: 'fourth' }],

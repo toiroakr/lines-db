@@ -479,6 +479,13 @@ function Grid({ table, rows, pending, setPending, selected, setSelected, editing
                   <span className="text-[10px] font-normal text-muted-foreground uppercase">
                     {isBoolean(column) ? 'boolean' : column.type.toLowerCase()}
                   </span>
+                  {column.unknown && (
+                    <Tooltip content="The schema refuses this key; a row can only have it removed">
+                      <Badge variant="outline" className="border-destructive/50 font-sans text-destructive">
+                        not in schema
+                      </Badge>
+                    </Tooltip>
+                  )}
                 </div>
               </th>
             ))}
@@ -671,9 +678,11 @@ interface CellProps {
 }
 
 function Cell({ column, value, issues = [], state, readOnly, isEditing, onOpen, onClose, ...editor }: CellProps) {
-  const json = column.type === 'JSON';
+  const json = column.type === 'JSON' && !column.unknown;
   const content =
-    state === 'reset' || state === 'unset' ? (
+    state === 'reset' && column.unknown ? (
+      <span className="text-muted-foreground italic line-through">removed</span>
+    ) : state === 'reset' || state === 'unset' ? (
       <span className="text-muted-foreground italic">default</span>
     ) : value === null ? (
       <span className="text-muted-foreground italic">null</span>

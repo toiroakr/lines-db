@@ -1,5 +1,5 @@
 import { useMemo, useState, type KeyboardEvent } from 'react';
-import { Check, CircleAlert, LoaderCircle, RotateCcw, Sparkles, X } from 'lucide-react';
+import { Check, CircleAlert, LoaderCircle, RotateCcw, Sparkles, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -53,6 +53,32 @@ export function CellEditor({
   const issues = edited ? issuesFor(column.name, result) : initialIssues;
   const checkFailed = result && !result.ok && 'failed' in result ? result.failed : undefined;
   const json = column.type === 'JSON';
+
+  if (column.unknown) {
+    return (
+      <div className="grid gap-3" onKeyDown={(event) => event.key === 'Escape' && onClose()}>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-sm font-medium">{column.name}</span>
+          <Badge variant="outline">not in schema</Badge>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          The schema of {table} refuses {column.name} as a key, so no value of it passes. Remove it from this row.
+        </p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {canUseDefault && (
+            <Button size="sm" variant="outline" className="text-destructive" onClick={onUseDefault} autoFocus>
+              <Trash2 /> Remove from row
+            </Button>
+          )}
+          {canRevert && (
+            <Button size="sm" variant="ghost" onClick={onRevert}>
+              <RotateCcw /> Revert
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const apply = () => {
     if ('value' in parsed) onApply(parsed.value);

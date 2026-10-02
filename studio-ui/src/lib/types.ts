@@ -7,6 +7,8 @@ export interface Column {
   primaryKey?: boolean;
   notNull?: boolean;
   valueType?: 'boolean';
+  /** A field the schema refuses as a key, in a table with failing rows: a fix can only remove it */
+  unknown?: boolean;
 }
 
 export interface TableInfo {
