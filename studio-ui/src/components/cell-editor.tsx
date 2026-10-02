@@ -1,5 +1,5 @@
 import { useMemo, useState, type KeyboardEvent } from 'react';
-import { Check, CircleAlert, Eraser, LoaderCircle, RotateCcw, Trash2, X } from 'lucide-react';
+import { Check, CircleAlert, Eraser, LoaderCircle, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -47,6 +47,7 @@ export function CellEditor({
     [],
   );
   const [text, setText] = useState(initial);
+  const [editAnyway, setEditAnyway] = useState(false);
   const parsed = useMemo(() => parseInput(column, text), [column, text]);
   const edited = text !== initial;
   const { result, checking } = useLiveCheck(table, edited && 'value' in parsed ? preview(parsed.value) : undefined);
@@ -54,7 +55,7 @@ export function CellEditor({
   const checkFailed = result && !result.ok && 'failed' in result ? result.failed : undefined;
   const json = column.type === 'JSON';
 
-  if (column.unknown) {
+  if (column.unknown && !editAnyway) {
     return (
       <div className="grid gap-3" onKeyDown={(event) => event.key === 'Escape' && onClose()}>
         <div className="flex items-center gap-2">
@@ -62,7 +63,8 @@ export function CellEditor({
           <Badge variant="outline">not in schema</Badge>
         </div>
         <p className="text-xs text-muted-foreground">
-          The schema of {table} refuses {column.name} as a key, so no value of it passes. Remove it from this row.
+          The schema of {table} looks to refuse {column.name} as a key: removing it clears its issues, and no row that
+          passes has it. Remove it from this row.
         </p>
         <div className="flex flex-wrap items-center gap-1.5">
           {canUseDefault && (
@@ -75,6 +77,14 @@ export function CellEditor({
               <RotateCcw /> Revert
             </Button>
           )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto text-muted-foreground"
+            onClick={() => setEditAnyway(true)}
+          >
+            <Pencil /> Edit the value
+          </Button>
         </div>
       </div>
     );

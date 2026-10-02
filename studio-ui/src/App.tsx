@@ -79,6 +79,8 @@ export function App() {
       if (id !== generation.current) return;
       setMeta(tables);
       setData(rows);
+      // Not kept across a load: a selected key may now name a row the user never saw
+      setSelected(new Set());
       setFilesChanged(false);
     } catch (error) {
       if (id !== generation.current) return;
