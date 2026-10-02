@@ -117,6 +117,18 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
     ]);
   });
 
+  it('keeps every field of a row whose primary key was changed, as its line can no longer be matched by key', async () => {
+    await load('{"id":"a","name":"Alice","nickname":"Ali"}\n');
+
+    await write((tx) => unwrap(tx.update('people', { id: 'z' }, { id: 'a' })));
+
+    expect(JSON.parse(await readFile(peoplePath(), 'utf-8'))).toMatchObject({
+      id: 'z',
+      name: 'Alice',
+      nickname: 'Ali',
+    });
+  });
+
   it('reports the fields of each row that the schema filled in rather than the file', async () => {
     await load('{"id":"a","name":"Alice"}\n{"id":"b","name":"Bob","age":40}\n');
 

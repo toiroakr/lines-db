@@ -86,4 +86,13 @@ describe('LinesDB.hasExternalChanges', () => {
 
     expect(unwrap(await db.hasExternalChanges())).toBe(true);
   });
+
+  it('lists the files that changed, so a caller can tell which table an outside edit touched', async () => {
+    await writeFile(join(dataDir, 'tags.jsonl'), '{"id":1,"label":"b"}\n');
+    await writeFile(join(dataDir, 'notes.jsonl'), '{"id":1}\n');
+
+    expect(unwrap(await db.findExternalChanges()).sort()).toEqual(
+      [join(dataDir, 'notes.jsonl'), join(dataDir, 'tags.jsonl')].sort(),
+    );
+  });
 });

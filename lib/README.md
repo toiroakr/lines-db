@@ -515,7 +515,8 @@ machine, where a change landing in that window is unlikely.
 
 To find out before writing, `hasExternalChanges()` tells whether the files changed since the database
 last read or wrote them: a JSONL file edited, added or removed, or a table's schema file edited, added
-or removed. A long-running process can call it to reload when something else touched the files:
+or removed. `findExternalChanges()` lists those files, for telling which table an outside edit
+touched. A long-running process can call either to reload when something else touched the files:
 
 ```typescript
 if (unwrap(await db.hasExternalChanges())) {

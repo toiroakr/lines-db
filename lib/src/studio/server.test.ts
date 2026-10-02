@@ -320,6 +320,37 @@ describe('studio server', () => {
     expect(response.status).toBe(400);
   });
 
+  it('validates a save made right after a schema file appeared against that schema, not the state loaded before', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'members.jsonl'), '{"id":1,"name":"Alexandria"}\n');
+    studio = await startStudioServer({ dataDir, port: 0 });
+    await writeFile(
+      join(dataDir, 'members.schema.ts'),
+      NAME_REQUIRED_SCHEMA.replace('data.name.length > 0', 'data.name.length > 9'),
+    );
+
+    const response = await patchJson(rowUrl('members', 1), { changes: { name: 'Alex' } });
+
+    expect(response.status).toBe(400);
+    expect(await readFile(join(dataDir, 'members.jsonl'), 'utf8')).toBe('{"id":1,"name":"Alexandria"}\n');
+  });
+
+  it('answers a write whose JSON body is not an object of the expected shape with 400', async () => {
+    const responses = await Promise.all(
+      [null, 'text', { changes: 'not an object' }, { changes: {}, resetToDefault: 'age' }].map((body) =>
+        patchJson(rowUrl('users', 1), body),
+      ),
+    );
+
+    expect(responses.map((response) => response.status)).toEqual([400, 400, 400, 400]);
+  });
+
+  it('fails to start on a port already in use instead of crashing the process', async () => {
+    const { port } = new URL(studio.url);
+
+    await expect(startStudioServer({ dataDir, port: Number(port) })).rejects.toMatchObject({ code: 'EADDRINUSE' });
+  });
+
   it('rejects a request whose Host is not the local server, so a rebound DNS name cannot reach it', async () => {
     const { port } = new URL(studio.url);
 

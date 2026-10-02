@@ -80,13 +80,20 @@ interface PreparedWriteBack {
 interface FieldChanges {
   set: Set<string>;
   reset: Set<string>;
+  /** Whether the row was inserted, rather than read from a line */
+  inserted: boolean;
 }
 
 function cloneFieldChanges(changes: Map<string, Map<string, FieldChanges>>): Map<string, Map<string, FieldChanges>> {
   return new Map(
     Array.from(changes, ([tableName, byRow]) => [
       tableName,
-      new Map(Array.from(byRow, ([rowid, row]) => [rowid, { set: new Set(row.set), reset: new Set(row.reset) }])),
+      new Map(
+        Array.from(byRow, ([rowid, row]) => [
+          rowid,
+          { set: new Set(row.set), reset: new Set(row.reset), inserted: row.inserted },
+        ]),
+      ),
     ]),
   );
 }
@@ -142,7 +149,7 @@ export class LinesDB<Tables extends TableDefs> {
    */
   private observedHashes: Map<string, string> = new Map();
   /** The JSONL files the data directories held when the tables were scanned */
-  private scannedJsonlFiles: string = '';
+  private scannedJsonlFiles: string[] = [];
   /** Each table's schema file and a hash of its content as the tables were loaded, or '' for none */
   private schemaFileStates: Map<string, string> = new Map();
 
@@ -1016,7 +1023,7 @@ export class LinesDB<Tables extends TableDefs> {
   query<T = unknown>(sql: string, params: (string | number | bigint | null | Uint8Array)[] = []): Result<T[], Error> {
     try {
       this.enforceReadOnlySql();
-      return ok(this.queryInternal<T>(sql, params));
+      return ok(this.trackRawSql(() => this.queryInternal<T>(sql, params)));
     } catch (error) {
       return err(toError(error));
     }
@@ -1036,7 +1043,7 @@ export class LinesDB<Tables extends TableDefs> {
   ): Result<T | null, Error> {
     try {
       this.enforceReadOnlySql();
-      return ok(this.queryOneInternal<T>(sql, params));
+      return ok(this.trackRawSql(() => this.queryOneInternal<T>(sql, params)));
     } catch (error) {
       return err(toError(error));
     }
@@ -1060,12 +1067,26 @@ export class LinesDB<Tables extends TableDefs> {
   ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
     try {
       this.enforceReadOnlySql();
-      const result = this.executeInternal(sql, params);
-      if (this.transactionChanges) this.transactionChanges = 'all';
-      return ok(result);
+      return ok(this.trackRawSql(() => this.executeInternal(sql, params)));
     } catch (error) {
       return err(toError(error));
     }
+  }
+
+  /**
+   * Run a caller's SQL, and when it changed rows inside a transaction, write back every table: which
+   * tables raw SQL changed is unknown, and a query() can change rows with RETURNING too
+   */
+  private trackRawSql<T>(run: () => T): T {
+    if (!this.transactionChanges) return run();
+    const before = this.totalChanges();
+    const result = run();
+    if (this.totalChanges() !== before) this.transactionChanges = 'all';
+    return result;
+  }
+
+  private totalChanges(): number {
+    return Number((this.db.prepare('SELECT total_changes() AS n').get() as { n: number | bigint }).n);
   }
 
   private executeInternal(
@@ -1314,7 +1335,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     const values = Object.values(row).map((v) => this.normalizeValue(v));
     const result = this.executeInternal(sql, values);
-    this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(data) });
+    this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(data), inserted: true });
 
     // Auto-sync if not in transaction
     this.afterWrite(tableName);
@@ -1365,7 +1386,7 @@ export class LinesDB<Tables extends TableDefs> {
       const values = columnNames.map((col) => this.normalizeValue(row[col]));
 
       const result = this.executeInternal(sql, values);
-      this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(record) });
+      this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(record), inserted: true });
       totalChanges += BigInt(result.changes);
       lastRowid = BigInt(result.lastInsertRowid);
     }
@@ -1967,7 +1988,9 @@ export class LinesDB<Tables extends TableDefs> {
       const rowChanges = changes?.get(rowids[index]);
       // Not narrowed when the backward transformation renames fields: the line's keys name other fields
       const renamesFields = Object.keys(lineRow).some((key) => !Object.hasOwn(rows[index], key));
-      if (renamesFields || (!line && !rowChanges)) {
+      // Not narrowed without a line unless the row was inserted: a row whose key changed has lost its
+      // line too, and narrowing it would drop the fields that line held
+      if (renamesFields || (!line && !rowChanges?.inserted)) {
         return { written: lineRow, narrowed: false };
       }
 
@@ -2003,10 +2026,15 @@ export class LinesDB<Tables extends TableDefs> {
   private noteFieldChanges(
     tableName: string,
     rowid: number | bigint,
-    changes: { set?: readonly string[]; reset?: readonly string[] },
+    changes: { set?: readonly string[]; reset?: readonly string[]; inserted?: boolean },
   ): void {
     const byRow = this.fieldChanges.get(tableName) ?? new Map<string, FieldChanges>();
-    const rowChanges = byRow.get(String(rowid)) ?? { set: new Set<string>(), reset: new Set<string>() };
+    const rowChanges = byRow.get(String(rowid)) ?? {
+      set: new Set<string>(),
+      reset: new Set<string>(),
+      inserted: false,
+    };
+    if (changes.inserted) rowChanges.inserted = true;
     for (const key of changes.set ?? []) {
       rowChanges.set.add(key);
       rowChanges.reset.delete(key);
@@ -2111,7 +2139,7 @@ export class LinesDB<Tables extends TableDefs> {
    * Write several tables back, checking every file before writing any, so a file changed on disk
    * fails the write-back before it has written part of it
    */
-  private async writeBackTogether(tableNames: string[]): Promise<void> {
+  private async writeBackTogether(tableNames: string[]): Promise<PreparedWriteBack[]> {
     await this.waitForPendingSyncs();
     const prepared = [];
     for (const tableName of tableNames) {
@@ -2124,10 +2152,16 @@ export class LinesDB<Tables extends TableDefs> {
         written.push(table);
       }
     } catch (error) {
-      for (const table of written) {
-        await this.restorePrepared(table).catch(() => {});
-      }
+      await this.restoreAll(written);
       throw error;
+    }
+    return written;
+  }
+
+  /** Put back every written file, going on past one that cannot be put back */
+  private async restoreAll(written: PreparedWriteBack[]): Promise<void> {
+    for (const table of written) {
+      await this.restorePrepared(table).catch(() => {});
     }
   }
 
@@ -2291,32 +2325,49 @@ export class LinesDB<Tables extends TableDefs> {
    */
   async hasExternalChanges(): Promise<Result<boolean, Error>> {
     try {
-      return ok(await this.hasExternalChangesInternal());
+      return ok((await this.findExternalChangesInternal()).length > 0);
     } catch (error) {
       return err(toError(error));
     }
   }
 
-  private async hasExternalChangesInternal(): Promise<boolean> {
+  /**
+   * The files that changed since this database last read or wrote them, as {@link hasExternalChanges}
+   * tells: each JSONL file edited, added or removed, and each schema file edited, added or removed
+   */
+  async findExternalChanges(): Promise<Result<string[], Error>> {
+    try {
+      return ok(await this.findExternalChangesInternal());
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private async findExternalChangesInternal(): Promise<string[]> {
     // A write-back still in flight has written its file before it records the file's hash
     await this.waitForPendingSyncs();
+    const changed = new Set<string>();
 
     for (const [file, knownHash] of this.observedHashes) {
       const content = await readFile(file, 'utf-8').catch((error: NodeJS.ErrnoException) => {
         if (error.code === 'ENOENT') return undefined;
         throw error;
       });
-      if (content === undefined || hashJsonlContent(content) !== knownHash) return true;
+      if (content === undefined || hashJsonlContent(content) !== knownHash) changed.add(file);
     }
 
     const tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
-    if (listJsonlFiles(tables) !== this.scannedJsonlFiles) return true;
+    const scanned = new Set(listJsonlFiles(tables));
+    for (const file of this.scannedJsonlFiles) if (!scanned.has(file)) changed.add(file);
+    for (const file of scanned) if (!this.scannedJsonlFiles.includes(file)) changed.add(file);
 
     for (const [name, knownState] of this.schemaFileStates) {
       const config = tables.get(name);
-      if (config && (await this.schemaFileState(name, config)) !== knownState) return true;
+      if (!config) continue;
+      const state = await this.schemaFileState(name, config);
+      if (state !== knownState) changed.add((state || knownState).split('\0')[0]);
     }
-    return false;
+    return [...changed];
   }
 
   private async schemaFileState(tableName: string, config: TableConfig): Promise<string> {
@@ -2374,7 +2425,10 @@ export class LinesDB<Tables extends TableDefs> {
     }
 
     let fieldChangesBefore: Map<string, Map<string, FieldChanges>> | undefined;
+    let written: PreparedWriteBack[] = [];
     try {
+      // Not beginning first: a pending auto-sync would then read, and write out, rows still uncommitted
+      await this.waitForPendingSyncs();
       fieldChangesBefore = cloneFieldChanges(this.fieldChanges);
       this.db.exec('BEGIN TRANSACTION');
       this.inTransaction = true;
@@ -2385,7 +2439,7 @@ export class LinesDB<Tables extends TableDefs> {
       // Written back before COMMIT, so a failed write-back rolls the change back instead of leaving the
       // database holding rows its files do not; a read-only database has no changes to write back
       if (!this.hasSeveralDataDirs()) {
-        await this.writeBackTogether(this.tablesChangedInTransaction());
+        written = await this.writeBackTogether(this.tablesChangedInTransaction());
       }
 
       this.db.exec('COMMIT');
@@ -2396,6 +2450,8 @@ export class LinesDB<Tables extends TableDefs> {
     } catch (error) {
       this.transactionChanges = undefined;
       if (fieldChangesBefore) this.fieldChanges = fieldChangesBefore;
+      // Not only when writing a file fails: a COMMIT failing after the writes leaves files holding rolled-back rows
+      await this.restoreAll(written);
       if (this.inTransaction) {
         try {
           this.db.exec('ROLLBACK');
@@ -2450,9 +2506,8 @@ export class LinesDB<Tables extends TableDefs> {
   }
 }
 
-function listJsonlFiles(tables: Map<string, TableConfig>): string {
+function listJsonlFiles(tables: Map<string, TableConfig>): string[] {
   return Array.from(tables.values())
     .flatMap((config) => config.jsonlPaths ?? [config.jsonlPath])
-    .sort()
-    .join('\0');
+    .sort();
 }

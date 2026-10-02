@@ -182,12 +182,22 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       sendJson(res, 415, { message: 'Writes must be sent as application/json' });
       return;
     }
-    const body =
-      write.kind === 'delete'
-        ? {}
-        : ((await readJson(req)) as { row?: JsonObject; changes?: JsonObject; resetToDefault?: string[] });
+    const body = write.kind === 'delete' ? {} : writeBody(await readJson(req));
 
     const outcome = await serialize(async (): Promise<{ status: number; body: unknown; changed?: boolean }> => {
+      // Not left to the watcher: its event may not have fired yet, and a changed schema file is no
+      // conflict a write-back detects, so the rows would be validated against the old schema
+      const changedFiles = unwrap(await snapshot.db.findExternalChanges());
+      if (changedFiles.length > 0) {
+        await reloadUnlocked();
+        // Not saved over an outside edit of the edited table's own file: the change was made on rows
+        // the page showed before that edit
+        const ownFile = changedFiles.find((file) => resolvePath(file) === resolvePath(dataDir, `${tableName}.jsonl`));
+        if (ownFile) {
+          const message = `${relative(dataDir, ownFile) || ownFile} changed on disk, so the tables were reloaded. Check the rows and try again.`;
+          return { status: 409, body: { message }, changed: true };
+        }
+      }
       const { db } = snapshot;
       const schema = db.getSchema(tableName);
       if (!schema) return { status: 404, body: { message: `Table '${tableName}' does not exist` } };
@@ -221,7 +231,19 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     if (outcome.changed) notifyChanged();
   }
 
-  await new Promise<void>((resolve) => server.listen(options.port ?? 4848, host, resolve));
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(options.port ?? 4848, host, () => {
+        server.off('error', reject);
+        resolve();
+      });
+    });
+  } catch (error) {
+    watcher.close();
+    await snapshot.db.close();
+    throw error;
+  }
   const { port } = server.address() as AddressInfo;
 
   const url = `http://${host.includes(':') ? `[${host}]` : host}:${port}`;
@@ -305,6 +327,28 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
   return parseJson(Buffer.concat(chunks).toString('utf8'), 'The request body is not JSON');
+}
+
+interface WriteBody {
+  row?: JsonObject;
+  changes?: JsonObject;
+  resetToDefault?: string[];
+}
+
+function writeBody(body: unknown): WriteBody {
+  const isObject = (value: unknown): value is JsonObject =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+  if (!isObject(body)) throw new BadRequestError('The request body must be a JSON object');
+  const { row, changes, resetToDefault } = body;
+  if (row !== undefined && !isObject(row)) throw new BadRequestError('`row` must be an object');
+  if (changes !== undefined && !isObject(changes)) throw new BadRequestError('`changes` must be an object');
+  if (
+    resetToDefault !== undefined &&
+    !(Array.isArray(resetToDefault) && resetToDefault.every((f) => typeof f === 'string'))
+  ) {
+    throw new BadRequestError('`resetToDefault` must be a list of field names');
+  }
+  return { row, changes, resetToDefault: resetToDefault as string[] | undefined };
 }
 
 /** An error in the request itself, answered with 400 */

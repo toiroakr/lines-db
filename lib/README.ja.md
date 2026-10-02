@@ -510,6 +510,7 @@ if (!result.ok && result.error.name === 'JsonlConflictError') {
 
 書き込む前に確かめるには `hasExternalChanges()` を使います。データベースが最後に読んだ／書き込んだ後に、
 JSONL ファイルが変更・追加・削除されたか、テーブルのスキーマファイルが変更・追加・削除されたかを返します。
+`findExternalChanges()` は変わったファイルの一覧を返すので、外部の編集がどのテーブルに及んだかを見分けられます。
 長く動き続けるプロセスでは、別のツールがファイルを書き換えたときに読み直すのに使えます。
 
 ```typescript
