@@ -99,8 +99,19 @@ export interface DatabaseConfig<_Tables extends TableDefs = TableDefs> {
    * Defaults to writing every field of the row.
    */
   writeBackFields?: readonly string[];
+  /**
+   * Which of the values a validation schema fills in - defaults and the fields it computes - a
+   * write-back writes into the file. `'all'` writes every one. `'primaryKey'` writes only a primary
+   * key the schema generated, so a row keeps it, and leaves every other one to the schema: a line then
+   * holds the fields it was written with, an insert was given and an update changed.
+   * Defaults to `'all'`.
+   */
+  writeFilledValues?: WriteFilledValues;
   readonly [TABLES_BRAND]?: _Tables;
 }
+
+/** Which values a validation schema fills in a write-back writes; see {@link DatabaseConfig.writeFilledValues} */
+export type WriteFilledValues = 'all' | 'primaryKey';
 
 export type ExtractTables<Config> = Config extends {
   readonly [TABLES_BRAND]?: infer T;

@@ -403,13 +403,20 @@ unwrap(
   await db.transaction(async (tx) => {
     unwrap(tx.insert('users', { id: 10, name: 'Alice', age: 30 }));
     unwrap(tx.update('users', { age: 31 }, { id: 1 }));
-    // All changes synced atomically on commit
+    // Written back together, then committed
   }),
 );
 ```
 
 `unwrap()` inside the callback turns a failed `tx.insert()`/`tx.update()` into a thrown error, which
 `transaction()` catches and rolls back on - see [Error Handling](#error-handling).
+
+Once the callback is done, `transaction()` writes back the tables it changed through
+`tx.insert()`/`tx.update()`/`tx.delete()` and their batch variants, before it commits. Every file is
+checked before the first one is written, and a write-back that fails rolls the transaction back and
+puts the files it already wrote back to what they held, so the database keeps matching its files.
+Putting a file back is a write too; when that write fails as well, the file keeps the change. Tables the transaction did not change are left as they are; raw
+SQL through `tx.execute()` writes back every table, since the tables it changed are unknown.
 
 ### Files Changed After Loading
 
@@ -426,16 +433,69 @@ if (!result.ok && result.error.name === 'JsonlConflictError') {
 }
 ```
 
-To pick up the changes, create the database again and call `initialize()`, then retry the write. Do
-not retry on the same instance: `transaction()` commits before it writes the files, so the database
-already holds the change the file did not get. `transaction()` and `sync()` without a table name write
-back every table, so a change to any table's file fails them. An auto-sync after a write outside a
-transaction fails the same way, and reports the error through `console.error`.
+To pick up the changes, create the database again and call `initialize()`, then retry the write. A
+failed `transaction()` has rolled its change back and writes back only the tables it changed, so only
+a change to one of those files fails it. `sync()` and the auto-sync after a write outside a transaction
+have nothing to roll back - the database keeps the change the file did not get - and `sync()` without a
+table name writes back every table, so a change to any table's file fails it. An auto-sync reports the
+error through `console.error`.
 
 The file is checked right before it is written, with no lock held in between, so a change saved in
 the instant between the check and the write - by an editor or by another process writing the same
 file - is still overwritten. The check is meant for a single user editing files on their own
 machine, where a change landing in that window is unlikely.
+
+To find out before writing, `hasExternalChanges()` tells whether the files changed since the database
+last read or wrote them: a JSONL file edited, added or removed, or a table's schema file edited, added
+or removed. A long-running process can call it to reload when something else touched the files:
+
+```typescript
+if (unwrap(await db.hasExternalChanges())) {
+  await db.close();
+  db = LinesDB.create(config);
+  unwrap(await db.initialize());
+}
+```
+
+### Values the Schema Fills In
+
+A sync writes each row back in full by default, so a value the validation schema fills in - a default,
+or a field it computes - is written into the line. Set `writeFilledValues: 'primaryKey'` to write back
+only the fields a user wrote instead: the ones a row's line holds, the ones an `insert()` was given,
+and the ones an `update()` changed. Every other value the schema fills in stays out of the file, so a
+line keeps leaving it to the schema. A primary key the schema generates is still written, so the row
+keeps the same key the next time it is loaded.
+
+```typescript
+const db = LinesDB.create({ dataDir: './data', writeFilledValues: 'primaryKey' });
+// people.jsonl: {"id":1,"name":"Alice"}   (the schema defaults age to 20)
+unwrap(await db.transaction((tx) => unwrap(tx.update('people', { name: 'Alicia' }, { id: 1 }))));
+// people.jsonl: {"id":1,"name":"Alicia"}  (age is still left to the schema)
+```
+
+A single sync can choose for itself with `sync(tableName, { writeFilledValues })`. Setting a field to
+the value it already holds is not a change, so a field the schema filled in stays out of the line
+when it is set to that same value. Fields named in `writeBackFields` or `sync(..., { fields })` are
+written even when the schema filled them in.
+
+To hand a field the line holds back to the schema, reset it; the row then holds the value the schema
+fills in, and with `writeFilledValues: 'primaryKey'` its line loses the field:
+
+```typescript
+unwrap(db.update('people', {}, { id: 1 }, { resetToDefault: ['age'] }));
+```
+
+`findWithDefaults()` lists the rows with the fields the schema filled in on each - the ones the file
+does not hold - for showing them apart from the values in the file:
+
+```typescript
+unwrap(await db.findWithDefaults('people'));
+// [{ row: { id: 1, name: 'Alicia', age: 20 }, defaulted: ['age'] }]
+```
+
+A row whose backward transformation renames fields, and a row with neither a line nor a recorded
+write (one added with raw SQL), is written whole, since there is no way to tell which of its fields a
+user wrote.
 
 ### Writing Back Only Some Fields
 

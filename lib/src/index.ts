@@ -1,5 +1,5 @@
 export { LinesDB } from './database.js';
-export type { SyncOptions } from './database.js';
+export type { SyncOptions, UpdateOptions } from './database.js';
 export { JsonlReader } from './jsonl-reader.js';
 export type { JsonlSnapshot } from './jsonl-reader.js';
 export { ok, err, unwrap } from './result.js';
@@ -31,6 +31,7 @@ export type {
   TableSchema,
   ColumnDefinition,
   DatabaseConfig,
+  WriteFilledValues,
   TableConfig,
   JsonValue,
   JsonObject,

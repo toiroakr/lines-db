@@ -6,6 +6,7 @@ import { DirectoryScanner } from './directory-scanner.js';
 import { hasBackward } from './schema.js';
 import { mergeFields } from './merge-fields.js';
 import { findSchemaFile } from './schema-extensions.js';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type {
   DatabaseConfig,
@@ -17,6 +18,7 @@ import type {
   JsonlConflictError,
   Table,
   TableDefs,
+  WriteFilledValues,
   WhereCondition,
   ValidationResult,
   ValidationErrorDetail,
@@ -25,6 +27,19 @@ import type {
 } from './types.js';
 import type { BiDirectionalSchema } from './schema.js';
 import { type Result, ok, err, toError, unwrap } from './result.js';
+
+/**
+ * Options for {@link LinesDB.update}
+ */
+export interface UpdateOptions {
+  /** Validate each updated row against the table's schema. Defaults to true */
+  validate?: boolean;
+  /**
+   * Fields to leave to the schema: each updated row stores the value its schema fills in for them, and
+   * a write-back removes them from the row's line
+   */
+  resetToDefault?: readonly string[];
+}
 
 /**
  * Options for {@link LinesDB.sync}
@@ -39,6 +54,11 @@ export interface SyncOptions {
    * Defaults to `writeBackFields` from the database config, or writing every field of the row.
    */
   fields?: readonly string[];
+  /**
+   * Which values the validation schema fills in to write into the file.
+   * Defaults to `writeFilledValues` from the database config, or `'all'`.
+   */
+  writeFilledValues?: WriteFilledValues;
 }
 
 /**
@@ -46,6 +66,46 @@ export interface SyncOptions {
  * rejects them, while a sync covering every table just leaves them out.
  */
 type InternalSyncOptions = SyncOptions & { strictFields?: boolean };
+
+/** The rows a table is about to be written back as, and what its file held before */
+interface PreparedWriteBack {
+  tableName: string;
+  jsonlPath: string;
+  rows: JsonObject[];
+  /** Undefined when the file did not exist */
+  previousContent: string | undefined;
+}
+
+/** The fields set and reset on a row since its table was last written back */
+interface FieldChanges {
+  set: Set<string>;
+  reset: Set<string>;
+}
+
+function cloneFieldChanges(changes: Map<string, Map<string, FieldChanges>>): Map<string, Map<string, FieldChanges>> {
+  return new Map(
+    Array.from(changes, ([tableName, byRow]) => [
+      tableName,
+      new Map(Array.from(byRow, ([rowid, row]) => [rowid, { set: new Set(row.set), reset: new Set(row.reset) }])),
+    ]),
+  );
+}
+
+/** Column alias a query reads a row's rowid under, next to its fields */
+const ROWID_ALIAS = '__lines_db_rowid';
+
+/** The fields a row given to an insert names, leaving out those it leaves undefined */
+function givenFields(row: object): string[] {
+  return Object.entries(row)
+    .filter(([, value]) => value !== undefined)
+    .map(([key]) => key);
+}
+
+/** Whether a value read from SQLite and one about to be stored are the same */
+function sameStoredValue(stored: unknown, next: unknown): boolean {
+  if (stored === null || stored === undefined || next === null) return (stored ?? null) === next;
+  return String(stored) === String(next);
+}
 
 /** The JSONL file a row was read from, and its index among that file's rows */
 interface RowOrigin {
@@ -65,8 +125,26 @@ export class LinesDB<Tables extends TableDefs> {
   private keyOrders: Map<string, Set<string>> = new Map();
   /** The row each rowid was inserted from, per table loaded with detailed validation */
   private rowOriginsByRowid: Map<string, Map<string, RowOrigin>> = new Map();
+  /**
+   * The fields set and reset on each row (by rowid) since its table was last written back: a line
+   * holds the fields a user wrote, so only what changed since it was written needs remembering
+   */
+  private fieldChanges: Map<string, Map<string, FieldChanges>> = new Map();
+  /** The fields a migration transform set on the rows of a table while loading it */
+  private transformedFields: Map<string, Set<string>> = new Map();
+  /** The tables changed in the running transaction, or 'all' once raw SQL may have changed any */
+  private transactionChanges: Set<string> | 'all' | undefined;
   /** Hash of each JSONL file's content as this database last read or wrote it */
   private fileHashes: Map<string, string> = new Map();
+  /**
+   * Hash of each JSONL file's content as this database last read or wrote it, kept for a table that
+   * failed to load too: unlike fileHashes, it only tells whether a file changed and guards no write
+   */
+  private observedHashes: Map<string, string> = new Map();
+  /** The JSONL files the data directories held when the tables were scanned */
+  private scannedJsonlFiles: string = '';
+  /** Each table's schema file and a hash of its content as the tables were loaded, or '' for none */
+  private schemaFileStates: Map<string, string> = new Map();
 
   private constructor(config: DatabaseConfig<Tables>, dbPath?: string) {
     this.config = config;
@@ -134,6 +212,12 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Scan directory for JSONL files
     this.tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
+    this.scannedJsonlFiles = listJsonlFiles(this.tables);
+    this.observedHashes.clear();
+    this.schemaFileStates.clear();
+    for (const [name, config] of this.tables) {
+      this.schemaFileStates.set(name, await this.schemaFileState(name, config));
+    }
 
     // Determine which tables to load
     const tablesToLoad = tableName ? [tableName] : Array.from(this.tables.keys());
@@ -423,6 +507,7 @@ export class LinesDB<Tables extends TableDefs> {
       }
       if (contentHash !== undefined) {
         contentHashes.set(jsonlPath, contentHash);
+        this.observedHashes.set(jsonlPath, contentHash);
       }
       rows.value.forEach((row, rowIndex) => {
         data.push(row);
@@ -432,7 +517,15 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Apply transform if provided (before validation)
     if (transform) {
-      data = data.map((row) => transform(row));
+      const changed = new Set<string>();
+      data = data.map((row) => {
+        const transformed = transform(row);
+        for (const key of Object.keys(transformed)) {
+          if (JSON.stringify(transformed[key]) !== JSON.stringify(row[key])) changed.add(key);
+        }
+        return transformed;
+      });
+      this.transformedFields.set(tableName, changed);
     }
 
     // Load validation schema if provided or try to auto-load
@@ -967,7 +1060,9 @@ export class LinesDB<Tables extends TableDefs> {
   ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
     try {
       this.enforceReadOnlySql();
-      return ok(this.executeInternal(sql, params));
+      const result = this.executeInternal(sql, params);
+      if (this.transactionChanges) this.transactionChanges = 'all';
+      return ok(result);
     } catch (error) {
       return err(toError(error));
     }
@@ -1204,28 +1299,25 @@ export class LinesDB<Tables extends TableDefs> {
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
     this.assertWritable(tableName);
 
-    // Validate if schema exists
-    this.validateData(tableName, data);
+    // Not inserting the row as given: a value the schema fills in would be missing, unlike in a loaded row
+    const row = this.validateAndTransform(tableName, data);
 
     const schema = this.schemas.get(tableName);
     if (!schema) {
       throw new Error(`Table ${tableName} does not exist`);
     }
 
-    const columnNames = Object.keys(data);
+    const columnNames = Object.keys(row);
     const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
     const placeholders = columnNames.map(() => '?').join(', ');
     const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
 
-    const values = Object.values(data).map((v) => this.normalizeValue(v));
+    const values = Object.values(row).map((v) => this.normalizeValue(v));
     const result = this.executeInternal(sql, values);
+    this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(data) });
 
     // Auto-sync if not in transaction
-    if (!this.inTransaction) {
-      this.syncTable(tableName).catch((err) => {
-        console.error(`Failed to sync table ${tableName}:`, err);
-      });
-    }
+    this.afterWrite(tableName);
 
     return result;
   }
@@ -1263,25 +1355,22 @@ export class LinesDB<Tables extends TableDefs> {
     let lastRowid = 0n;
 
     for (const record of records) {
-      this.validateData(tableName, record);
+      const row = this.validateAndTransform(tableName, record);
 
-      const columnNames = Object.keys(record);
+      const columnNames = Object.keys(row);
       const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
       const placeholders = columnNames.map(() => '?').join(', ');
       const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
 
-      const values = columnNames.map((col) => this.normalizeValue(record[col as keyof Tables[K]]));
+      const values = columnNames.map((col) => this.normalizeValue(row[col]));
 
       const result = this.executeInternal(sql, values);
+      this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(record) });
       totalChanges += BigInt(result.changes);
       lastRowid = BigInt(result.lastInsertRowid);
     }
 
-    if (!this.inTransaction) {
-      this.syncTable(tableName).catch((err) => {
-        console.error(`Failed to sync table ${tableName}:`, err);
-      });
-    }
+    this.afterWrite(tableName);
 
     return {
       changes: totalChanges,
@@ -1299,7 +1388,7 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     data: Partial<Tables[K]>,
     where: WhereCondition<Tables[K]>,
-    options?: { validate?: boolean },
+    options?: UpdateOptions,
   ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
     try {
       return ok(this.updateInternal(tableName, data, where, options));
@@ -1312,7 +1401,7 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     data: Partial<Tables[K]>,
     where: WhereCondition<Tables[K]>,
-    options?: { validate?: boolean },
+    options?: UpdateOptions,
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
     this.assertWritable(tableName);
 
@@ -1342,21 +1431,35 @@ export class LinesDB<Tables extends TableDefs> {
       throw new Error('Function filters are not supported in update operations');
     }
 
-    const setClauses = Object.keys(data)
-      .map((key) => `${this.quoteIdentifier(key)} = ?`)
-      .join(', ');
-    const sql = `UPDATE ${this.quoteTableName(tableName)} SET ${setClauses} WHERE ${whereSql}`;
+    const targets = this.queryInternal<JsonObject>(
+      `SELECT rowid AS "${ROWID_ALIAS}", * FROM ${this.quoteTableName(tableName)} WHERE ${whereSql}`,
+      whereValues,
+    );
 
-    const values = [...Object.values(data).map((v) => this.normalizeValue(v)), ...whereValues];
+    let result: { changes: number | bigint; lastInsertRowid: number | bigint } = { changes: 0, lastInsertRowid: 0 };
+    if (Object.keys(data).length > 0) {
+      const setClauses = Object.keys(data)
+        .map((key) => `${this.quoteIdentifier(key)} = ?`)
+        .join(', ');
+      const sql = `UPDATE ${this.quoteTableName(tableName)} SET ${setClauses} WHERE ${whereSql}`;
+      const values = [...Object.values(data).map((v) => this.normalizeValue(v)), ...whereValues];
+      result = this.executeInternal(sql, values);
+    }
 
-    const result = this.executeInternal(sql, values);
+    for (const target of targets) {
+      const set = Object.keys(data).filter(
+        (key) => !sameStoredValue(target[key], this.normalizeValue((data as Record<string, unknown>)[key])),
+      );
+      this.noteFieldChanges(tableName, target[ROWID_ALIAS] as number | bigint, { set });
+    }
+
+    const resetFields = options?.resetToDefault ?? [];
+    if (resetFields.length > 0) {
+      result = this.resetToDefault(tableName, targets, data as JsonObject, resetFields);
+    }
 
     // Auto-sync if not in transaction
-    if (!this.inTransaction) {
-      this.syncTable(tableName).catch((err) => {
-        console.error(`Failed to sync table ${tableName}:`, err);
-      });
-    }
+    this.afterWrite(tableName);
 
     return result;
   }
@@ -1536,15 +1639,20 @@ export class LinesDB<Tables extends TableDefs> {
       throw new Error('Function filters are not supported in delete operations');
     }
 
+    // A deleted row's rowid can be given to a row inserted later, which must not inherit its changes
+    const deleted = this.queryInternal<JsonObject>(
+      `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)} WHERE ${whereSql}`,
+      values,
+    );
+    for (const row of deleted) {
+      this.fieldChanges.get(tableName)?.delete(String(row[ROWID_ALIAS]));
+    }
+
     const sql = `DELETE FROM ${this.quoteTableName(tableName)} WHERE ${whereSql}`;
     const result = this.executeInternal(sql, values);
 
     // Auto-sync if not in transaction
-    if (!this.inTransaction) {
-      this.syncTable(tableName).catch((err) => {
-        console.error(`Failed to sync table ${tableName}:`, err);
-      });
-    }
+    this.afterWrite(tableName);
 
     return result;
   }
@@ -1598,11 +1706,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     const result = this.executeInternal(sql, values);
 
-    if (!this.inTransaction) {
-      this.syncTable(tableName).catch((err) => {
-        console.error(`Failed to sync table ${tableName}:`, err);
-      });
-    }
+    this.afterWrite(tableName);
 
     return {
       changes: BigInt(result.changes),
@@ -1785,6 +1889,14 @@ export class LinesDB<Tables extends TableDefs> {
    * Uses backward transformation when available
    */
   private async writeTable(tableName: string, options?: InternalSyncOptions): Promise<void> {
+    await this.writePrepared(await this.prepareWriteBack(tableName, options));
+  }
+
+  /**
+   * The rows a table is written back as, laid over the lines of its file; fails when the file changed
+   * since this database last read or wrote it
+   */
+  private async prepareWriteBack(tableName: string, options?: InternalSyncOptions): Promise<PreparedWriteBack> {
     this.assertWritable(tableName);
 
     const tableConfig = this.tables.get(tableName);
@@ -1795,32 +1907,227 @@ export class LinesDB<Tables extends TableDefs> {
     // Get all rows from the table. Order by rowid so the rows arrive in insertion order:
     // without it SQLite may return them in any order, and matching rows to their existing
     // line by position depends on that order being the one the file was read in.
-    const rows = this.queryInternal<JsonObject>(`SELECT * FROM ${this.quoteTableName(tableName)} ORDER BY rowid`);
+    const { rowids, rows: deserializedRows, lineRows } = this.readStoredRows(tableName);
+    let finalRows = lineRows;
 
-    // Deserialize JSON columns
-    const deserializedRows = rows.map((row) => this.deserializeRow(tableName, row));
-
-    // Apply backward transformation if available
-    const validationSchema = this.validationSchemas.get(tableName);
-    let finalRows = deserializedRows;
-
-    if (validationSchema && hasBackward(validationSchema)) {
-      const biSchema = validationSchema as BiDirectionalSchema<Table, Table>;
-      finalRows = deserializedRows.map((row) => biSchema.backward!(row) as JsonObject);
-    }
-
+    const previousContent = await readFile(tableConfig.jsonlPath, 'utf-8').catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return undefined;
+      throw error;
+    });
     const existingRows = await this.readUnchangedRows(tableConfig.jsonlPath);
 
     // An empty list means no field is written back, not that every field is
     const fields = options?.fields ?? this.config.writeBackFields;
+    if ((options?.writeFilledValues ?? this.config.writeFilledValues ?? 'all') === 'primaryKey') {
+      finalRows = this.keepWrittenFields(tableName, rowids, deserializedRows, finalRows, existingRows, fields).map(
+        ({ written }) => written,
+      );
+    }
     finalRows = this.mergeWithExistingLines(tableName, existingRows, finalRows, {
       fields,
       strictFields: options?.strictFields ?? false,
     });
 
-    // Write back to JSONL file
-    await JsonlWriter.write(tableConfig.jsonlPath, finalRows);
-    this.fileHashes.set(tableConfig.jsonlPath, hashJsonlContent(JsonlWriter.serialize(finalRows)));
+    return { tableName, jsonlPath: tableConfig.jsonlPath, rows: finalRows, previousContent };
+  }
+
+  /**
+   * Every row of a table in rowid order - the order the file was read in - as stored and as its line
+   * would hold it, after the backward transformation
+   */
+  private readStoredRows(tableName: string): { rowids: string[]; rows: JsonObject[]; lineRows: JsonObject[] } {
+    const stored = this.queryInternal<JsonObject>(
+      `SELECT rowid AS "${ROWID_ALIAS}", * FROM ${this.quoteTableName(tableName)} ORDER BY rowid`,
+    );
+    const rowids = stored.map((row) => String(row[ROWID_ALIAS]));
+    const rows = stored.map(({ [ROWID_ALIAS]: _rowid, ...row }) => this.deserializeRow(tableName, row));
+
+    const validationSchema = this.validationSchemas.get(tableName);
+    const lineRows =
+      validationSchema && hasBackward(validationSchema)
+        ? rows.map((row) => (validationSchema as BiDirectionalSchema<Table, Table>).backward!(row) as JsonObject)
+        : rows;
+    return { rowids, rows, lineRows };
+  }
+
+  /**
+   * Narrow each row to the fields a user wrote - the ones its line holds, plus those set since and
+   * minus those reset to their default - its primary key and the fields named to be written back, so
+   * a value the schema fills in stays out of the file
+   */
+  private keepWrittenFields(
+    tableName: string,
+    rowids: string[],
+    rows: JsonObject[],
+    lineRows: JsonObject[],
+    existingRows: JsonObject[],
+    namedFields: readonly string[] = [],
+  ): Array<{ written: JsonObject; narrowed: boolean }> {
+    const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
+    const lines = this.matchExistingRows(tableName, lineRows, existingRows, { required: false });
+    const changes = this.fieldChanges.get(tableName);
+    const transformed = this.transformedFields.get(tableName) ?? new Set<string>();
+
+    return lineRows.map((lineRow, index) => {
+      const line = lines?.[index];
+      const rowChanges = changes?.get(rowids[index]);
+      // Not narrowed when the backward transformation renames fields: the line's keys name other fields
+      const renamesFields = Object.keys(lineRow).some((key) => !(key in rows[index]));
+      if (renamesFields || (!line && !rowChanges)) {
+        return { written: lineRow, narrowed: false };
+      }
+
+      const keep = new Set([...Object.keys(line ?? {}), ...transformed, ...(rowChanges?.set ?? [])]);
+      for (const key of rowChanges?.reset ?? []) keep.delete(key);
+      for (const key of namedFields) keep.add(key);
+      if (pkName) keep.add(pkName);
+      return {
+        written: Object.fromEntries(Object.entries(lineRow).filter(([key]) => keep.has(key))) as JsonObject,
+        narrowed: true,
+      };
+    });
+  }
+
+  private noteFieldChanges(
+    tableName: string,
+    rowid: number | bigint,
+    changes: { set?: readonly string[]; reset?: readonly string[] },
+  ): void {
+    const byRow = this.fieldChanges.get(tableName) ?? new Map<string, FieldChanges>();
+    const rowChanges = byRow.get(String(rowid)) ?? { set: new Set<string>(), reset: new Set<string>() };
+    for (const key of changes.set ?? []) {
+      rowChanges.set.add(key);
+      rowChanges.reset.delete(key);
+    }
+    for (const key of changes.reset ?? []) {
+      rowChanges.reset.add(key);
+      rowChanges.set.delete(key);
+    }
+    byRow.set(String(rowid), rowChanges);
+    this.fieldChanges.set(tableName, byRow);
+  }
+
+  /**
+   * Store the value the schema fills in for each reset field, as validating the row without the field
+   * gives it, and remember the field as reset so it leaves the line
+   */
+  private resetToDefault(
+    tableName: string,
+    targets: JsonObject[],
+    data: JsonObject,
+    fields: readonly string[],
+  ): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    let changes = 0n;
+    for (const target of targets) {
+      const { [ROWID_ALIAS]: rowid, ...stored } = target;
+      const row = { ...this.deserializeRow(tableName, stored), ...data };
+      for (const field of fields) delete row[field];
+      const validated = this.validateAndTransform(tableName, row);
+
+      const setClauses = fields.map((field) => `${this.quoteIdentifier(field)} = ?`).join(', ');
+      const values = fields.map((field) => this.normalizeValue(validated[field]));
+      const result = this.executeInternal(
+        `UPDATE ${this.quoteTableName(tableName)} SET ${setClauses} WHERE rowid = ?`,
+        [...values, rowid as number | bigint],
+      );
+      changes += BigInt(result.changes);
+      this.noteFieldChanges(tableName, rowid as number | bigint, { reset: fields });
+    }
+    return { changes, lastInsertRowid: 0 };
+  }
+
+  /**
+   * Every row of a table with the fields the schema filled in rather than the file: the ones its line
+   * does not hold and no write set, which a write-back leaves out of the file
+   */
+  async findWithDefaults<K extends keyof Tables & string>(
+    tableName: K,
+  ): Promise<Result<Array<{ row: Tables[K]; defaulted: string[] }>, Error>> {
+    try {
+      const tableConfig = this.tables.get(tableName);
+      if (!tableConfig || !this.schemas.has(tableName)) {
+        throw new Error(`Table '${tableName}' is not loaded`);
+      }
+      const { rowids, rows, lineRows } = this.readStoredRows(tableName);
+      const read = await JsonlReader.read(tableConfig.jsonlPath);
+      if (!read.ok && (read.error as NodeJS.ErrnoException).code !== 'ENOENT') throw read.error;
+      const existingRows = read.ok ? read.value : [];
+
+      const kept = this.keepWrittenFields(tableName, rowids, rows, lineRows, existingRows, this.config.writeBackFields);
+      return ok(
+        rows.map((row, index) => ({
+          row: row as Tables[K],
+          defaulted: kept[index].narrowed ? Object.keys(row).filter((key) => !(key in kept[index].written)) : [],
+        })),
+      );
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private async writePrepared({ tableName, jsonlPath, rows }: PreparedWriteBack): Promise<void> {
+    await JsonlWriter.write(jsonlPath, rows);
+    this.fieldChanges.delete(tableName);
+    this.transformedFields.delete(tableName);
+    const contentHash = hashJsonlContent(JsonlWriter.serialize(rows));
+    this.fileHashes.set(jsonlPath, contentHash);
+    this.observedHashes.set(jsonlPath, contentHash);
+  }
+
+  /**
+   * Write a table back to its file, or leave it to the running transaction, which writes back the
+   * tables it changed once its callback is done
+   */
+  private afterWrite(tableName: string): void {
+    if (this.transactionChanges) {
+      if (this.transactionChanges !== 'all') this.transactionChanges.add(tableName);
+      return;
+    }
+    this.syncTable(tableName).catch((err) => {
+      console.error(`Failed to sync table ${tableName}:`, err);
+    });
+  }
+
+  private tablesChangedInTransaction(): string[] {
+    const changes = this.transactionChanges;
+    return changes === 'all' ? Array.from(this.schemas.keys()) : Array.from(changes ?? []);
+  }
+
+  /**
+   * Write several tables back, checking every file before writing any, so a file changed on disk
+   * fails the write-back before it has written part of it
+   */
+  private async writeBackTogether(tableNames: string[]): Promise<void> {
+    await this.waitForPendingSyncs();
+    const prepared = [];
+    for (const tableName of tableNames) {
+      prepared.push(await this.prepareWriteBack(tableName));
+    }
+    const written: PreparedWriteBack[] = [];
+    try {
+      for (const table of prepared) {
+        await this.writePrepared(table);
+        written.push(table);
+      }
+    } catch (error) {
+      for (const table of written) {
+        await this.restorePrepared(table).catch(() => {});
+      }
+      throw error;
+    }
+  }
+
+  /** Put back the content a file held before {@link writePrepared} wrote over it */
+  private async restorePrepared({ jsonlPath, previousContent }: PreparedWriteBack): Promise<void> {
+    if (previousContent === undefined) {
+      await rm(jsonlPath, { force: true });
+      this.fileHashes.delete(jsonlPath);
+      this.observedHashes.delete(jsonlPath);
+      return;
+    }
+    await writeFile(jsonlPath, previousContent, 'utf-8');
+    this.fileHashes.set(jsonlPath, hashJsonlContent(previousContent));
+    this.observedHashes.set(jsonlPath, hashJsonlContent(previousContent));
   }
 
   /**
@@ -1963,6 +2270,49 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
+   * Tell whether the files the tables were loaded from changed since this database last read or
+   * wrote them: a JSONL file was edited, added or removed, or a table's schema file was edited, added
+   * or removed. When they did, the database holds rows or a schema the files no longer have; create it
+   * again and call initialize() to load the current files.
+   */
+  async hasExternalChanges(): Promise<Result<boolean, Error>> {
+    try {
+      return ok(await this.hasExternalChangesInternal());
+    } catch (error) {
+      return err(toError(error));
+    }
+  }
+
+  private async hasExternalChangesInternal(): Promise<boolean> {
+    // A write-back still in flight has written its file before it records the file's hash
+    await this.waitForPendingSyncs();
+
+    for (const [file, knownHash] of this.observedHashes) {
+      const content = await readFile(file, 'utf-8').catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return undefined;
+        throw error;
+      });
+      if (content === undefined || hashJsonlContent(content) !== knownHash) return true;
+    }
+
+    const tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
+    if (listJsonlFiles(tables) !== this.scannedJsonlFiles) return true;
+
+    for (const [name, knownState] of this.schemaFileStates) {
+      const config = tables.get(name);
+      if (config && (await this.schemaFileState(name, config)) !== knownState) return true;
+    }
+    return false;
+  }
+
+  private async schemaFileState(tableName: string, config: TableConfig): Promise<string> {
+    if (config.validationSchema) return '';
+    const schemaPath = await this.findTableSchemaFile(tableName, config);
+    if (!schemaPath) return '';
+    return `${schemaPath}\0${hashJsonlContent(await readFile(schemaPath, 'utf-8'))}`;
+  }
+
+  /**
    * Sync database changes back to JSONL files
    * Uses backward transformation when available
    * @param tableName Optional table name to sync. If not provided, syncs all loaded tables
@@ -2009,21 +2359,29 @@ export class LinesDB<Tables extends TableDefs> {
       return err(new Error('Nested transactions are not supported'));
     }
 
+    let fieldChangesBefore: Map<string, Map<string, FieldChanges>> | undefined;
     try {
+      fieldChangesBefore = cloneFieldChanges(this.fieldChanges);
       this.db.exec('BEGIN TRANSACTION');
       this.inTransaction = true;
+      this.transactionChanges = new Set();
 
       const result = await fn(this);
+
+      // Written back before COMMIT, so a failed write-back rolls the change back instead of leaving the
+      // database holding rows its files do not; a read-only database has no changes to write back
+      if (!this.hasSeveralDataDirs()) {
+        await this.writeBackTogether(this.tablesChangedInTransaction());
+      }
+
       this.db.exec('COMMIT');
       this.inTransaction = false;
-
-      // Sync all tables after successful commit; a read-only database has no changes to write back
-      if (!this.hasSeveralDataDirs()) {
-        await this.syncInternal();
-      }
+      this.transactionChanges = undefined;
 
       return ok(result);
     } catch (error) {
+      this.transactionChanges = undefined;
+      if (fieldChangesBefore) this.fieldChanges = fieldChangesBefore;
       if (this.inTransaction) {
         try {
           this.db.exec('ROLLBACK');
@@ -2076,4 +2434,11 @@ export class LinesDB<Tables extends TableDefs> {
   getDb(): SQLiteDatabase {
     return this.db;
   }
+}
+
+function listJsonlFiles(tables: Map<string, TableConfig>): string {
+  return Array.from(tables.values())
+    .flatMap((config) => config.jsonlPaths ?? [config.jsonlPath])
+    .sort()
+    .join('\0');
 }
