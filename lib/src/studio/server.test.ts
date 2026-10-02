@@ -466,6 +466,45 @@ describe('studio server', () => {
     expect(column('note')).toMatchObject({ nullable: true, optional: false });
   });
 
+  it('says of each object in a JSON column whether the schema takes keys it does not name, and which keys can be left out', async () => {
+    await studio.close();
+    await writeFile(
+      join(dataDir, 'orders.jsonl'),
+      '{"id":1,"meta":{"source":"web","note":"x"},"tags":{"a":"b"},"items":[{"name":"n","gift":true}]}\n',
+    );
+    await writeFile(
+      join(dataDir, 'orders.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        const issues = [];
+        for (const key of Object.keys(data.meta)) if (key !== 'source' && key !== 'note') issues.push({ message: 'unknown', path: ['meta', key] });
+        if (!('source' in data.meta)) issues.push({ message: 'required', path: ['meta', 'source'] });
+        for (const [index, item] of data.items.entries()) {
+          for (const key of Object.keys(item)) if (key !== 'name' && key !== 'gift') issues.push({ message: 'unknown', path: ['items', index, key] });
+          if (!('name' in item)) issues.push({ message: 'required', path: ['items', index, 'name'] });
+        }
+        return issues.length ? { issues } : { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const orders = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'orders',
+    );
+    const nested = (name: string) => orders.columns.find((column: { name: string }) => column.name === name).nested;
+
+    expect(nested('meta')).toMatchObject({
+      '': { open: false },
+      source: { optional: false },
+      note: { optional: true },
+    });
+    expect(nested('tags')).toMatchObject({ '': { open: true }, a: { optional: true } });
+    expect(nested('items')).toMatchObject({
+      '*': { open: false },
+      '*.name': { optional: false },
+      '*.gift': { optional: true },
+    });
+  });
+
   it('lists the schema file of each table, or null for a table without one', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'notes.jsonl'), '{"title":"first"}\n');

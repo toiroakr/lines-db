@@ -3,13 +3,13 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { ValueField } from './value-field';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import type { Issue, JsonValue } from '@/lib/types';
+import type { Issue, JsonValue, NestedLeeway } from '@/lib/types';
 
-const field = (value: JsonValue, issues: Issue[] = []) => {
+const field = (value: JsonValue, issues: Issue[] = [], leeway?: Record<string, NestedLeeway>) => {
   const onChange = vi.fn();
   render(
     <TooltipProvider>
-      <ValueField path={['metadata']} value={value} issues={issues} onChange={onChange} />
+      <ValueField path={['metadata']} value={value} issues={issues} leeway={leeway} onChange={onChange} />
     </TooltipProvider>,
   );
   return onChange;
@@ -118,5 +118,18 @@ describe('ValueField', () => {
     await userEvent.click(screen.getByRole('button', { name: 'false' }));
 
     expect(onChange).toHaveBeenLastCalledWith({ gift: false });
+  });
+
+  it('offers no new key for an object the schema takes no keys of beyond those it names', () => {
+    field({ source: 'web' }, [], { '': { open: false } });
+
+    expect(screen.queryByRole('button', { name: 'Add a key to metadata' })).toBeNull();
+  });
+
+  it('offers no removal of a key the schema needs, in each item of a list alike', () => {
+    field([{ name: 'a', gift: true }], [], { '*.name': { optional: false }, '*.gift': { optional: true } });
+
+    expect(screen.queryByRole('button', { name: 'Remove metadata.0.name' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Remove metadata.0.gift' })).toBeTruthy();
   });
 });

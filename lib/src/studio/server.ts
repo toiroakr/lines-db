@@ -489,24 +489,112 @@ async function loadSnapshot(dataDir: string, writeFilledValues: WriteFilledValue
  * the column counts as taking it when no issue is about that field; an issue about another field is
  * the row's own and says nothing of this one
  */
-function withLeeway<Column extends { name: string }>(
+function withLeeway<Column extends { name: string; type?: string }>(
   db: LinesDB<TableDefs>,
   tableName: string,
   sample: JsonObject | undefined,
   columns: Column[],
-): Array<Column & { nullable: boolean; optional: boolean }> {
+): Array<Column & { nullable: boolean; optional: boolean; nested?: Record<string, NestedLeeway> }> {
   const takes = (row: JsonObject, field: string) => {
-    const result = db.validateRow(tableName, row);
-    return result.ok || !result.error.issues.some((issue) => fieldOf(issue) === field);
+    const result = tryValidate(db, tableName, row);
+    return result !== undefined && (result.ok || !result.error.issues.some((issue) => fieldOf(issue) === field));
   };
   return columns.map((column) => {
     const { [column.name]: _removed, ...without } = sample ?? {};
+    const value = sample?.[column.name];
     return {
       ...column,
       nullable: takes({ ...without, [column.name]: null }, column.name),
       optional: takes(without, column.name),
+      ...(sample && value !== null && typeof value === 'object'
+        ? { nested: nestedLeeway(db, tableName, sample, column.name) }
+        : {}),
     };
   });
+}
+
+/**
+ * The row validated, or undefined when the schema threw: a schema can assume a value the change took
+ * away, such as reading the keys of an object removed, and that says it does not take the change
+ */
+function tryValidate(db: LinesDB<TableDefs>, tableName: string, row: JsonObject) {
+  try {
+    return db.validateRow(tableName, row);
+  } catch {
+    return undefined;
+  }
+}
+
+/** What the schema takes of an object inside a JSON value: keys it does not name, and leaving a key out */
+interface NestedLeeway {
+  open?: boolean;
+  optional?: boolean;
+}
+
+/** A key no schema names, added to an object to see whether the schema takes keys it does not name */
+const PROBE_KEY = '__lines_db_studio_probe__';
+
+/**
+ * What the schema takes of each object inside the sample's value of a JSON column, by its path there
+ * with list indexes as `*` (`''` for the value itself, `items.*.name` for a key of each item). Found as
+ * for a column, from the issues a change brings that the sample did not have: a key added to an object
+ * tells whether it takes keys it does not name, and a key removed whether it can be left out. A list
+ * is read from its first item, as the items of a list are one shape
+ */
+function nestedLeeway(
+  db: LinesDB<TableDefs>,
+  tableName: string,
+  sample: JsonObject,
+  column: string,
+): Record<string, NestedLeeway> {
+  const issuesOf = (row: JsonObject) => {
+    const result = tryValidate(db, tableName, row);
+    if (!result) return undefined;
+    return result.ok ? [] : result.error.issues.map((issue) => JSON.stringify(issue));
+  };
+  const before = new Set(issuesOf(sample));
+  const takes = (row: JsonObject) => issuesOf(row)?.every((issue) => before.has(issue)) ?? false;
+  const at = (path: Array<string | number>, change: (object: JsonObject) => JsonObject) =>
+    ({ ...sample, [column]: changeAt(sample[column], path, change) }) as JsonObject;
+
+  const leeway: Record<string, NestedLeeway> = {};
+  const walk = (value: JsonValue | undefined, path: Array<string | number>, pattern: string[]) => {
+    if (Array.isArray(value)) {
+      if (value.length > 0) walk(value[0], [...path, 0], [...pattern, '*']);
+      return;
+    }
+    if (value === null || typeof value !== 'object') return;
+    const entries = Object.entries(value);
+    leeway[pattern.join('.')] = {
+      open: takes(at(path, (object) => ({ ...object, [PROBE_KEY]: entries[0]?.[1] ?? null }))),
+    };
+    for (const [key, item] of entries) {
+      leeway[[...pattern, key].join('.')] = {
+        optional: takes(
+          at(path, (object) => {
+            const { [key]: _removed, ...rest } = object;
+            return rest;
+          }),
+        ),
+      };
+      walk(item, [...path, key], [...pattern, key]);
+    }
+  };
+  walk(sample[column], [], []);
+  return leeway;
+}
+
+/** The value with the object at the path inside it changed */
+function changeAt(
+  value: JsonValue | undefined,
+  path: Array<string | number>,
+  change: (object: JsonObject) => JsonObject,
+): JsonValue {
+  if (path.length === 0) return change(value as JsonObject);
+  const [head, ...rest] = path;
+  if (Array.isArray(value)) return value.map((item, index) => (index === head ? changeAt(item, rest, change) : item));
+  const object = value as JsonObject;
+  return { ...object, [head]: changeAt(object[head], rest, change) };
 }
 
 /** The field of the row an issue is about, if it is about one */

@@ -166,6 +166,7 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
           value={value ?? null}
           issues={issues}
           readOnly={readOnly}
+          leeway={column.nested}
           onChange={handValue}
         />
       ) : isBoolean(column) ? (

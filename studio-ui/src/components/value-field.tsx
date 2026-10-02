@@ -3,7 +3,7 @@ import { Braces, ListTree, Plus, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Tooltip } from '@/components/ui/tooltip';
 import { JsonEditor } from '@/components/json-editor';
-import type { Issue, JsonValue } from '@/lib/types';
+import type { Issue, JsonValue, NestedLeeway } from '@/lib/types';
 import { segmentKey } from '@/lib/check';
 import { readJsonc } from '@/lib/json-ranges';
 import { emptyLike, issuesAt, issuesUnder, removeIn, setIn, shapeOf, type Path, type Shape } from '@/lib/json-shape';
@@ -17,10 +17,18 @@ export interface ValueFieldProps {
   /** The issues of the column, by their paths in the row */
   issues: Issue[];
   readOnly?: boolean;
+  /** What the schema takes of each object inside the column's value, as the column lists it */
+  leeway?: Record<string, NestedLeeway>;
   onChange: (value: JsonValue) => void;
 }
 
 const nameOf = (path: Path) => path.join('.');
+/** The path inside the column's value as its leeway is listed by, with list indexes as `*` */
+const patternOf = (path: Path) =>
+  path
+    .slice(1)
+    .map((segment) => (typeof segment === 'number' ? '*' : segment))
+    .join('.');
 /** Where an issue is inside the value at the path, as its message is prefixed with */
 const within = (issue: Issue, path: Path) => (issue.path ?? []).slice(path.length).map(segmentKey).join('.');
 
@@ -226,7 +234,11 @@ function RawJson({ path, value, issues, readOnly, onChange }: ValueFieldProps) {
 
 /** A map or a list as a block of fields, which can also be edited as JSON */
 function Block(props: ValueFieldProps & { shape: 'map' | 'list' }) {
-  const { path, value, issues, readOnly, onChange, shape } = props;
+  const { path, value, issues, readOnly, leeway, onChange, shape } = props;
+  // Not offered where the schema refuses it; where it is not known, it is offered and checked on save
+  const canAdd = shape === 'list' || leeway?.[patternOf(path)]?.open !== false;
+  const canRemove = (key: string | number) =>
+    shape === 'list' || leeway?.[patternOf([...path, key])]?.optional !== false;
   const name = nameOf(path);
   const [asJson, setAsJson] = useState(false);
   // Not kept across a switch back from JSON: the fields read the shape of the value again
@@ -281,9 +293,10 @@ function Block(props: ValueFieldProps & { shape: 'map' | 'list' }) {
                 value={item}
                 issues={issues}
                 readOnly={readOnly}
+                leeway={leeway}
                 onChange={(next) => change([key], next)}
               />
-              {!readOnly && (
+              {!readOnly && canRemove(key) && (
                 <button
                   type="button"
                   aria-label={`Remove ${nameOf([...path, key])}`}
@@ -296,6 +309,7 @@ function Block(props: ValueFieldProps & { shape: 'map' | 'list' }) {
             </div>
           ))}
           {!readOnly &&
+            canAdd &&
             (newKey !== undefined ? (
               <Input
                 autoFocus

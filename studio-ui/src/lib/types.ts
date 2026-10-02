@@ -13,6 +13,17 @@ export interface Column {
   nullable?: boolean;
   /** Whether the schema lets the key be left out of a row, its value then left to the schema; unknown when not given */
   optional?: boolean;
+  /**
+   * What the schema takes of each object inside a JSON value, by its path there with list indexes as
+   * `*`: `''` for the value itself, `items.*.name` for a key of each item
+   */
+  nested?: Record<string, NestedLeeway>;
+}
+
+/** What the schema takes of an object inside a JSON value: keys it does not name, and leaving a key out */
+export interface NestedLeeway {
+  open?: boolean;
+  optional?: boolean;
 }
 
 export interface TableInfo {
