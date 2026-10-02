@@ -166,6 +166,11 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           invalidRows: 0,
           readOnlyReason: whyReadOnly(snapshot.db, name),
           schemaFile: null as string | null,
+          references: (snapshot.db.getSchema(name)?.foreignKeys ?? []).map((fk) => ({
+            column: fk.column,
+            table: fk.references.table,
+            referencedColumn: fk.references.column,
+          })),
         };
       });
       for (const [name, { file, issues }] of snapshot.invalid) {
@@ -189,6 +194,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           invalidRows: issues.size,
           readOnlyReason: null,
           schemaFile: null,
+          references: [],
         });
       }
       for (const table of tables) {

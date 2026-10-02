@@ -24,6 +24,14 @@ export interface TableInfo {
   readOnlyReason: string | null;
   /** The name of the table's schema file in the data directory, or null when it has none */
   schemaFile: string | null;
+  /** The foreign keys of the table: which column refers to which column of which table */
+  references: Reference[];
+}
+
+export interface Reference {
+  column: string;
+  table: string;
+  referencedColumn: string;
 }
 
 export interface Issue {

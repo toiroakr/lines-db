@@ -422,6 +422,25 @@ describe('studio server', () => {
     expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toContain('"name":"Alice"');
   });
 
+  it('lists the foreign keys of each table, so the page can open the row a key refers to', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');
+    await writeFile(join(dataDir, 'pets.jsonl'), '{"id":1,"owner":1}\n');
+    await writeFile(
+      join(dataDir, 'pets.schema.ts'),
+      "export const foreignKeys = [{ column: 'owner', references: { table: 'owners', column: 'id' } }];\n" +
+        "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const tables = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables;
+
+    expect(tables.find((table: { name: string }) => table.name === 'pets').references).toEqual([
+      { column: 'owner', table: 'owners', referencedColumn: 'id' },
+    ]);
+    expect(tables.find((table: { name: string }) => table.name === 'owners').references).toEqual([]);
+  });
+
   it('lists the schema file of each table, or null for a table without one', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'notes.jsonl'), '{"title":"first"}\n');
