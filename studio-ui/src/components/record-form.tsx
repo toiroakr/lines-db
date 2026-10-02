@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { ArrowUpRight, Eraser, Lock, RotateCcw, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -243,11 +243,19 @@ export interface FormRow {
 
 /** One row as a form: its fields edited side by side with the grid, which stays usable to pick another row */
 export function RecordDrawer({ table, row, onClose }: { table: string; row?: FormRow; onClose: () => void }) {
+  const [width, setWidth] = useState(readFormWidth);
+  const resize = (next: number) => {
+    const clamped = clampWidth(next);
+    setWidth(clamped);
+    writeFormWidth(clamped);
+  };
   return (
     <aside
       aria-label={row?.title ?? 'Row form'}
-      className="fixed inset-y-0 right-0 z-30 flex w-full flex-col border-l bg-background shadow-lg sm:w-[28rem] lg:static lg:z-auto lg:shadow-none"
+      style={{ '--form-width': `${width}px` } as CSSProperties}
+      className="fixed inset-y-0 right-0 z-30 flex w-full flex-col border-l bg-background shadow-lg sm:w-[28rem] lg:relative lg:z-auto lg:w-(--form-width) lg:shrink-0 lg:shadow-none"
     >
+      <ResizeHandle width={width} onResize={resize} />
       <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
         <span className="min-w-0 truncate font-mono text-sm font-semibold">{row?.title ?? 'Row form'}</span>
         {/* Not shown on a wide screen: the grid beside it has the button that hides it */}
@@ -267,7 +275,7 @@ export function RecordDrawer({ table, row, onClose }: { table: string; row?: For
         </p>
       )}
       {row ? (
-        <div className="grid flex-1 content-start gap-4 overflow-y-auto p-4">
+        <div key={row.title} className="grid flex-1 content-start gap-4 overflow-y-auto p-4">
           {row.fields.map((model) => (
             <FormField key={model.column.name} table={table} model={model} />
           ))}
@@ -281,5 +289,67 @@ export function RecordDrawer({ table, row, onClose }: { table: string; row?: For
         Changes join the unsaved ones · nothing is written until you save
       </p>
     </aside>
+  );
+}
+
+export const MIN_FORM_WIDTH = 320;
+const DEFAULT_FORM_WIDTH = 448;
+/** How much of the screen the grid keeps beside the form */
+const GRID_FLOOR = 400;
+const RESIZE_STEP = 32;
+const WIDTH_KEY = 'lines-db-studio:form-width';
+
+const clampWidth = (width: number) => Math.round(Math.max(MIN_FORM_WIDTH, Math.min(width, innerWidth - GRID_FLOOR)));
+
+function readFormWidth(): number {
+  try {
+    const stored = Number(localStorage.getItem(WIDTH_KEY));
+    if (stored > 0) return clampWidth(stored);
+  } catch {
+    // Not remembered, so as wide as at first
+  }
+  return clampWidth(DEFAULT_FORM_WIDTH);
+}
+
+function writeFormWidth(width: number): void {
+  try {
+    localStorage.setItem(WIDTH_KEY, String(width));
+  } catch {
+    // Not kept for the next visit, which then starts as wide as at first
+  }
+}
+
+/** The edge of the form between it and the grid, dragged to widen or narrow the form */
+function ResizeHandle({ width, onResize }: { width: number; onResize: (width: number) => void }) {
+  const drag = useRef<{ x: number; width: number }>(undefined);
+  return (
+    <div
+      role="separator"
+      aria-label="Resize the row form"
+      aria-orientation="vertical"
+      aria-valuenow={width}
+      aria-valuemin={MIN_FORM_WIDTH}
+      tabIndex={0}
+      className="absolute inset-y-0 -left-0.5 z-10 hidden w-1 cursor-col-resize touch-none outline-none select-none hover:bg-primary/40 focus-visible:bg-primary/40 lg:block"
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        // Not followed on the document: the captured pointer keeps sending its moves here
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        drag.current = { x: event.clientX, width };
+      }}
+      onPointerMove={(event) => {
+        if (drag.current) onResize(drag.current.width + drag.current.x - event.clientX);
+      }}
+      onPointerUp={() => (drag.current = undefined)}
+      onPointerCancel={() => (drag.current = undefined)}
+      onDoubleClick={() => onResize(DEFAULT_FORM_WIDTH)}
+      onKeyDown={(event) => {
+        const step = event.key === 'ArrowLeft' ? RESIZE_STEP : event.key === 'ArrowRight' ? -RESIZE_STEP : 0;
+        if (step === 0) return;
+        event.preventDefault();
+        onResize(width + step);
+      }}
+    />
   );
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { FormField, RecordDrawer, type FieldModel } from './record-form';
+import { FormField, MIN_FORM_WIDTH, RecordDrawer, type FieldModel } from './record-form';
 import type { Column, JsonValue } from '@/lib/types';
 
 const field = (column: Column, value: JsonValue | undefined, overrides: Partial<FieldModel> = {}): FieldModel => ({
@@ -162,5 +162,59 @@ describe('RecordDrawer', () => {
     );
 
     expect(screen.getByText('Deleted')).toBeTruthy();
+  });
+
+  describe('width', () => {
+    beforeEach(() => {
+      localStorage.clear();
+      vi.stubGlobal('innerWidth', 1600);
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    const separator = () => screen.getByRole('separator', { name: 'Resize the row form' });
+    const width = () => Number(separator().getAttribute('aria-valuenow'));
+
+    it('widens from the arrow keys on its edge', async () => {
+      render(<RecordDrawer table="users" onClose={vi.fn()} />);
+      const before = width();
+
+      separator().focus();
+      await userEvent.keyboard('{ArrowLeft}');
+
+      expect(width()).toBeGreaterThan(before);
+    });
+
+    it('widens as its edge is dragged toward the grid', () => {
+      render(<RecordDrawer table="users" onClose={vi.fn()} />);
+      const before = width();
+
+      fireEvent.pointerDown(separator(), { button: 0, clientX: 1000, pointerId: 1 });
+      fireEvent.pointerMove(separator(), { clientX: 900, pointerId: 1 });
+      fireEvent.pointerUp(separator(), { clientX: 900, pointerId: 1 });
+
+      expect(width()).toBe(before + 100);
+    });
+
+    it('stays as wide as its minimum however far its edge is dragged the other way', () => {
+      render(<RecordDrawer table="users" onClose={vi.fn()} />);
+
+      fireEvent.pointerDown(separator(), { button: 0, clientX: 1000, pointerId: 1 });
+      fireEvent.pointerMove(separator(), { clientX: 1590, pointerId: 1 });
+
+      expect(width()).toBe(MIN_FORM_WIDTH);
+    });
+
+    it('keeps the width it was given for the next time it is shown', () => {
+      const first = render(<RecordDrawer table="users" onClose={vi.fn()} />);
+      fireEvent.pointerDown(separator(), { button: 0, clientX: 1000, pointerId: 1 });
+      fireEvent.pointerMove(separator(), { clientX: 900, pointerId: 1 });
+      fireEvent.pointerUp(separator(), { clientX: 900, pointerId: 1 });
+      const given = width();
+      first.unmount();
+
+      render(<RecordDrawer table="users" onClose={vi.fn()} />);
+
+      expect(width()).toBe(given);
+    });
   });
 });

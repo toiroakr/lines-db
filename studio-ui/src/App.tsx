@@ -663,14 +663,7 @@ export function App() {
             />
           )}
         </main>
-        {table && formShown && (
-          <RecordDrawer
-            key={JSON.stringify(openRow)}
-            table={table.name}
-            row={formRow}
-            onClose={() => showForm(false)}
-          />
-        )}
+        {table && formShown && <RecordDrawer table={table.name} row={formRow} onClose={() => showForm(false)} />}
       </div>
     </TooltipProvider>
   );
