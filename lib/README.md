@@ -6,6 +6,7 @@ A data management library that treats JSONL (JSON Lines) files as tables. Perfec
 
 - 📝 Load JSONL files as database tables
 - ✅ **CLI tools for validation and data migration**
+- 🖥️ **Browser UI to browse and edit tables** (`lines-db studio`)
 - 🔄 Automatic schema inference
 - 📦 **JSON column support** with automatic serialization/deserialization
 - ✅ Built-in validation using StandardSchema (Valibot, Zod, etc.)
@@ -67,6 +68,10 @@ export default schema;
 **Supported validation libraries:**
 
 - Any library implementing [StandardSchema](https://standardschema.dev/)
+
+A table whose schema file cannot be loaded - it fails to import, or exports no Standard Schema as
+`schema` or `default` - makes `initialize()` fail with the file and the reason, rather than loading the
+table without validation.
 
 ### Validate JSONL Files
 
@@ -151,6 +156,92 @@ changed - the migration fails instead of guessing.
 One list covers every table the migration touches. A table that does not have a named field simply
 has nothing written back to it, so a directory holding tables that do not all share an `id` works
 with a single `--fields id`. A field _no_ table has is a typo, and the migration stops.
+
+### Fill Missing Values
+
+```bash
+npx lines-db fill <path> [--fields id,createdAt]
+```
+
+Fills the named fields - by default each table's primary key - into the rows of the JSONL files under
+`path` (a data directory, or one `.jsonl` file) that have no value for them, with the value each
+table's validation schema gives the row. A value already in the file is never replaced, and a line
+that gains nothing is left byte for byte, its line separator included; a line that does gain a value
+is written with its keys in the order the schema lists them. Every value is computed before any file
+is written, and a row the schema rejects gains nothing. A file saved by another tool after the fill
+read it stops the fill with a `JsonlConflictError` naming the file, before any file is written.
+Fields are named as the file holds them: for a schema whose `backward` renames the primary key, name
+the file's field with `--fields`, since the default is the primary key as the database calls it.
+
+The same runs from code with `fillFields()`, which also takes the function that computes a row's
+values, for a table whose create-time values come from something other than its validation schema:
+
+```typescript
+import { fillFields, unwrap } from '@toiroakr/lines-db';
+
+const { filled } = unwrap(
+  await fillFields({
+    path: './data',
+    fields: ['id'],
+    // Computes the values from the `hook` the schema file exports; throwing stops the fill
+    loadFiller: (schemaModule, { schemaPath }) => {
+      if (typeof schemaModule.hook !== 'function') throw new Error(`${schemaPath} does not export \`hook\``);
+      return schemaModule.hook;
+    },
+  }),
+);
+```
+
+The result also lists the tables without a schema file (`tablesWithoutSchema`), the lines that are
+not JSON objects (`unreadableLines`), and the named fields no table produced a value for
+(`unproducedFields`).
+
+### Browse and Edit in the Browser
+
+```bash
+npx lines-db studio <dataDir> [--port 4848] [--open] [--write-filled-values primaryKey|all]
+```
+
+Starts a local web UI at `http://127.0.0.1:4848` that lists the tables of `dataDir` with their row
+counts and shows a table as a grid. Click a cell to edit it, add records, or select rows to delete;
+the changes stay pending - highlighted in the grid - until **Save N changes** writes them all in one
+transaction through `db.update()` / `db.insert()` / `db.delete()`, or **Discard** drops them. A value
+the schema rejects writes nothing: the issues are shown with the change they came from, and the
+pending changes stay for you to fix. A save changes the values of the rows it edits only, but
+rewrites the table's JSONL file as a whole, so the formatting of the other lines can change too.
+
+- The server generates a token at start-up and hands it to the page it serves, which keeps it in
+  `sessionStorage` and sends it with each request; a request without it is refused with 401. Another
+  site cannot read the page, so it cannot get the token either.
+- A save writes the fields you wrote and leaves the values the schema fills in out of the file
+  (`writeFilledValues: 'primaryKey'`, see [Values the Schema Fills In](#values-the-schema-fills-in));
+  `--write-filled-values all` writes them as a sync does by default.
+- A value the schema filled in rather than the file is shown dimmed with a **default** mark. **Remove
+  field** in a cell's editor removes the field from the line and leaves its value to the schema; a new
+  row's empty field is left to the schema too.
+- A cell's editor checks the value as you type, against the schema as a save would
+  (`POST /api/tables/:name/check`, which validates the change without writing it), and lists the
+  issues under the field. A JSON column opens in a dialog with syntax highlighting, and a syntax
+  error is marked where it is. Comments and trailing commas are accepted there and dropped when the
+  value is set, as it is saved as plain JSON. **Set** puts the value among the pending changes; nothing is written
+  until you save.
+- **Schema** shows the table's schema file (`<table>.schema.ts` and the like) as it is on disk, highlighted.
+- A table needs a primary key (an `id` column, or `primaryKey` in its schema file) with a value on every row to be edited; one
+  without is shown read-only.
+- A table whose rows fail validation on load is shown as its JSONL file holds it, with the failing
+  rows and cells marked and their issues listed. Fix a cell and save: the fix is checked against the
+  schema with `validateRow()` and written to that row's line only, the other lines staying as they
+  were, and the table is loaded as usual once every row passes. Adding and deleting rows is off until
+  then. A field the schema refuses as a key is marked **not in schema**, and its column header removes it
+  from every row at once.
+- When the files change on disk while the studio is open, the page reloads the rows on its own, or,
+  with changes pending, says so. A save checks the files first: a changed schema file is loaded so the
+  save is validated against it, and a change to the edited table's own file stops the save with the
+  name of that file, writes nothing, and reloads the tables. A save writes back the table it edits and
+  any table a foreign-key action (`CASCADE` or `SET NULL`) can change from it, so a change to one of
+  those files stops it too; a change to an unrelated table's file does not.
+- The server only answers requests addressed to the local host, and only accepts writes sent as
+  `application/json` from its own page.
 
 ## TypeScript Usage
 
@@ -299,6 +390,7 @@ and `getDb` return their value directly since they cannot fail.
 - `transaction(fn)` - Execute operations in a transaction
 - `sync(table?, options?)` - Write changes back to the JSONL file(s)
 - `getSchema(table)` - Get table schema (returns `TableSchema | undefined`, not a `Result`)
+- `validateRow(table, row)` - Validate a row against the table's schema, also for a table left out on load because rows failed validation (returns `Result<JsonObject, ValidationError>`)
 - `getTableNames()` - Get all table names (returns `string[]`, not a `Result`)
 
 **Where Conditions:**
@@ -403,13 +495,22 @@ unwrap(
   await db.transaction(async (tx) => {
     unwrap(tx.insert('users', { id: 10, name: 'Alice', age: 30 }));
     unwrap(tx.update('users', { age: 31 }, { id: 1 }));
-    // All changes synced atomically on commit
+    // Written back together, then committed
   }),
 );
 ```
 
 `unwrap()` inside the callback turns a failed `tx.insert()`/`tx.update()` into a thrown error, which
 `transaction()` catches and rolls back on - see [Error Handling](#error-handling).
+
+Once the callback is done, `transaction()` writes back the tables it changed through
+`tx.insert()`/`tx.update()`/`tx.delete()` and their batch variants, before it commits. Every file is
+checked before the first one is written, and a write-back that fails rolls the transaction back and
+puts the files it already wrote back to what they held, so the database keeps matching its files.
+Putting a file back is a write too; when that write fails as well, the file keeps the change. Tables the transaction did not change are left as they are; raw
+SQL through `tx.execute()` or `tx.query()` that changes rows writes back every table, since the
+tables it changed are unknown. `sync()` inside the callback fails: the transaction writes the files
+itself once the callback is done.
 
 ### Files Changed After Loading
 
@@ -426,16 +527,76 @@ if (!result.ok && result.error.name === 'JsonlConflictError') {
 }
 ```
 
-To pick up the changes, create the database again and call `initialize()`, then retry the write. Do
-not retry on the same instance: `transaction()` commits before it writes the files, so the database
-already holds the change the file did not get. `transaction()` and `sync()` without a table name write
-back every table, so a change to any table's file fails them. An auto-sync after a write outside a
-transaction fails the same way, and reports the error through `console.error`.
+To pick up the changes, create the database again and call `initialize()`, then retry the write. A
+failed `transaction()` has rolled its change back and writes back only the tables it changed, so only
+a change to one of those files fails it. `sync()` and the auto-sync after a write outside a transaction
+have nothing to roll back - the database keeps the change the file did not get - and `sync()` without a
+table name writes back every table, so a change to any table's file fails it. An auto-sync reports the
+error through `console.error`.
 
 The file is checked right before it is written, with no lock held in between, so a change saved in
 the instant between the check and the write - by an editor or by another process writing the same
 file - is still overwritten. The check is meant for a single user editing files on their own
 machine, where a change landing in that window is unlikely.
+
+To find out before writing, `hasExternalChanges()` tells whether the files changed since the database
+last read or wrote them: a JSONL file edited, added or removed, or a table's schema file edited, added
+or removed. `findExternalChanges()` lists those files, for telling which table an outside edit
+touched. A long-running process can call either to reload when something else touched the files:
+
+```typescript
+if (unwrap(await db.hasExternalChanges())) {
+  await db.close();
+  db = LinesDB.create(config);
+  unwrap(await db.initialize());
+}
+```
+
+### Values the Schema Fills In
+
+A sync writes each row back in full by default, so a value the validation schema fills in - a default,
+or a field it computes - is written into the line. Set `writeFilledValues: 'primaryKey'` to write back
+only the fields a user wrote instead: the ones a row's line holds, the ones an `insert()` was given,
+and the ones an `update()` changed. Every other value the schema fills in stays out of the file, so a
+line keeps leaving it to the schema. A primary key the schema generates is still written, so the row
+keeps the same key the next time it is loaded.
+
+```typescript
+const db = LinesDB.create({ dataDir: './data', writeFilledValues: 'primaryKey' });
+// people.jsonl: {"id":1,"name":"Alice"}   (the schema defaults age to 20)
+unwrap(await db.transaction((tx) => unwrap(tx.update('people', { name: 'Alicia' }, { id: 1 }))));
+// people.jsonl: {"id":1,"name":"Alicia"}  (age is still left to the schema)
+```
+
+A single sync can choose for itself with `sync(tableName, { writeFilledValues })`. Setting a field to
+the value it already holds is not a change, so a field the schema filled in stays out of the line
+when it is set to that same value. Fields named in `writeBackFields` or `sync(..., { fields })` are
+written even when the schema filled them in.
+
+To hand a field the line holds back to the schema, reset it; the row then holds the value the schema
+fills in, and with `writeFilledValues: 'primaryKey'` its line loses the field:
+
+```typescript
+unwrap(db.update('people', {}, { id: 1 }, { resetToDefault: ['age'] }));
+```
+
+`findWithDefaults()` lists the rows with the fields the schema filled in on each - the ones the file
+does not hold - for showing them apart from the values in the file:
+
+```typescript
+unwrap(await db.findWithDefaults('people'));
+// [{ row: { id: 1, name: 'Alicia', age: 20 }, defaulted: ['age'] }]
+```
+
+A row whose backward transformation renames fields, a row with neither a line nor a recorded
+write (one added with raw SQL), and every row of a table after raw SQL through `execute()` or
+`query()` changed rows, are written whole, since there is no way to tell which of their fields a user
+wrote. A field a migration `transform` set on a row while loading counts as written on that row.
+
+A field a line holds that the table has no column for - a validation schema that strips unknown
+keys, such as valibot's `v.object()`, lets it through - is kept where the line holds it when the
+table is written back. Use a schema that refuses unknown keys, such as `v.strictObject()`, to have
+such a line reported as failing validation instead.
 
 ### Writing Back Only Some Fields
 

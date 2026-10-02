@@ -1,0 +1,349 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { LinesDB } from './database.js';
+import { JsonlWriter } from './jsonl-writer.js';
+import { unwrap } from './result.js';
+import type { TableDefs } from './types.js';
+
+// `id` and `age` default; `id` is the primary key
+const DEFAULTS_SCHEMA = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, id: data.id ?? 'generated-' + data.name, age: data.age ?? 20 } }) } };
+`;
+
+describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
+  let dataDir: string;
+  let db: LinesDB<TableDefs>;
+  const peoplePath = () => join(dataDir, 'people.jsonl');
+
+  const load = async (lines: string, schema = DEFAULTS_SCHEMA, table = 'people') => {
+    await writeFile(join(dataDir, `${table}.jsonl`), lines);
+    await writeFile(join(dataDir, `${table}.schema.ts`), schema);
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize());
+  };
+  const write = async (fn: (tx: LinesDB<TableDefs>) => unknown) => unwrap(await db.transaction((tx) => void fn(tx)));
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'linesdb-explicit-'));
+  });
+
+  afterEach(async () => {
+    await db?.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('leaves a field its line omitted out of the line when another field of the row is edited', async () => {
+    await load('{"id":"a","name":"Alice"}\n');
+
+    await write((tx) => unwrap(tx.update('people', { name: 'Alicia' }, { id: 'a' })));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alicia"}\n');
+  });
+
+  it('keeps the lines of the rows that were not edited as they were', async () => {
+    await load('{"id":"a","name":"Alice"}\n{"id":"b","name":"Bob","age":40}\n');
+
+    await write((tx) => unwrap(tx.update('people', { name: 'Bobby' }, { id: 'b' })));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe(
+      '{"id":"a","name":"Alice"}\n{"id":"b","name":"Bobby","age":40}\n',
+    );
+  });
+
+  it('writes an inserted row with the fields it was given, not with the values the schema fills in', async () => {
+    await load('{"id":"a","name":"Alice"}\n');
+
+    await write((tx) => unwrap(tx.insert('people', { id: 'c', name: 'Carol' })));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice"}\n{"id":"c","name":"Carol"}\n');
+  });
+
+  it('writes the primary key of an inserted row even when the schema filled it in, so the row keeps it', async () => {
+    await load('{"id":"a","name":"Alice"}\n');
+
+    await write((tx) => unwrap(tx.insert('people', { name: 'Carol' })));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe(
+      '{"id":"a","name":"Alice"}\n{"id":"generated-Carol","name":"Carol"}\n',
+    );
+  });
+
+  it('writes a field its line omitted once it is set to a value other than the one the schema filled in', async () => {
+    await load('{"id":"a","name":"Alice"}\n');
+
+    await write((tx) => unwrap(tx.update('people', { age: 31 }, { id: 'a' })));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice","age":31}\n');
+  });
+
+  it('leaves a field out of the line when it is set to exactly the value the schema fills in, as nothing changed', async () => {
+    await load('{"id":"a","name":"Alice"}\n');
+
+    await write((tx) => unwrap(tx.update('people', { age: 20, name: 'Alicia' }, { id: 'a' })));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alicia"}\n');
+  });
+
+  it('removes a field from the line when it is reset to its default, and holds the value the schema fills in', async () => {
+    await load('{"id":"a","name":"Alice","age":31}\n');
+
+    await write((tx) => unwrap(tx.update('people', {}, { id: 'a' }, { resetToDefault: ['age'] })));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice"}\n');
+    expect(unwrap(db.findOne('people', { id: 'a' }))).toMatchObject({ age: 20 });
+  });
+
+  it('does not pass the changes of a batch-deleted row on to a row inserted later in its rowid', async () => {
+    await load('{"id":"a","name":"Alice"}\n');
+
+    await write((tx) => {
+      unwrap(tx.update('people', { age: 31 }, { id: 'a' }));
+      unwrap(tx.batchDelete('people', [{ id: 'a' }]));
+      unwrap(tx.insert('people', { id: 'b', name: 'Bob' }));
+    });
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"b","name":"Bob"}\n');
+  });
+
+  it('reports a filled field named after an Object member as filled by the schema', async () => {
+    const memberSchema = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, toString: Object.hasOwn(data, 'toString') ? data.toString : 'default' } }) } };
+`;
+    await load('{"id":"a"}\n', memberSchema, 'members');
+
+    expect(unwrap(await db.findWithDefaults('members'))).toEqual([
+      { row: { id: 'a', toString: 'default' }, defaulted: ['toString'] },
+    ]);
+  });
+
+  it('keeps every field of a row whose primary key was changed, as its line can no longer be matched by key', async () => {
+    await load('{"id":"a","name":"Alice","nickname":"Ali"}\n');
+
+    await write((tx) => unwrap(tx.update('people', { id: 'z' }, { id: 'a' })));
+
+    expect(JSON.parse(await readFile(peoplePath(), 'utf-8'))).toMatchObject({
+      id: 'z',
+      name: 'Alice',
+      nickname: 'Ali',
+    });
+  });
+
+  it('changes nothing when a reset the schema refuses fails an update, keeping it all or nothing', async () => {
+    const strict = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  data.age === undefined ? { issues: [{ message: 'age is required' }] } : { value: data } } };
+`;
+    await load('{"id":"a","name":"Alice","age":31}\n', strict, 'strict');
+
+    const result = db.update('strict', { name: 'Alicia' }, { id: 'a' }, { resetToDefault: ['age'] });
+
+    expect(result.ok).toBe(false);
+    expect(unwrap(db.findOne('strict', { id: 'a' }))).toMatchObject({ name: 'Alice', age: 31 });
+  });
+
+  it('reports the fields of each row that the schema filled in rather than the file', async () => {
+    await load('{"id":"a","name":"Alice"}\n{"id":"b","name":"Bob","age":40}\n');
+
+    expect(unwrap(await db.findWithDefaults('people'))).toEqual([
+      { row: { id: 'a', name: 'Alice', age: 20 }, defaulted: ['age'] },
+      { row: { id: 'b', name: 'Bob', age: 40 }, defaulted: [] },
+    ]);
+  });
+
+  it('refuses to report the filled fields once the file changed on disk, as its lines no longer match the rows', async () => {
+    await load('{"id":"a","name":"Alice"}\n');
+    await writeFile(peoplePath(), '{"id":"a","name":"Alice","age":20}\n');
+
+    const result = await db.findWithDefaults('people');
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error.name).toBe('JsonlConflictError');
+  });
+
+  it('reports the filled fields of a row after the sync it queued wrote it', async () => {
+    await load('{"id":"a","name":"Alice"}\n');
+    unwrap(db.update('people', { age: 30 }, { id: 'a' }));
+
+    expect(unwrap(await db.findWithDefaults('people'))).toEqual([
+      { row: { id: 'a', name: 'Alice', age: 30 }, defaulted: [] },
+    ]);
+  });
+
+  it('writes every field of the rows of a schema whose backward transform renames fields, as the line keys no longer match', async () => {
+    const renaming = `export const schema = { backward: (row) => ({ id: row.id, full_name: row.fullName }), '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { id: data.id, fullName: data.full_name ?? data.fullName } }) } };
+`;
+    await load('{"id":1,"full_name":"Alice"}\n', renaming, 'renamed');
+
+    await write((tx) => unwrap(tx.update('renamed', { fullName: 'Alicia' }, { id: 1 })));
+
+    expect(await readFile(join(dataDir, 'renamed.jsonl'), 'utf-8')).toBe('{"id":1,"full_name":"Alicia"}\n');
+  });
+
+  it('keeps writing the fields a migration transform set after a transaction that wrote them failed', async () => {
+    await writeFile(peoplePath(), '{"id":"a","name":"Alice"}\n');
+    await writeFile(join(dataDir, 'people.schema.ts'), DEFAULTS_SCHEMA);
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize({ tableName: 'people', transform: (row) => ({ ...row, nickname: 'Ali' }) }));
+    const exec = db.getDb().exec.bind(db.getDb());
+    const spy = vi.spyOn(db.getDb(), 'exec').mockImplementation((sql: string) => {
+      if (sql === 'COMMIT') throw new Error('COMMIT failed');
+      return exec(sql);
+    });
+    const failed = await db.transaction((tx) => unwrap(tx.update('people', { name: 'Alicia' }, { id: 'a' })));
+    spy.mockRestore();
+    expect(failed.ok).toBe(false);
+
+    unwrap(await db.sync('people'));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice","nickname":"Ali"}\n');
+  });
+
+  it('leaves a schema-filled field out of the rows a migration transform did not set it on', async () => {
+    await writeFile(peoplePath(), '{"id":"a","name":"Alice"}\n{"id":"b","name":"Bob"}\n');
+    await writeFile(join(dataDir, 'people.schema.ts'), DEFAULTS_SCHEMA);
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(
+      await db.initialize({ tableName: 'people', transform: (row) => (row.id === 'a' ? { ...row, age: 30 } : row) }),
+    );
+
+    unwrap(await db.sync('people'));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice","age":30}\n{"id":"b","name":"Bob"}\n');
+  });
+
+  it('keeps writing a field set on a row whose delete failed', async () => {
+    await writeFile(join(dataDir, 'pets.jsonl'), '{"id":"p","owner":"a"}\n');
+    await writeFile(
+      join(dataDir, 'pets.schema.ts'),
+      "export const foreignKeys = [{ column: 'owner', references: { table: 'people', column: 'id' } }];\n" +
+        "export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+    );
+    await load('{"id":"a","name":"Alice"}\n');
+
+    await write((tx) => {
+      unwrap(tx.update('people', { age: 25 }, { id: 'a' }));
+      expect(tx.delete('people', { id: 'a' }).ok).toBe(false);
+    });
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice","age":25}\n');
+  });
+
+  it('writes a value raw SQL stored in a field its line omitted', async () => {
+    await load('{"id":"a","name":"Alice"}\n');
+
+    await write((tx) => unwrap(tx.execute('UPDATE people SET age = 31')));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice","age":31}\n');
+  });
+
+  it('keeps a field its schema does not know where its line holds it', async () => {
+    const stripping = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { id: data.id, name: data.name, age: data.age ?? 20 } }) } };
+`;
+    await load('{"id":"a","note":"kept","name":"Alice"}\n', stripping);
+
+    await write((tx) => unwrap(tx.update('people', { name: 'Alicia' }, { id: 'a' })));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","note":"kept","name":"Alicia"}\n');
+  });
+
+  it('writes a column a foreign-key action set, though the schema filled it in before', async () => {
+    await writeFile(join(dataDir, 'pets.jsonl'), '{"id":"p"}\n{"id":"q","owner":null}\n');
+    await writeFile(
+      join(dataDir, 'pets.schema.ts'),
+      "export const foreignKeys = [{ column: 'owner', references: { table: 'people', column: 'id' }, onDelete: 'SET NULL' }];\n" +
+        "export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: { ...data, owner: data.owner === undefined ? 'a' : data.owner } }) } };\n",
+    );
+    await load('{"id":"a","name":"Alice"}\n');
+
+    await write((tx) => unwrap(tx.delete('people', { id: 'a' })));
+
+    expect(await readFile(join(dataDir, 'pets.jsonl'), 'utf-8')).toBe(
+      '{"id":"p","owner":null}\n{"id":"q","owner":null}\n',
+    );
+  });
+
+  it('keeps a field set while an automatic sync was writing, so the sync after it writes the field too', async () => {
+    await load('{"id":"a","name":"Alice"}\n{"id":"b","name":"Bob"}\n');
+    const write = JsonlWriter.write.bind(JsonlWriter);
+    let setDuringWrite = false;
+    const spy = vi.spyOn(JsonlWriter, 'write').mockImplementation(async (path, rows) => {
+      if (!setDuringWrite) {
+        setDuringWrite = true;
+        unwrap(db.update('people', { age: 30 }, { id: 'b' }));
+      }
+      return write(path, rows);
+    });
+    try {
+      unwrap(db.update('people', { name: 'Alicia' }, { id: 'a' }));
+      await db.close();
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe(
+      '{"id":"a","name":"Alicia"}\n{"id":"b","name":"Bob","age":30}\n',
+    );
+  });
+
+  it('validates an update without the fields it resets, which would otherwise make it fail', async () => {
+    const plainHasNoExtra = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  data.mode === 'plain' && data.extra != null ? { issues: [{ message: 'A plain row has no extra', path: [{ key: 'extra' }] }] } : { value: data } } };
+`;
+    await load('{"id":1,"mode":"rich","extra":"x"}\n{"id":2,"mode":"plain","extra":null}\n', plainHasNoExtra);
+
+    await write((tx) => unwrap(tx.update('people', { mode: 'plain' }, { id: 1 }, { resetToDefault: ['extra'] })));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe(
+      '{"id":1,"mode":"plain"}\n{"id":2,"mode":"plain","extra":null}\n',
+    );
+  });
+
+  it('writes the fields a migration transform set while loading', async () => {
+    await writeFile(peoplePath(), '{"id":"a","name":"Alice"}\n');
+    await writeFile(join(dataDir, 'people.schema.ts'), DEFAULTS_SCHEMA);
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize({ tableName: 'people', transform: (row) => ({ ...row, nickname: 'Ali' }) }));
+
+    unwrap(await db.sync('people'));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice","nickname":"Ali"}\n');
+  });
+});
+
+describe('LinesDB writeFilledValues', () => {
+  let dataDir: string;
+  let db: LinesDB<TableDefs>;
+  const peoplePath = () => join(dataDir, 'people.jsonl');
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'linesdb-filled-'));
+    await writeFile(peoplePath(), '{"id":"a","name":"Alice"}\n');
+    await writeFile(join(dataDir, 'people.schema.ts'), DEFAULTS_SCHEMA);
+  });
+
+  afterEach(async () => {
+    await db?.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('writes every value the schema filled in when it is not set, as a write-back always has', async () => {
+    db = LinesDB.create<TableDefs>({ dataDir });
+    unwrap(await db.initialize());
+
+    unwrap(await db.sync('people'));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice","age":20}\n');
+  });
+
+  it('lets a sync choose for itself over the database config', async () => {
+    db = LinesDB.create<TableDefs>({ dataDir });
+    unwrap(await db.initialize());
+
+    unwrap(await db.sync('people', { writeFilledValues: 'primaryKey' }));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","name":"Alice"}\n');
+  });
+});

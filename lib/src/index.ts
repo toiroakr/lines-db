@@ -1,11 +1,13 @@
 export { LinesDB } from './database.js';
-export type { SyncOptions } from './database.js';
+export type { SyncOptions, UpdateOptions } from './database.js';
 export { JsonlReader } from './jsonl-reader.js';
 export type { JsonlSnapshot } from './jsonl-reader.js';
 export { ok, err, unwrap } from './result.js';
 export type { Result } from './result.js';
 export { JsonlWriter } from './jsonl-writer.js';
 export { mergeFields } from './merge-fields.js';
+export { fillFields } from './fill.js';
+export type { FillFieldsOptions, FillFieldsResult, FilledFile, RowFiller } from './fill.js';
 export type { MergeFieldsOptions } from './merge-fields.js';
 export { SchemaLoader } from './schema-loader.js';
 export { DirectoryScanner } from './directory-scanner.js';
@@ -31,6 +33,7 @@ export type {
   TableSchema,
   ColumnDefinition,
   DatabaseConfig,
+  WriteFilledValues,
   TableConfig,
   JsonValue,
   JsonObject,

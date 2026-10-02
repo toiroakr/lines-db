@@ -8,12 +8,10 @@ import { tmpdir } from 'node:os';
 
 describe('LinesDB', () => {
   let testDir: string;
-  const GENERIC_SCHEMA_SOURCE = `import * as v from 'valibot';
-import { defineSchema } from '@toiroakr/lines-db';
-
-const rawSchema = v.record(v.string(), v.unknown());
-
-export const schema = defineSchema(rawSchema);
+  // Not importing valibot or lines-db: a schema file in a temporary directory cannot resolve packages
+  const GENERIC_SCHEMA_SOURCE = `export const schema = {
+  '~standard': { version: 1, vendor: 'test', validate: (value) => ({ value }) },
+};
 `;
 
   const writeTable = async (tableName: string, contents: string) => {

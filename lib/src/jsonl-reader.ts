@@ -79,15 +79,23 @@ export class JsonlReader {
       const line = rawLines[i].endsWith('\r') ? rawLines[i].slice(0, -1) : rawLines[i];
       if (line.trim().length === 0) continue;
 
-      try {
-        rows.push(JSON.parse(line) as JsonObject);
-      } catch (error) {
-        const parseError = new Error(`Failed to parse JSON line: ${line}`, { cause: error }) as JsonlParseError;
+      const fail = (message: string, cause?: unknown) => {
+        const parseError = new Error(message, { cause }) as JsonlParseError;
         parseError.name = 'JsonlParseError';
         parseError.file = filePath;
         parseError.line = i + 1;
         return err(parseError);
+      };
+      let value: unknown;
+      try {
+        value = JSON.parse(line);
+      } catch (error) {
+        return fail(`Failed to parse JSON line: ${line}`, error);
       }
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return fail(`A JSONL line holds a row, which is a JSON object: ${line}`);
+      }
+      rows.push(value as JsonObject);
     }
 
     return ok(rows);
@@ -102,6 +110,7 @@ export class JsonlReader {
     }
 
     const columnTypes = new Map<string, Set<string>>();
+    const presence = new Map<string, number>();
     const booleanColumns = new Set<string>();
     const nonBooleanColumns = new Set<string>();
 
@@ -112,6 +121,7 @@ export class JsonlReader {
           columnTypes.set(key, new Set());
         }
         columnTypes.get(key)!.add(this.inferType(value));
+        presence.set(key, (presence.get(key) ?? 0) + 1);
 
         if (typeof value === 'boolean') {
           booleanColumns.add(key);
@@ -146,7 +156,8 @@ export class JsonlReader {
       columns.push({
         name: columnName,
         type: sqlType,
-        notNull: !typeArray.includes('NULL'),
+        // A row without the field stores null for it, so the field is nullable unless every row has it
+        notNull: !typeArray.includes('NULL') && presence.get(columnName) === data.length,
         valueType: isBooleanColumn ? 'boolean' : undefined,
       });
     }

@@ -3,6 +3,7 @@ packages:
   - 'examples'
   - 'tests/*'
   - 'extension'
+  - 'studio-ui'
 
 allowBuilds:
   '@vscode/vsce-sign': true

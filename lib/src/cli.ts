@@ -15,6 +15,9 @@ import { styleText } from 'node:util';
 import { writeFile, stat, readdir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
+import { spawn } from 'node:child_process';
+import { startStudioServer, type StudioServer } from './studio/server.js';
+import { fillFields } from './fill.js';
 
 const originalEmitWarning = process.emitWarning;
 process.emitWarning = (warning, ...args) => {
@@ -293,6 +296,111 @@ const migrateCommand = defineCommand({
   },
 });
 
+const fillCommand = defineCommand({
+  name: 'fill',
+  description: 'Fill the values each table computes into the JSONL rows that have none for the named fields',
+  args: z.object({
+    path: arg(z.string(), {
+      positional: true,
+      description: 'Data directory, or one .jsonl file in it',
+    }),
+    fields: arg(z.string().optional(), {
+      alias: 'f',
+      description: "Comma-separated fields to fill (default: each table's primary key)",
+    }),
+  }),
+  run: async (args) => {
+    const fields = args.fields
+      ?.split(',')
+      .map((field) => field.trim())
+      .filter(Boolean);
+    const result = await fillFields({ path: args.path, fields });
+    if (!result.ok) {
+      console.error('Error:', result.error.message);
+      process.exit(1);
+    }
+    const { filled, tablesWithoutSchema, unreadableLines, unproducedFields } = result.value;
+    for (const table of tablesWithoutSchema) {
+      console.warn(styleText('yellow', `⚠ No schema file for ${table}, so nothing can be filled in there`));
+    }
+    for (const { file, lines } of unreadableLines) {
+      console.warn(
+        styleText(
+          'yellow',
+          `⚠ ${file}: line(s) ${lines.join(', ')} are not JSON objects, so nothing was filled in there`,
+        ),
+      );
+    }
+    if (unproducedFields.length > 0) {
+      console.warn(styleText('yellow', `⚠ No table produces a value for: ${unproducedFields.join(', ')}`));
+    }
+    if (filled.length === 0) {
+      console.log(styleText('green', '✓ Nothing to fill'));
+    }
+    for (const { file, fields: written, count } of filled) {
+      console.log(styleText('green', `✓ ${file}: filled ${written.join(', ')} in ${count} row(s)`));
+    }
+  },
+});
+
+let studio: StudioServer | undefined;
+
+const studioCommand = defineCommand({
+  name: 'studio',
+  description: 'Browse and edit the tables of a data directory in the browser',
+  args: z.object({
+    dataDir: arg(z.string(), {
+      positional: true,
+      description: 'Directory containing JSONL and schema files',
+    }),
+    port: arg(z.coerce.number().int().min(0).max(65535).default(4848), {
+      alias: 'p',
+      description: 'Port to listen on (0 picks a free one)',
+    }),
+    open: arg(z.boolean().default(false), {
+      description: 'Open the studio in the default browser',
+    }),
+    writeFilledValues: arg(z.enum(['all', 'primaryKey']).default('primaryKey'), {
+      description: 'Values the schema fills in that a save writes: all of them, or only a generated primary key',
+    }),
+  }),
+  run: async (args) => {
+    try {
+      studio = await startStudioServer({
+        dataDir: args.dataDir,
+        port: args.port,
+        writeFilledValues: args.writeFilledValues,
+      });
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+
+    console.log(`lines-db studio is running at ${styleText('cyan', studio.url)}`);
+    console.log('Press Ctrl+C to stop.');
+    if (args.open) openInBrowser(studio.url);
+
+    // Not resolving once the server listens: runMain exits the process as soon as run resolves.
+    // Ctrl+C is handled by runMain, which awaits cleanup before it exits.
+    await new Promise<never>(() => {});
+  },
+  cleanup: async () => {
+    await studio?.close();
+  },
+});
+
+function openInBrowser(url: string): void {
+  const [command, ...commandArgs] =
+    process.platform === 'darwin'
+      ? ['open', url]
+      : process.platform === 'win32'
+        ? ['cmd', '/c', 'start', '""', url]
+        : ['xdg-open', url];
+  spawn(command, commandArgs, { stdio: 'ignore', detached: true })
+    .on('error', () => console.warn(`Could not open a browser; visit ${url}`))
+    .unref();
+}
+
 const program = defineCommand({
   name: '@toiroakr/lines-db',
   description: 'Database utilities for JSONL files',
@@ -300,6 +408,8 @@ const program = defineCommand({
     generate: generateCommand,
     validate: validateCommand,
     migrate: migrateCommand,
+    fill: fillCommand,
+    studio: studioCommand,
   },
 });
 
