@@ -188,7 +188,7 @@ importers:
   e2e:
     devDependencies:
       '@ai-sdk/openai':
-        specifier: ^4.0.0
+        specifier: ^4.0.81
         version: 4.0.81(zod@4.6.5)
       '@e2e-dev/web':
         specifier: ^0.11.0
