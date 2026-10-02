@@ -49,4 +49,12 @@ describe('LinesDB.validateRow', () => {
 
     expect(unwrap(db.validateRow('people', { id: 1, name: 'Alice' }))).toEqual({ id: 1, name: 'Alice', age: 20 });
   });
+
+  it('fails for a table the database does not have', async () => {
+    await writeFile(join(dataDir, 'people.jsonl'), '{"id":1,"name":"Alice"}\n');
+    db = LinesDB.create<TableDefs>({ dataDir });
+    unwrap(await db.initialize());
+
+    expect(db.validateRow('peple', { id: 1 }).ok).toBe(false);
+  });
 });

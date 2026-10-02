@@ -245,6 +245,20 @@ describe('LinesDB.transaction write-back', () => {
     expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"a","note":"kept"}\n{"id":2,"name":"B"}\n');
   });
 
+  it('writes back what SQL run through getDb() changed before a later statement of it failed', async () => {
+    unwrap(
+      await db.transaction((tx) => {
+        try {
+          tx.getDb().exec("UPDATE items SET name = 'Z'; INSERT INTO no_such_table VALUES (1)");
+        } catch {
+          // The caller goes on, keeping the change the first statement made
+        }
+      }),
+    );
+
+    expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"Z"}\n');
+  });
+
   it('refuses a sync inside a transaction, as it would write rows the transaction may roll back', async () => {
     const result = await db.transaction(async (tx) => {
       unwrap(tx.update('items', { name: 'A' }, { id: 1 }));

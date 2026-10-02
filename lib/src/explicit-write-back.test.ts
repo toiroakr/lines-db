@@ -245,6 +245,19 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
     );
   });
 
+  it('validates an update without the fields it resets, which would otherwise make it fail', async () => {
+    const plainHasNoExtra = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  data.mode === 'plain' && data.extra != null ? { issues: [{ message: 'A plain row has no extra', path: [{ key: 'extra' }] }] } : { value: data } } };
+`;
+    await load('{"id":1,"mode":"rich","extra":"x"}\n{"id":2,"mode":"plain","extra":null}\n', plainHasNoExtra);
+
+    await write((tx) => unwrap(tx.update('people', { mode: 'plain' }, { id: 1 }, { resetToDefault: ['extra'] })));
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe(
+      '{"id":1,"mode":"plain"}\n{"id":2,"mode":"plain","extra":null}\n',
+    );
+  });
+
   it('writes the fields a migration transform set while loading', async () => {
     await writeFile(peoplePath(), '{"id":"a","name":"Alice"}\n');
     await writeFile(join(dataDir, 'people.schema.ts'), DEFAULTS_SCHEMA);

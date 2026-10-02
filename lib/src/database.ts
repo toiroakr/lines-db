@@ -1097,12 +1097,15 @@ export class LinesDB<Tables extends TableDefs> {
    */
   private trackRawSql<T>(run: () => T): T {
     const before = this.totalChanges();
-    const result = run();
-    if (this.totalChanges() !== before) {
-      for (const tableName of this.schemas.keys()) this.rawSqlTables.add(tableName);
-      if (this.transactionChanges) this.transactionChanges = 'all';
+    // Not only when it returns: SQL of several statements can change rows and then fail on a later one
+    try {
+      return run();
+    } finally {
+      if (this.totalChanges() !== before) {
+        for (const tableName of this.schemas.keys()) this.rawSqlTables.add(tableName);
+        if (this.transactionChanges) this.transactionChanges = 'all';
+      }
     }
-    return result;
   }
 
   private totalChanges(): number {
@@ -1461,7 +1464,9 @@ export class LinesDB<Tables extends TableDefs> {
 
       // Validate each merged row
       for (const existingRow of existingRows) {
-        const mergedData = { ...existingRow, ...data };
+        const mergedData: Record<string, unknown> = { ...existingRow, ...data };
+        // Not checked with the values the update resets: they are about to be replaced by the schema's
+        for (const field of options?.resetToDefault ?? []) delete mergedData[field];
         this.validateData(tableName, mergedData);
       }
     }
@@ -1873,6 +1878,13 @@ export class LinesDB<Tables extends TableDefs> {
    * validation, so a fix can be checked before it is written to the file
    */
   validateRow(tableName: string, row: JsonObject): Result<JsonObject, ValidationError> {
+    // A table left out on load is not among the tables, but its schema was loaded
+    if (!this.tables.has(tableName) && !this.validationSchemas.has(tableName)) {
+      const error = new Error(`Table '${tableName}' does not exist`) as ValidationError;
+      error.name = 'ValidationError';
+      error.issues = [{ message: `Table '${tableName}' does not exist` }];
+      return err(error);
+    }
     try {
       return ok(this.validateAndTransform(tableName, row));
     } catch (error) {
