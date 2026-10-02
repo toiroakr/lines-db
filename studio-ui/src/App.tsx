@@ -47,6 +47,7 @@ import {
   isDeleted,
   removeInsert,
   resetCell,
+  resetField,
   revertCell,
   setCell,
   setInsertCell,
@@ -225,6 +226,12 @@ export function App() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // Not only the rows the filter shows: the field is to leave every line of the file
+  const removeFieldEverywhere = (field: string) => {
+    const keys = (data?.rows ?? []).flatMap((row, index) => (Object.hasOwn(row, field) ? [index] : []));
+    setPending(resetField(pending, keys, field));
   };
 
   const deleteSelected = () => {
@@ -525,6 +532,7 @@ export function App() {
               setEditing={setEditing}
               saving={saving}
               revision={data?.revision}
+              onRemoveField={removeFieldEverywhere}
             />
           )}
         </main>
@@ -545,6 +553,8 @@ interface GridProps {
   /** Locks the grid: a change made now would be cleared with the ones being saved, without being saved */
   saving: boolean;
   revision?: string;
+  /** Removes a field from every row of the table, not only the ones shown */
+  onRemoveField: (field: string) => void;
 }
 
 function Grid({
@@ -558,6 +568,7 @@ function Grid({
   setEditing,
   saving,
   revision,
+  onRemoveField,
 }: GridProps) {
   const primaryKey = table.primaryKey;
   // Not found by primary key in a table with failing rows: the failing field may be that key
@@ -604,6 +615,18 @@ function Grid({
                       <Badge variant="outline" className="border-destructive/50 font-sans text-destructive">
                         not in schema
                       </Badge>
+                    </Tooltip>
+                  )}
+                  {column.unknown && (
+                    <Tooltip content={`Remove ${column.name} from every row`}>
+                      <button
+                        type="button"
+                        className="rounded-sm p-0.5 text-destructive hover:bg-destructive/10"
+                        aria-label={`Remove ${column.name} from every row`}
+                        onClick={() => onRemoveField(column.name)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
                     </Tooltip>
                   )}
                 </div>

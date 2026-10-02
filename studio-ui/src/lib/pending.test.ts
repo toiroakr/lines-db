@@ -3,6 +3,7 @@ import {
   emptyPending,
   setCell,
   resetCell,
+  resetField,
   addInsert,
   setInsertCell,
   removeInsert,
@@ -103,5 +104,17 @@ describe('markDeleted', () => {
 
     expect(markDeleted(once, 1)).toEqual(once);
     expect(toBatch(markDeleted(once, 2)).deletes).toEqual([1, 2]);
+  });
+
+  it('removes a field from every row named, as removing it from each row would', () => {
+    const pending = resetField(setCell(emptyPending(), 2, 'note', 'kept?'), [0, 2], 'note');
+
+    expect(toBatch(pending).updates).toHaveLength(2);
+    expect(toBatch(pending).updates).toEqual(
+      expect.arrayContaining([
+        { key: 0, changes: {}, resetToDefault: ['note'] },
+        { key: 2, changes: {}, resetToDefault: ['note'] },
+      ]),
+    );
   });
 });

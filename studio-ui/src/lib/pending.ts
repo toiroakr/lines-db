@@ -47,6 +47,11 @@ export function resetCell(pending: Pending, key: JsonValue, field: string): Pend
   return withEdit(pending, { key, changes, reset: [...edit.reset.filter((name) => name !== field), field] });
 }
 
+/** Remove a field from each of the rows named, leaving its value to the schema */
+export function resetField(pending: Pending, keys: readonly JsonValue[], field: string): Pending {
+  return keys.reduce((next, key) => resetCell(next, key, field), pending);
+}
+
 /** Undo whatever was pending on a cell */
 export function revertCell(pending: Pending, key: JsonValue, field: string): Pending {
   const edit = editOf(pending, key);

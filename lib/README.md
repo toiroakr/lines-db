@@ -231,7 +231,8 @@ rewrites the table's JSONL file as a whole, so the formatting of the other lines
   rows and cells marked and their issues listed. Fix a cell and save: the fix is checked against the
   schema with `validateRow()` and written to that row's line only, the other lines staying as they
   were, and the table is loaded as usual once every row passes. Adding and deleting rows is off until
-  then.
+  then. A field the schema refuses as a key is marked **not in schema**, and its column header removes it
+  from every row at once.
 - When the files change on disk while the studio is open, the page reloads the rows on its own, or,
   with changes pending, says so. A save checks the files first: a changed schema file is loaded so the
   save is validated against it, and a change to the edited table's own file stops the save with the
