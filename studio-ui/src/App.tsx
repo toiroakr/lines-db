@@ -402,21 +402,23 @@ export function App() {
               >
                 <Plus /> <span className="hidden sm:inline">Add record</span>
               </Button>
-              <Tooltip content="Reload from the files">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-7"
-                  aria-label="Reload from the files"
-                  onClick={() => {
-                    setEditing(undefined);
-                    if (dirty) discard();
-                    void load(current);
-                  }}
-                  disabled={saving}
-                >
-                  <RefreshCw className="size-4" />
-                </Button>
+              <Tooltip content={dirty ? 'Save or discard the unsaved changes to reload' : 'Reload from the files'}>
+                {/* Not the button as the trigger: a disabled button gets no pointer events, so its tooltip would not say why */}
+                <span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7"
+                    aria-label="Reload from the files"
+                    onClick={() => {
+                      setEditing(undefined);
+                      void load(current);
+                    }}
+                    disabled={saving || dirty}
+                  >
+                    <RefreshCw className="size-4" />
+                  </Button>
+                </span>
               </Tooltip>
             </div>
           </header>
