@@ -1,60 +1,109 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
-@custom-variant dark (@media (prefers-color-scheme: dark));
+/* Not only the system's: the page can be marked light or dark, which the toggle in the header does */
+@custom-variant dark {
+  &:where([data-theme='dark'], [data-theme='dark'] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme='light']), :root:not([data-theme='light']) *) {
+      @slot;
+    }
+  }
+}
 
+/* Colors after Prisma Studio: a white grid with slate lines and indigo for what is picked, navy when dark */
 :root {
   --radius: 0.5rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --sidebar: oklch(0.985 0 0);
-  --changed: oklch(0.95 0.08 85);
-  --changed-foreground: oklch(0.45 0.12 70);
-  --added: oklch(0.95 0.06 150);
-  --removed: oklch(0.95 0.04 25);
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #1a202c;
+  --card: #ffffff;
+  --card-foreground: #1a202c;
+  --popover: #ffffff;
+  --popover-foreground: #1a202c;
+  --primary: #5a67d8;
+  --primary-foreground: #ffffff;
+  --secondary: #edf2f7;
+  --secondary-foreground: #2d3748;
+  --muted: #f7fafc;
+  --muted-foreground: #718096;
+  --accent: #ebf4ff;
+  --accent-foreground: #3c366b;
+  --destructive: #e53e3e;
+  --border: #e2e8f0;
+  --input: #cbd5e0;
+  --ring: #667eea;
+  --sidebar: #f7fafc;
+  --header: #f7fafc;
+  --success: #38a169;
+  --success-foreground: #ffffff;
+  --changed: #fefcbf;
+  --changed-foreground: #b7791f;
+  --added: #f0fff4;
+  --removed: #fff5f5;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --background: #161b26;
+  --foreground: #e2e8f0;
+  --card: #1d2330;
+  --card-foreground: #e2e8f0;
+  --popover: #1d2330;
+  --popover-foreground: #e2e8f0;
+  --primary: #7f9cf5;
+  --primary-foreground: #11151d;
+  --secondary: #252d3d;
+  --secondary-foreground: #e2e8f0;
+  --muted: #1d2330;
+  --muted-foreground: #8b95a7;
+  --accent: #232c45;
+  --accent-foreground: #c3dafe;
+  --destructive: #fc8181;
+  --border: #2a3242;
+  --input: #364156;
+  --ring: #7f9cf5;
+  --sidebar: #11151d;
+  --header: #1a202c;
+  --success: #48bb78;
+  --success-foreground: #0b1a12;
+  --changed: #3a3220;
+  --changed-foreground: #f6e05e;
+  --added: #1c3326;
+  --removed: #3b1f24;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --sidebar: oklch(0.18 0 0);
-    --changed: oklch(0.32 0.07 80);
-    --changed-foreground: oklch(0.85 0.12 85);
-    --added: oklch(0.3 0.06 150);
-    --removed: oklch(0.3 0.06 25);
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --background: #161b26;
+    --foreground: #e2e8f0;
+    --card: #1d2330;
+    --card-foreground: #e2e8f0;
+    --popover: #1d2330;
+    --popover-foreground: #e2e8f0;
+    --primary: #7f9cf5;
+    --primary-foreground: #11151d;
+    --secondary: #252d3d;
+    --secondary-foreground: #e2e8f0;
+    --muted: #1d2330;
+    --muted-foreground: #8b95a7;
+    --accent: #232c45;
+    --accent-foreground: #c3dafe;
+    --destructive: #fc8181;
+    --border: #2a3242;
+    --input: #364156;
+    --ring: #7f9cf5;
+    --sidebar: #11151d;
+    --header: #1a202c;
+    --success: #48bb78;
+    --success-foreground: #0b1a12;
+    --changed: #3a3220;
+    --changed-foreground: #f6e05e;
+    --added: #1c3326;
+    --removed: #3b1f24;
   }
 }
 
@@ -81,6 +130,9 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);
+  --color-header: var(--header);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-changed: var(--changed);
   --color-changed-foreground: var(--changed-foreground);
   --color-added: var(--added);

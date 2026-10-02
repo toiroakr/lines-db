@@ -6,6 +6,8 @@ import {
   FileCode,
   KeyRound,
   Menu,
+  Monitor,
+  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -15,6 +17,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Sun,
   Table2,
   Trash2,
   Undo2,
@@ -67,6 +70,7 @@ import type { Column, Issue, JsonObject, JsonValue, Reference, TableInfo } from 
 import { cn } from '@/lib/utils';
 import { fieldIssues, issuePath } from '@/lib/check';
 import { eventsUrl } from '@/lib/session';
+import { applyTheme, nextTheme, readTheme } from '@/lib/theme';
 
 type Notice = { kind: 'error'; title: string; issues?: Issue[] } | { kind: 'success'; title: string };
 type Editing = { row: 'existing'; key: JsonValue; column: string } | { row: 'new'; id: string; column: string };
@@ -427,7 +431,8 @@ export function App() {
                 onClick={() => selectTable(candidate.name) && setDrawerOpen(false)}
                 className={cn(
                   'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent',
-                  candidate.name === table?.name && 'bg-accent font-medium',
+                  candidate.name === table?.name &&
+                    'bg-accent font-medium text-accent-foreground [&>svg:first-child]:text-primary',
                 )}
               >
                 <Table2 className="size-4 shrink-0 text-muted-foreground" />
@@ -529,6 +534,7 @@ export function App() {
                   </Button>
                 </span>
               </Tooltip>
+              <ThemeToggle />
               <Tooltip content={formShown ? 'Hide the row form' : 'Show the row form'}>
                 <Button
                   size="icon"
@@ -568,7 +574,12 @@ export function App() {
                 <Button size="sm" variant="ghost" onClick={discard} disabled={saving}>
                   <Undo2 /> Discard
                 </Button>
-                <Button size="sm" onClick={() => void save()} disabled={saving}>
+                <Button
+                  size="sm"
+                  className="bg-success text-success-foreground hover:bg-success/90"
+                  onClick={() => void save()}
+                  disabled={saving}
+                >
                   <Save /> Save {changeCount} change{changeCount === 1 ? '' : 's'}
                 </Button>
               </div>
@@ -727,18 +738,18 @@ function Grid({
   return (
     <div className={cn('mt-3 min-h-0 flex-1 overflow-auto border-t', saving && 'opacity-60')} inert={saving}>
       <table className="w-max min-w-full border-separate border-spacing-0 text-sm">
-        <thead className="sticky top-0 z-10 bg-background">
+        <thead className="sticky top-0 z-10 bg-header">
           <tr>
             {selectable && (
-              <th className="w-10 border-b bg-background px-3 py-2">
+              <th className="w-10 border-b bg-header px-3 py-2">
                 <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Select all rows" />
               </th>
             )}
-            {byIndex && <th className="w-10 border-b bg-background px-3 py-2" aria-label="Validation" />}
+            {byIndex && <th className="w-10 border-b bg-header px-3 py-2" aria-label="Validation" />}
             {table.columns.map((column) => (
               <th
                 key={column.name}
-                className="border-b border-l bg-background px-3 py-2 text-left font-medium first:border-l-0"
+                className="border-b border-l bg-header px-3 py-2 text-left font-medium first:border-l-0"
               >
                 <div className="flex items-center gap-1.5 whitespace-nowrap">
                   {column.primaryKey && <KeyRound className="size-3.5 text-amber-500" />}
@@ -1126,4 +1137,33 @@ function writeFormShown(shown: boolean): void {
   } catch {
     // Not kept for the next visit, which then decides by the width of the screen
   }
+}
+
+/** Switches the colors from those of the system to light, to dark, and back */
+function ThemeToggle() {
+  const [theme, setTheme] = useState(readTheme);
+  const label = `Theme: ${theme === 'system' ? 'as the system' : theme}`;
+  return (
+    <Tooltip content={label}>
+      <Button
+        size="icon"
+        variant="ghost"
+        className="size-7"
+        aria-label={label}
+        onClick={() => {
+          const next = nextTheme(theme);
+          applyTheme(next);
+          setTheme(next);
+        }}
+      >
+        {theme === 'light' ? (
+          <Sun className="size-4" />
+        ) : theme === 'dark' ? (
+          <Moon className="size-4" />
+        ) : (
+          <Monitor className="size-4" />
+        )}
+      </Button>
+    </Tooltip>
+  );
 }
