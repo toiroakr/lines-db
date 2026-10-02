@@ -56,3 +56,14 @@ describe('parseInput with trailing commas', () => {
     expect(parseInput(column('JSON'), '[,]')).toHaveProperty('error');
   });
 });
+
+describe('parseInput for a boolean column', () => {
+  it('reads the choice made', () => {
+    expect(parseInput(column('INTEGER', 'boolean'), 'true')).toEqual({ value: true });
+    expect(parseInput(column('INTEGER', 'boolean'), 'false')).toEqual({ value: false });
+  });
+
+  it('asks for a choice before setting a value, so null or a default is not replaced by false', () => {
+    expect(parseInput(column('INTEGER', 'boolean'), '')).toEqual({ error: 'Choose true or false' });
+  });
+});

@@ -42,7 +42,7 @@ export function CellEditor({
   onClose,
 }: CellEditorProps) {
   const initial = useMemo(
-    () => (isBoolean(column) ? String(value === true) : editableText(column, value)),
+    () => (isBoolean(column) ? (typeof value === 'boolean' ? String(value) : '') : editableText(column, value)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );

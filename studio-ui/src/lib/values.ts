@@ -13,7 +13,9 @@ export function isNumber(column: Pick<Column, 'type' | 'valueType'>): boolean {
 
 /** The value typed into a cell's editor, read as the column's type */
 export function parseInput(column: Pick<Column, 'type' | 'valueType'>, text: string): Parsed {
-  if (isBoolean(column)) return { value: text === 'true' };
+  if (isBoolean(column)) {
+    return text === 'true' || text === 'false' ? { value: text === 'true' } : { error: 'Choose true or false' };
+  }
   if (column.type === 'JSON') {
     const read = readJsonc(text);
     return 'error' in read ? { error: `Not valid JSON: ${read.error}` } : { value: read.value as JsonValue };
