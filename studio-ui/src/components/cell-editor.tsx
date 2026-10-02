@@ -3,10 +3,10 @@ import { Check, CircleAlert, Eraser, LoaderCircle, Pencil, RotateCcw, Trash2, X 
 import { Button } from '@/components/ui/button';
 import { Input, TextLines } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { JsonEditor } from '@/components/json-editor';
+import { ValueField } from '@/components/value-field';
 import type { Column, Issue, JsonValue } from '@/lib/types';
 import type { Batch } from '@/lib/pending';
-import { issuePath, issuesFor, segmentKey, useLiveCheck } from '@/lib/check';
+import { issuePath, issuesFor, useLiveCheck } from '@/lib/check';
 import { editableText, isBoolean, isNumber, parseInput } from '@/lib/values';
 import { cn } from '@/lib/utils';
 
@@ -100,6 +100,10 @@ export function CellEditor({
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape') onClose();
+    if (json && event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      apply();
+    }
     if (!json && event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       apply();
@@ -136,12 +140,13 @@ export function CellEditor({
           ))}
         </div>
       ) : json ? (
-        <JsonEditor
-          label={column.name}
-          initial={initial}
-          issues={issues.filter((issue) => !issue.path?.length || segmentKey(issue.path[0]) === column.name)}
-          onChange={setText}
-          onSubmit={apply}
+        // Not the JSON editor at first: the form shows what the value holds, and each block can switch to JSON
+        <ValueField
+          path={[column.name]}
+          value={'value' in parsed ? parsed.value : (value ?? null)}
+          issues={issues}
+          leeway={column.nested}
+          onChange={(next) => setText(JSON.stringify(next, null, 2))}
         />
       ) : isNumber(column) ? (
         <Input

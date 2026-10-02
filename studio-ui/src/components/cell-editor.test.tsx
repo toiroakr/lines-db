@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CellEditor } from './cell-editor';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import type { Column, JsonValue } from '@/lib/types';
 
 describe('CellEditor', () => {
@@ -100,22 +101,41 @@ describe('CellEditor', () => {
     expect(screen.getByRole('textbox', { name: 'name' })).toBeTruthy();
   });
 
-  it('names its JSON editor after the field it edits', () => {
+  const renderJson = (value: JsonValue) => {
+    const onApply = vi.fn();
     render(
-      <CellEditor
-        table="users"
-        column={{ name: 'tags', type: 'JSON' }}
-        value={['a']}
-        preview={() => ({ inserts: [], updates: [], deletes: [] })}
-        canUseDefault
-        canRevert={false}
-        onApply={vi.fn()}
-        onUseDefault={vi.fn()}
-        onRevert={vi.fn()}
-        onClose={vi.fn()}
-      />,
+      <TooltipProvider>
+        <CellEditor
+          table="orders"
+          column={{ name: 'metadata', type: 'JSON' }}
+          value={value}
+          preview={() => ({ inserts: [], updates: [], deletes: [] })}
+          canUseDefault
+          canRevert={false}
+          onApply={onApply}
+          onUseDefault={vi.fn()}
+          onRevert={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </TooltipProvider>,
     );
+    return onApply;
+  };
 
-    expect(screen.getByRole('textbox', { name: 'tags' })).toBeTruthy();
+  it('edits a JSON value as a form at first, setting the whole value', async () => {
+    const onApply = renderJson({ source: 'web', device: 'iOS' });
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'metadata.source' }), { target: { value: 'mobile' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Set' }));
+
+    expect(onApply).toHaveBeenCalledWith({ source: 'mobile', device: 'iOS' });
+  });
+
+  it('switches a JSON value to a JSON editor named after the field', async () => {
+    renderJson({ source: 'web' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit metadata as JSON' }));
+
+    expect(screen.getByRole('textbox', { name: 'metadata' })).toBeTruthy();
   });
 });
