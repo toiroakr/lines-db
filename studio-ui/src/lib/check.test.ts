@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { checkChanges, fieldIssues, issuesFor, issuePath } from './check';
+import { act, renderHook } from '@testing-library/react';
+import { checkChanges, fieldIssues, issuesFor, issuePath, useLiveCheck } from './check';
 
 describe('issuesFor', () => {
   it('keeps the issues about the edited field and its nested values', () => {
@@ -12,6 +13,12 @@ describe('issuesFor', () => {
     expect(issuesFor('metadata', { ok: false, issues })).toEqual([
       { message: 'Expected string', path: [{ key: 'metadata' }, { key: 'source' }] },
     ]);
+  });
+
+  it('keeps the issues about other fields when none is about the edited one, so a refused value does not show as valid', () => {
+    const issues = [{ message: 'Must come after start', path: [{ key: 'end' }] }];
+
+    expect(issuesFor('start', { ok: false, issues })).toEqual(issues);
   });
 
   it('keeps an issue with no path, as it may be about any field of the row', () => {
@@ -77,5 +84,26 @@ describe('fieldIssues', () => {
   it('gives a cell the issues about its field, nested values included', () => {
     expect(fieldIssues('items', issues)).toEqual([issues[0]]);
     expect(fieldIssues('name', issues)).toEqual([]);
+  });
+});
+
+describe('useLiveCheck', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('stops checking once there is nothing to check, before the pending check was sent', () => {
+    vi.useFakeTimers();
+    const batch = { inserts: [], updates: [], deletes: [] };
+    const { result, rerender } = renderHook(({ value }) => useLiveCheck('users', value), {
+      initialProps: { value: batch as typeof batch | undefined },
+    });
+    expect(result.current.checking).toBe(true);
+
+    rerender({ value: undefined });
+    act(() => void vi.advanceTimersByTime(500));
+
+    expect(result.current).toEqual({ result: undefined, checking: false });
   });
 });

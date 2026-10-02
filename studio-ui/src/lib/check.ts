@@ -26,7 +26,9 @@ export function issuesFor(field: string, result: CheckResult | undefined): Issue
   if (!result || result.ok || !('issues' in result)) return [];
   // A refusal SQLite gives, such as a unique constraint, has a message and no issues
   const issues = result.issues.length > 0 || !result.message ? result.issues : [{ message: result.message }];
-  return issues.filter((issue) => !issue.path?.length || segmentKey(issue.path[0]) === field);
+  const scoped = issues.filter((issue) => !issue.path?.length || segmentKey(issue.path[0]) === field);
+  // Not only the edited field's: the value can be refused through a check on another field
+  return scoped.length > 0 ? scoped : issues;
 }
 
 export async function checkChanges(table: string, batch: Batch, signal: AbortSignal): Promise<CheckResult> {
@@ -54,14 +56,14 @@ export function useLiveCheck(table: string, batch: Batch | undefined): { result?
 
   useEffect(() => {
     setResult(undefined);
-    if (!serialized) return;
     const id = ++latest.current;
+    setChecking(Boolean(serialized));
+    if (!serialized) return;
     const controller = new AbortController();
-    setChecking(true);
     const timer = setTimeout(() => {
       checkChanges(table, JSON.parse(serialized) as Batch, controller.signal)
         .then((answer) => {
-          if (id === latest.current) setResult(answer);
+          if (id === latest.current && !controller.signal.aborted) setResult(answer);
         })
         .catch((error: unknown) => {
           if (id === latest.current && !controller.signal.aborted) {

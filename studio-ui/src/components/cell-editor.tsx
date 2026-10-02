@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { JsonEditor } from '@/components/json-editor';
 import type { Column, Issue, JsonValue } from '@/lib/types';
 import type { Batch } from '@/lib/pending';
-import { issuePath, issuesFor, useLiveCheck } from '@/lib/check';
+import { issuePath, issuesFor, segmentKey, useLiveCheck } from '@/lib/check';
 import { editableText, isBoolean, isNumber, parseInput } from '@/lib/values';
 import { cn } from '@/lib/utils';
 
@@ -122,6 +122,7 @@ export function CellEditor({
               key={option}
               type="button"
               autoFocus={text === option}
+              aria-pressed={text === option}
               onClick={() => setText(option)}
               className={`rounded-sm py-1 font-mono text-xs ${text === option ? 'bg-background shadow-sm' : 'text-muted-foreground'}`}
             >
@@ -130,7 +131,12 @@ export function CellEditor({
           ))}
         </div>
       ) : json ? (
-        <JsonEditor initial={initial} issues={issues} onChange={setText} onSubmit={apply} />
+        <JsonEditor
+          initial={initial}
+          issues={issues.filter((issue) => !issue.path?.length || segmentKey(issue.path[0]) === column.name)}
+          onChange={setText}
+          onSubmit={apply}
+        />
       ) : (
         <Input
           autoFocus
