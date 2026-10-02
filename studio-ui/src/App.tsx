@@ -511,18 +511,6 @@ export function App() {
               >
                 <Plus /> <span className="hidden sm:inline">Add record</span>
               </Button>
-              <Tooltip content={formShown ? 'Hide the row form' : 'Show the row form'}>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-7"
-                  aria-label={formShown ? 'Hide the row form' : 'Show the row form'}
-                  aria-pressed={formShown}
-                  onClick={() => showForm(!formShown)}
-                >
-                  {formShown ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
-                </Button>
-              </Tooltip>
               <Tooltip content={dirty ? 'Save or discard the unsaved changes to reload' : 'Reload from the files'}>
                 {/* Not the button as the trigger: a disabled button gets no pointer events, so its tooltip would not say why */}
                 <span>
@@ -540,6 +528,18 @@ export function App() {
                     <RefreshCw className="size-4" />
                   </Button>
                 </span>
+              </Tooltip>
+              <Tooltip content={formShown ? 'Hide the row form' : 'Show the row form'}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-7"
+                  aria-label={formShown ? 'Hide the row form' : 'Show the row form'}
+                  aria-pressed={formShown}
+                  onClick={() => showForm(!formShown)}
+                >
+                  {formShown ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+                </Button>
               </Tooltip>
             </div>
           </header>
