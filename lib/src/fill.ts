@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { type Result, ok, err, toError } from './result.js';
 import { hasBackward, type BiDirectionalSchema } from './schema.js';
 import { findSchemaFile } from './schema-extensions.js';
-import type { JsonObject, JsonValue, StandardSchema, Table } from './types.js';
+import type { JsonlConflictError, JsonObject, JsonValue, StandardSchema, Table } from './types.js';
 
 /** Computes the values a row gets, from the row as its line holds it */
 export type RowFiller = (row: JsonObject) => Record<string, unknown>;
@@ -94,10 +94,11 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
   const produced = new Set<string>();
   const unreadableLines: FillFieldsResult['unreadableLines'] = [];
   const filled: FilledFile[] = [];
-  const writes: Array<{ file: string; content: string }> = [];
+  const writes: Array<{ file: string; read: string; content: string }> = [];
   for (const { table, fields, fill } of tables) {
     const file = join(dataDir, `${table}.jsonl`);
-    const lines = splitLines(await readFile(file, 'utf-8'));
+    const read = await readFile(file, 'utf-8');
+    const lines = splitLines(read);
     const written = new Set<string>();
     const unreadable: number[] = [];
     let count = 0;
@@ -124,10 +125,22 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
 
     if (unreadable.length > 0) unreadableLines.push({ file, lines: unreadable });
     if (count === 0) continue;
-    writes.push({ file, content: lines.map((line) => `${line.text}${line.eol}`).join('') });
+    writes.push({ file, read, content: lines.map((line) => `${line.text}${line.eol}`).join('') });
     filled.push({ table, file, fields: [...written], count });
   }
 
+  // Not checking each file as it is written: a change found in a later file would leave the earlier
+  // ones already filled
+  for (const { file, read } of writes) {
+    if ((await readFile(file, 'utf-8')) !== read) {
+      const error = new Error(
+        `JSONL file '${file}' was changed after it was read, so no file was filled. Run the fill again.`,
+      ) as JsonlConflictError;
+      error.name = 'JsonlConflictError';
+      error.file = file;
+      throw error;
+    }
+  }
   for (const { file, content } of writes) {
     await writeFile(file, content, 'utf-8');
   }

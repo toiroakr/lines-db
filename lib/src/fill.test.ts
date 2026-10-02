@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { writeFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fillFields } from './fill.js';
 import { unwrap } from './result.js';
 import type { RowFiller } from './fill.js';
+import type { JsonObject } from './types.js';
 
 /**
  * A table whose create-time behavior gives a row an `id` and timestamps, exported as `hook` the way a
@@ -153,6 +155,29 @@ describe('fillFields', () => {
     expect(!result.ok && result.error.message).toMatch(/Gadget\.schema\.ts does not export `hook`/);
     expect(await readFile(widgetPath, 'utf-8')).toBe(widgetBefore);
     expect(await readFile(gadgetPath, 'utf-8')).toBe('{"name":"gadget"}\n');
+  });
+
+  it('writes nothing anywhere when a file changed on disk after it was read, naming the file', async () => {
+    const gadgetPath = await writeTable('Gadget', ['{"name":"gadget"}']);
+    const widgetPath = await writeTable('Widget', ['{"name":"widget"}']);
+    const editedInEditor = '{"name":"gadget","note":"saved in an editor"}\n';
+    const loadFiller = (schemaModule: Record<string, unknown>, context: { tableName: string; schemaPath: string }) => {
+      const hook = useHook(schemaModule, context);
+      // Gadget is read before Widget, so this edit lands after Gadget was read and before any write
+      return context.tableName === 'Widget'
+        ? (row: JsonObject) => {
+            writeFileSync(gadgetPath, editedInEditor);
+            return hook(row);
+          }
+        : hook;
+    };
+
+    const result = await fillFields({ path: dataDir, loadFiller });
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toMatchObject({ name: 'JsonlConflictError', file: gadgetPath });
+    expect(await readFile(gadgetPath, 'utf-8')).toBe(editedInEditor);
+    expect(await readFile(widgetPath, 'utf-8')).toBe('{"name":"widget"}\n');
   });
 
   it('does not write an empty object for a nested field the row never had', async () => {

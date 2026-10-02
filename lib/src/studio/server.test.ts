@@ -304,6 +304,22 @@ describe('studio server', () => {
     expect(response.status).toBe(200);
   });
 
+  it('answers a write whose body is not JSON with 400, as the request is at fault', async () => {
+    const response = await fetch(rowUrl('users', 1), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"changes":',
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it('answers a row address whose key is not JSON with 400', async () => {
+    const response = await fetch(`${studio.url}/api/tables/users/rows/not-json`, { method: 'DELETE' });
+
+    expect(response.status).toBe(400);
+  });
+
   it('rejects a request whose Host is not the local server, so a rebound DNS name cannot reach it', async () => {
     const { port } = new URL(studio.url);
 

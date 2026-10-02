@@ -94,6 +94,29 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
     expect(unwrap(db.findOne('people', { id: 'a' }))).toMatchObject({ age: 20 });
   });
 
+  it('does not pass the changes of a batch-deleted row on to a row inserted later in its rowid', async () => {
+    await load('{"id":"a","name":"Alice"}\n');
+
+    await write((tx) => {
+      unwrap(tx.update('people', { age: 31 }, { id: 'a' }));
+      unwrap(tx.batchDelete('people', [{ id: 'a' }]));
+      unwrap(tx.insert('people', { id: 'b', name: 'Bob' }));
+    });
+
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"b","name":"Bob"}\n');
+  });
+
+  it('reports a filled field named after an Object member as filled by the schema', async () => {
+    const memberSchema = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, toString: Object.hasOwn(data, 'toString') ? data.toString : 'default' } }) } };
+`;
+    await load('{"id":"a"}\n', memberSchema, 'members');
+
+    expect(unwrap(await db.findWithDefaults('members'))).toEqual([
+      { row: { id: 'a', toString: 'default' }, defaulted: ['toString'] },
+    ]);
+  });
+
   it('reports the fields of each row that the schema filled in rather than the file', async () => {
     await load('{"id":"a","name":"Alice"}\n{"id":"b","name":"Bob","age":40}\n');
 

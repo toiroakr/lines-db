@@ -91,7 +91,9 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const reloadIfChanged = (): Promise<boolean> => serialize(reloadIfChangedUnlocked);
 
   const server = createServer((req, res) => {
-    handle(req, res).catch((error) => sendJson(res, 500, { message: errorMessage(error) }));
+    handle(req, res).catch((error) =>
+      sendJson(res, error instanceof BadRequestError ? 400 : 500, { message: errorMessage(error) }),
+    );
   });
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -288,7 +290,7 @@ type WriteOperation = { kind: 'insert' } | { kind: 'update' | 'delete'; key: Jso
 function writeOperation(method: string | undefined, encodedKey: string | undefined): WriteOperation | undefined {
   if (method === 'POST' && encodedKey === undefined) return { kind: 'insert' };
   if (encodedKey === undefined) return undefined;
-  const key = JSON.parse(encodedKey) as JsonValue;
+  const key = parseJson(encodedKey, 'The row key in the address is not JSON') as JsonValue;
   if (method === 'PATCH') return { kind: 'update', key };
   if (method === 'DELETE') return { kind: 'delete', key };
   return undefined;
@@ -302,7 +304,18 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 async function readJson(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  return parseJson(Buffer.concat(chunks).toString('utf8'), 'The request body is not JSON');
+}
+
+/** An error in the request itself, answered with 400 */
+class BadRequestError extends Error {}
+
+function parseJson(text: string, message: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new BadRequestError(message);
+  }
 }
 
 function errorMessage(error: unknown): string {

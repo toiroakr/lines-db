@@ -164,7 +164,8 @@ Fills the named fields - by default each table's primary key - into the rows of 
 table's validation schema gives the row. A value already in the file is never replaced, and a line
 that gains nothing is left byte for byte, its line separator included; a line that does gain a value
 is written with its keys in the order the schema lists them. Every value is computed before any file
-is written, and a row the schema rejects gains nothing.
+is written, and a row the schema rejects gains nothing. A file saved by another tool after the fill
+read it stops the fill with a `JsonlConflictError` naming the file, before any file is written.
 
 The same runs from code with `fillFields()`, which also takes the function that computes a row's
 values, for a table whose create-time values come from something other than its validation schema:

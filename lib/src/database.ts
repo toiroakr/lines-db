@@ -1639,14 +1639,7 @@ export class LinesDB<Tables extends TableDefs> {
       throw new Error('Function filters are not supported in delete operations');
     }
 
-    // A deleted row's rowid can be given to a row inserted later, which must not inherit its changes
-    const deleted = this.queryInternal<JsonObject>(
-      `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)} WHERE ${whereSql}`,
-      values,
-    );
-    for (const row of deleted) {
-      this.fieldChanges.get(tableName)?.delete(String(row[ROWID_ALIAS]));
-    }
+    this.forgetFieldChanges(tableName, whereSql, values);
 
     const sql = `DELETE FROM ${this.quoteTableName(tableName)} WHERE ${whereSql}`;
     const result = this.executeInternal(sql, values);
@@ -1703,6 +1696,7 @@ export class LinesDB<Tables extends TableDefs> {
     const placeholders = pkValues.map(() => '?').join(', ');
     const sql = `DELETE FROM ${this.quoteTableName(tableName)} WHERE ${this.quoteIdentifier(pkName)} IN (${placeholders})`;
     const values = pkValues.map((value) => this.normalizeValue(value));
+    this.forgetFieldChanges(tableName, `${this.quoteIdentifier(pkName)} IN (${placeholders})`, values);
 
     const result = this.executeInternal(sql, values);
 
@@ -1972,7 +1966,7 @@ export class LinesDB<Tables extends TableDefs> {
       const line = lines?.[index];
       const rowChanges = changes?.get(rowids[index]);
       // Not narrowed when the backward transformation renames fields: the line's keys name other fields
-      const renamesFields = Object.keys(lineRow).some((key) => !(key in rows[index]));
+      const renamesFields = Object.keys(lineRow).some((key) => !Object.hasOwn(rows[index], key));
       if (renamesFields || (!line && !rowChanges)) {
         return { written: lineRow, narrowed: false };
       }
@@ -1986,6 +1980,24 @@ export class LinesDB<Tables extends TableDefs> {
         narrowed: true,
       };
     });
+  }
+
+  /**
+   * Forget the field changes of the rows about to be deleted: a deleted row's rowid can be given to a
+   * row inserted later, which must not inherit them
+   */
+  private forgetFieldChanges(
+    tableName: string,
+    whereSql: string,
+    values: (string | number | bigint | null | Uint8Array)[],
+  ): void {
+    const deleted = this.queryInternal<JsonObject>(
+      `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)} WHERE ${whereSql}`,
+      values,
+    );
+    for (const row of deleted) {
+      this.fieldChanges.get(tableName)?.delete(String(row[ROWID_ALIAS]));
+    }
   }
 
   private noteFieldChanges(
@@ -2057,7 +2069,9 @@ export class LinesDB<Tables extends TableDefs> {
       return ok(
         rows.map((row, index) => ({
           row: row as Tables[K],
-          defaulted: kept[index].narrowed ? Object.keys(row).filter((key) => !(key in kept[index].written)) : [],
+          defaulted: kept[index].narrowed
+            ? Object.keys(row).filter((key) => !Object.hasOwn(kept[index].written, key))
+            : [],
         })),
       );
     } catch (error) {
