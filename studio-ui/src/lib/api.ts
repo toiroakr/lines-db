@@ -22,6 +22,13 @@ async function readJson<T>(response: Response): Promise<T> {
   return body;
 }
 
+/** The error a request failed with, as the server answers one even when the request never reached it */
+export function toWriteError(error: unknown): WriteError {
+  if (typeof error === 'object' && error !== null && 'status' in error && 'message' in error)
+    return error as WriteError;
+  return { status: 0, message: error instanceof Error ? error.message : String(error) };
+}
+
 export async function fetchTables(): Promise<TablesResponse> {
   return readJson(await fetch('/api/tables'));
 }

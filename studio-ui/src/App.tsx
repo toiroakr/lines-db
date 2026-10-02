@@ -29,7 +29,15 @@ import { CellEditor } from '@/components/cell-editor';
 import { SchemaDialog } from '@/components/schema-viewer';
 import { CopyPath } from '@/components/copy-path';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
-import { fetchRows, fetchTables, keyOf, saveChanges, type RowsResponse, type TablesResponse } from '@/lib/api';
+import {
+  fetchRows,
+  fetchTables,
+  keyOf,
+  saveChanges,
+  toWriteError,
+  type RowsResponse,
+  type TablesResponse,
+} from '@/lib/api';
 import {
   addInsert,
   cellChange,
@@ -49,7 +57,7 @@ import {
   type Pending,
 } from '@/lib/pending';
 import { formatValue, isBoolean } from '@/lib/values';
-import type { Column, Issue, JsonObject, JsonValue, TableInfo, WriteError } from '@/lib/types';
+import type { Column, Issue, JsonObject, JsonValue, TableInfo } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { fieldIssues, issuePath } from '@/lib/check';
 
@@ -83,6 +91,9 @@ export function App() {
   const changeCount = countChanges(pending);
   const dirty = changeCount > 0;
 
+  const stateRef = useRef({ dirty, editing, current, tableName: table?.name });
+  stateRef.current = { dirty, editing, current, tableName: table?.name };
+
   const load = useCallback(async (name?: string) => {
     // Not trusting the order responses arrive in: a slower, older load must not overwrite a newer one
     const id = ++generation.current;
@@ -91,6 +102,11 @@ export function App() {
       const target = tables.tables.find((candidate) => candidate.name === name) ?? tables.tables[0];
       const rows = target ? await fetchRows(target.name) : undefined;
       if (id !== generation.current) return;
+      // Not installed under an edit begun while the rows were read: it would land on rows the user never saw
+      if (stateRef.current.dirty || stateRef.current.editing) {
+        setFilesChanged(true);
+        return;
+      }
       setMeta(tables);
       setData(rows);
       // Not kept across a load: a selected key may now name a row the user never saw
@@ -98,7 +114,7 @@ export function App() {
       setFilesChanged(false);
     } catch (error) {
       if (id !== generation.current) return;
-      setNotice({ kind: 'error', title: (error as WriteError).message ?? String(error) });
+      setNotice({ kind: 'error', title: toWriteError(error).message });
     }
   }, []);
 
@@ -117,8 +133,6 @@ export function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const stateRef = useRef({ dirty, editing, current, tableName: table?.name });
-  stateRef.current = { dirty, editing, current, tableName: table?.name };
   useEffect(() => {
     const events = new EventSource('/api/events');
     let connectedBefore = false;
@@ -185,7 +199,7 @@ export function App() {
       );
       await load(table.name);
     } catch (error) {
-      const failure = error as WriteError;
+      const failure = toWriteError(error);
       const change = failure.change;
       const where = !change
         ? ''
