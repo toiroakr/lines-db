@@ -95,4 +95,28 @@ describe('LinesDB.hasExternalChanges', () => {
       [join(dataDir, 'notes.jsonl'), join(dataDir, 'tags.jsonl')].sort(),
     );
   });
+
+  it('lists the schema file of a table added along with it', async () => {
+    await writeFile(join(dataDir, 'notes.jsonl'), '{"id":1}\n');
+    await writeFile(join(dataDir, 'notes.schema.ts'), ACCEPT_ALL_SCHEMA);
+
+    expect(unwrap(await db.findExternalChanges()).sort()).toEqual(
+      [join(dataDir, 'notes.jsonl'), join(dataDir, 'notes.schema.ts')].sort(),
+    );
+  });
+
+  it('lists the schema file of a table removed along with it', async () => {
+    await unlink(join(dataDir, 'users.jsonl'));
+    await unlink(join(dataDir, 'users.schema.ts'));
+
+    expect(unwrap(await db.findExternalChanges()).sort()).toEqual(
+      [join(dataDir, 'users.jsonl'), join(dataDir, 'users.schema.ts')].sort(),
+    );
+  });
+
+  it('leaves out the schema file of a removed table when the schema file stays as it was', async () => {
+    await unlink(join(dataDir, 'users.jsonl'));
+
+    expect(unwrap(await db.findExternalChanges())).toEqual([join(dataDir, 'users.jsonl')]);
+  });
 });

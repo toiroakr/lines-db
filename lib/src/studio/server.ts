@@ -146,7 +146,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         const rowCount =
           unwrap(snapshot.db.queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM "${name.replaceAll('"', '""')}"`))?.n ??
           0;
-        return { name, columns, primaryKey, rowCount, readOnlyReason: primaryKey ? null : readOnlyReason };
+        return { name, columns, primaryKey, rowCount, readOnlyReason: whyReadOnly(snapshot.db, name) };
       });
       sendJson(res, 200, { dataDir: resolvePath(dataDir), tables, problems: snapshot.problems });
       return;
@@ -236,7 +236,8 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       const schema = db.getSchema(tableName);
       if (!schema) return { status: 404, body: { message: `Table '${tableName}' does not exist` } };
       const primaryKey = schema.columns.find((column) => column.primaryKey)?.name;
-      if (!primaryKey) return { status: 409, body: { message: readOnlyReason } };
+      const reason = whyReadOnly(db, tableName);
+      if (!primaryKey || reason) return { status: 409, body: { message: reason } };
 
       const result = await db.transaction((tx) => {
         const check = (written: { ok: boolean; error?: Error }, change: FailedChange) => {
@@ -416,8 +417,22 @@ function sameToken(presented: string, token: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-const readOnlyReason =
+const NO_PRIMARY_KEY =
   'This table has no primary key, so a row cannot be told apart from the others. Add an "id" column or declare primaryKey in its schema file to edit it here.';
+
+/** Why a table cannot be edited here: a row is found by its primary key, which must tell every row apart */
+function whyReadOnly(db: LinesDB<TableDefs>, tableName: string): string | null {
+  const primaryKey = db.getSchema(tableName)?.columns.find((column) => column.primaryKey)?.name;
+  if (!primaryKey) return NO_PRIMARY_KEY;
+  const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
+  const missing =
+    unwrap(
+      db.queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM ${quote(tableName)} WHERE ${quote(primaryKey)} IS NULL`),
+    )?.n ?? 0;
+  return missing > 0
+    ? `${missing} row(s) have no value for the primary key ${primaryKey}, so they cannot be told apart. Give them one in the JSONL file to edit this table here.`
+    : null;
+}
 
 type WriteOperation = { kind: 'insert' } | { kind: 'update' | 'delete'; key: JsonValue };
 

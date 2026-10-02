@@ -217,7 +217,7 @@ rewrites the table's JSONL file as a whole, so the formatting of the other lines
   issues under the field. A JSON column opens in a dialog with syntax highlighting, and a syntax
   error is marked where it is. **Set** puts the value among the pending changes; nothing is written
   until you save.
-- A table needs a primary key (an `id` column, or `primaryKey` in its schema file) to be edited; one
+- A table needs a primary key (an `id` column, or `primaryKey` in its schema file) with a value on every row to be edited; one
   without is shown read-only.
 - A table whose rows fail validation on load is left out, and the failing rows are listed at the top
   of the page. Fix them in the JSONL or schema file and click **Reload**.

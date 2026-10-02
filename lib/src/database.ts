@@ -2215,30 +2215,42 @@ export class LinesDB<Tables extends TableDefs> {
         await this.writePrepared(table);
       }
     } catch (error) {
-      await this.restoreAll(written);
-      throw error;
+      throw await this.restoreAll(written, error);
     }
     return written;
   }
 
-  /** Put back every written file, going on past one that cannot be put back */
-  private async restoreAll(written: PreparedWriteBack[]): Promise<void> {
+  /**
+   * Put back every written file, going on past one that cannot be put back, and give the error to
+   * throw: the one that made the write-back fail, naming the files left holding what was written
+   */
+  private async restoreAll(written: PreparedWriteBack[], error: unknown): Promise<unknown> {
+    const notRestored: string[] = [];
     for (const table of written) {
-      await this.restorePrepared(table).catch(() => {});
+      await this.restorePrepared(table).catch(() => notRestored.push(table.jsonlPath));
     }
+    if (notRestored.length === 0) return error;
+    return new Error(
+      `${toError(error).message}\nThese files could not be put back and hold rows the database does not: ${notRestored.join(', ')}`,
+      { cause: error },
+    );
   }
 
-  /** Put back the content a file held before {@link writePrepared} wrote over it */
+  /**
+   * Put back the content a file held before {@link writePrepared} wrote over it. The file is expected
+   * to hold that content even when putting it back fails, so a file left holding the written rows
+   * counts as changed on disk instead of matching the database
+   */
   private async restorePrepared({ jsonlPath, previousContent }: PreparedWriteBack): Promise<void> {
     if (previousContent === undefined) {
-      await rm(jsonlPath, { force: true });
       this.fileHashes.delete(jsonlPath);
       this.observedHashes.delete(jsonlPath);
+      await rm(jsonlPath, { force: true });
       return;
     }
-    await writeFile(jsonlPath, previousContent, 'utf-8');
     this.fileHashes.set(jsonlPath, hashJsonlContent(previousContent));
     this.observedHashes.set(jsonlPath, hashJsonlContent(previousContent));
+    await writeFile(jsonlPath, previousContent, 'utf-8');
   }
 
   /**
@@ -2424,13 +2436,24 @@ export class LinesDB<Tables extends TableDefs> {
     for (const file of this.scannedJsonlFiles) if (!scanned.has(file)) changed.add(file);
     for (const file of scanned) if (!this.scannedJsonlFiles.includes(file)) changed.add(file);
 
-    for (const [name, knownState] of this.schemaFileStates) {
+    for (const name of new Set([...this.schemaFileStates.keys(), ...tables.keys()])) {
+      const knownState = this.schemaFileStates.get(name) ?? '';
       const config = tables.get(name);
-      if (!config) continue;
-      const state = await this.schemaFileState(name, config);
+      const state = config ? await this.schemaFileState(name, config) : await this.stateOfKnownSchemaFile(knownState);
       if (state !== knownState) changed.add((state || knownState).split('\0')[0]);
     }
     return [...changed];
+  }
+
+  /** The state of the schema file a state names, for a table whose JSONL file is gone */
+  private async stateOfKnownSchemaFile(knownState: string): Promise<string> {
+    if (!knownState) return '';
+    const schemaPath = knownState.split('\0')[0];
+    const content = await readFile(schemaPath, 'utf-8').catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return undefined;
+      throw error;
+    });
+    return content === undefined ? '' : `${schemaPath}\0${hashJsonlContent(content)}`;
   }
 
   private async schemaFileState(tableName: string, config: TableConfig): Promise<string> {
@@ -2526,7 +2549,7 @@ export class LinesDB<Tables extends TableDefs> {
       if (fieldChangesBefore) this.fieldChanges = fieldChangesBefore;
       if (rawSqlTablesBefore) this.rawSqlTables = rawSqlTablesBefore;
       // Not only when writing a file fails: a COMMIT failing after the writes leaves files holding rolled-back rows
-      await this.restoreAll(written);
+      const failure = await this.restoreAll(written, error);
       if (this.inTransaction) {
         try {
           this.db.exec('ROLLBACK');
@@ -2535,7 +2558,7 @@ export class LinesDB<Tables extends TableDefs> {
         }
       }
       this.inTransaction = false;
-      return err(toError(error));
+      return err(toError(failure));
     }
   }
 

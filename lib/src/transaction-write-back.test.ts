@@ -179,6 +179,28 @@ describe('LinesDB.transaction write-back', () => {
     expect(await readFile(tagsPath(), 'utf-8')).toBe('{"id":1,"label":"x"}\n');
   });
 
+  it('names a file it could not put back and reports it as changed, so a later write does not overwrite it unseen', async () => {
+    const write = JsonlWriter.write.bind(JsonlWriter);
+    const spy = vi.spyOn(JsonlWriter, 'write').mockImplementation(async (path, rows) => {
+      await write(path, rows);
+      if (path === itemsPath()) await chmod(path, 0o444);
+      if (path === tagsPath()) throw new Error('ENOSPC: no space left on device');
+    });
+    try {
+      const result = await db.transaction((tx) => {
+        unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+        unwrap(tx.update('tags', { label: 'X' }, { id: 1 }));
+      });
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.error.message).toContain(itemsPath());
+      expect(unwrap(await db.hasExternalChanges())).toBe(true);
+    } finally {
+      spy.mockRestore();
+      await chmod(itemsPath(), 0o644);
+    }
+  });
+
   it('refuses a sync inside a transaction, as it would write rows the transaction may roll back', async () => {
     const result = await db.transaction(async (tx) => {
       unwrap(tx.update('items', { name: 'A' }, { id: 1 }));

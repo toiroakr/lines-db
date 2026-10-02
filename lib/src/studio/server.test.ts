@@ -150,6 +150,29 @@ describe('studio server', () => {
     expect(await readFile(join(dataDir, 'notes.jsonl'), 'utf8')).toBe('{"title":"first"}\n');
   });
 
+  it('shows a table read-only while a row has no primary key value, as such rows cannot be told apart', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'notes.jsonl'), '{"title":"first","body":"a"}\n{"title":null,"body":"untitled"}\n');
+    await writeFile(
+      join(dataDir, 'notes.schema.ts'),
+      "export const schema = { primaryKey: 'title', '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const tables = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables;
+    const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
+      inserts: [],
+      updates: [{ key: null, changes: { body: 'edited' } }],
+      deletes: [],
+    });
+
+    expect(tables.find((table: { name: string }) => table.name === 'notes').readOnlyReason).toContain('primary key');
+    expect(response.status).toBe(409);
+    expect(await readFile(join(dataDir, 'notes.jsonl'), 'utf8')).toBe(
+      '{"title":"first","body":"a"}\n{"title":null,"body":"untitled"}\n',
+    );
+  });
+
   it('refuses a write made after the JSONL file changed on disk and serves the new content next', async () => {
     const edited =
       '{"id":1,"name":"Alice","active":true,"tags":["a"]}\n{"id":2,"name":"Robert","active":false,"tags":[]}\n';
