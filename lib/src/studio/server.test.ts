@@ -586,6 +586,22 @@ describe('studio server', () => {
       });
     });
 
+    it('lists a field every row lacks but an issue names, so it can be filled in', async () => {
+      await studio.close();
+      await writeFile(join(dataDir, 'tasks.schema.ts'), NAME_REQUIRED_SCHEMA);
+      await writeFile(join(dataDir, 'tasks.jsonl'), '{"id":1}\n{"id":2}\n');
+      studio = await startStudioServer({ dataDir, port: 0 });
+
+      const tasks = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+        (table: { name: string }) => table.name === 'tasks',
+      );
+
+      expect(tasks.columns).toEqual([
+        expect.objectContaining({ name: 'id' }),
+        expect.objectContaining({ name: 'name', type: 'JSON' }),
+      ]);
+    });
+
     it('refuses to add or delete rows until the failing rows are fixed', async () => {
       const response = await sendJsonRequest('POST', `${studio.url}/api/tables/notes/changes`, {
         inserts: [{ id: 4, name: 'fourth' }],

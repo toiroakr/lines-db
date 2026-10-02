@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { watch } from 'node:fs';
-import { readFile, stat, writeFile } from 'node:fs/promises';
+import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, extname, join, relative, resolve as resolvePath } from 'node:path';
@@ -165,11 +165,16 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       for (const [name, { file, issues }] of snapshot.invalid) {
         const rows = unwrap(await JsonlReader.read(file));
         const unknown = unknownFields(snapshot.db, name, rows, issues);
-        const columns = unwrap(JsonlReader.inferSchema(name, rows)).columns.map((column) => ({
-          ...column,
-          primaryKey: false,
-          ...(unknown.has(column.name) ? { unknown: true } : {}),
-        }));
+        const inferred = unwrap(JsonlReader.inferSchema(name, rows)).columns;
+        // A field no row holds - a required one every row lacks - has no column to fill it in otherwise;
+        // its type is unknown, so it is edited as JSON, which takes any value
+        const missing = [...new Set([...issues.values()].flat().map(fieldOf))].filter(
+          (field): field is string => field !== undefined && !inferred.some((column) => column.name === field),
+        );
+        const columns = [
+          ...inferred,
+          ...missing.map((field) => ({ name: field, type: 'JSON' as const, notNull: false, primaryKey: false })),
+        ].map((column) => ({ ...column, primaryKey: false, ...(unknown.has(column.name) ? { unknown: true } : {}) }));
         tables.push({
           name,
           columns,
@@ -276,7 +281,15 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         replaced.set(key as number, next);
       }
       if (write.kind === 'check') return { status: 200, body: { ok: true } };
-      await writeFile(file, replaceRows(await readFile(file, 'utf8'), replaced), 'utf8');
+      // Not written over the file in place: a write that fails partway would leave it truncated
+      const temporary = `${file}.${randomBytes(6).toString('hex')}.tmp`;
+      try {
+        await writeFile(temporary, replaceRows(await readFile(file, 'utf8'), replaced), 'utf8');
+        await rename(temporary, file);
+      } catch (error) {
+        await rm(temporary, { force: true });
+        throw error;
+      }
       await reloadUnlocked();
       return { status: 200, body: { ok: true }, changed: true };
     };
