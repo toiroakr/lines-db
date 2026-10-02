@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { LinesDB } from './database.js';
 import { unwrap } from './result.js';
-import type { DatabaseConfig, JsonlParseError } from './types.js';
-import { writeFile, mkdtemp, rm } from 'node:fs/promises';
+import type { DatabaseConfig, JsonlConflictError, JsonlParseError } from './types.js';
+import { writeFile, mkdtemp, rm, appendFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -517,6 +517,149 @@ export const schema = defineSchema(rawSchema);
       expect(result?.name).toBe('Alice');
 
       await db.close();
+    });
+  });
+
+  describe('JSONL files changed after loading', () => {
+    let dataDir: string;
+
+    beforeEach(async () => {
+      dataDir = await mkdtemp(join(tmpdir(), 'linesdb-changed-file-test-'));
+    });
+
+    afterEach(async () => {
+      await rm(dataDir, { recursive: true, force: true });
+    });
+
+    it('keeps a line appended to the file after loading when the table is written back', async () => {
+      const itemsPath = join(dataDir, 'items.jsonl');
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n');
+      const db = LinesDB.create({ dataDir });
+      unwrap(await db.initialize());
+      await appendFile(itemsPath, '{"id":3,"name":"added-in-editor"}\n');
+
+      await db.transaction((tx) => unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+      await db.close();
+
+      expect(await readFile(itemsPath, 'utf-8')).toBe(
+        '{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n{"id":3,"name":"added-in-editor"}\n',
+      );
+    });
+
+    it('fails the write with a JsonlConflictError naming the changed file', async () => {
+      const itemsPath = join(dataDir, 'items.jsonl');
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n');
+      const db = LinesDB.create({ dataDir });
+      unwrap(await db.initialize());
+      await appendFile(itemsPath, '{"id":2,"name":"added-in-editor"}\n');
+
+      const result = await db.transaction((tx) => unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+      await db.close();
+
+      expect(result.ok).toBe(false);
+      const error = (result as { ok: false; error: JsonlConflictError }).error;
+      expect(error.name).toBe('JsonlConflictError');
+      expect(error.file).toBe(itemsPath);
+    });
+
+    it('fails the write with a JsonlConflictError when the file was edited into invalid JSON after loading', async () => {
+      const itemsPath = join(dataDir, 'items.jsonl');
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n');
+      const db = LinesDB.create({ dataDir });
+      unwrap(await db.initialize());
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n{"id":2, broken\n');
+
+      const result = await db.transaction((tx) => unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+      await db.close();
+
+      expect(result.ok).toBe(false);
+      expect((result as { ok: false; error: Error }).error.name).toBe('JsonlConflictError');
+    });
+
+    it('keeps the changed file when loading it again into the same database fails', async () => {
+      const itemsPath = join(dataDir, 'items.jsonl');
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n');
+      const db = LinesDB.create({ dataDir });
+      unwrap(await db.initialize());
+      await writeFile(itemsPath, '{"id":1,"name":"edited-in-editor"}\n');
+
+      const reload = await db.initialize();
+      await db.sync();
+      await db.close();
+
+      expect(reload.ok).toBe(false);
+      expect(await readFile(itemsPath, 'utf-8')).toBe('{"id":1,"name":"edited-in-editor"}\n');
+    });
+
+    it('keeps a value changed in the file after loading when the table is written back', async () => {
+      const itemsPath = join(dataDir, 'items.jsonl');
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n');
+      const db = LinesDB.create({ dataDir });
+      unwrap(await db.initialize());
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n{"id":2,"name":"edited-in-editor"}\n');
+
+      await db.transaction((tx) => unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+      await db.close();
+
+      expect(await readFile(itemsPath, 'utf-8')).toBe('{"id":1,"name":"a"}\n{"id":2,"name":"edited-in-editor"}\n');
+    });
+
+    it('does not recreate a file deleted after loading when the table is written back', async () => {
+      const itemsPath = join(dataDir, 'items.jsonl');
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n');
+      const db = LinesDB.create({ dataDir });
+      unwrap(await db.initialize());
+      await rm(itemsPath);
+
+      const result = await db.transaction((tx) => unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+      await db.close();
+
+      expect(result.ok).toBe(false);
+      await expect(readFile(itemsPath, 'utf-8')).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+
+    it('writes the table back again after its own earlier write', async () => {
+      const itemsPath = join(dataDir, 'items.jsonl');
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n');
+      const db = LinesDB.create({ dataDir });
+      unwrap(await db.initialize());
+
+      unwrap(await db.transaction((tx) => unwrap(tx.update('items', { name: 'A' }, { id: 1 }))));
+      unwrap(await db.transaction((tx) => unwrap(tx.update('items', { name: 'B' }, { id: 2 }))));
+      await db.close();
+
+      expect(await readFile(itemsPath, 'utf-8')).toBe('{"id":1,"name":"A"}\n{"id":2,"name":"B"}\n');
+    });
+
+    it('writes the table back once the changed file is loaded again', async () => {
+      const itemsPath = join(dataDir, 'items.jsonl');
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n');
+      const staleDb = LinesDB.create({ dataDir });
+      unwrap(await staleDb.initialize());
+      await appendFile(itemsPath, '{"id":2,"name":"added-in-editor"}\n');
+      await staleDb.close();
+
+      const db = LinesDB.create({ dataDir });
+      unwrap(await db.initialize());
+      unwrap(await db.transaction((tx) => unwrap(tx.update('items', { name: 'A' }, { id: 1 }))));
+      await db.close();
+
+      expect(await readFile(itemsPath, 'utf-8')).toBe('{"id":1,"name":"A"}\n{"id":2,"name":"added-in-editor"}\n');
+    });
+
+    it('keeps a line appended after loading when a write outside a transaction syncs automatically', async () => {
+      const itemsPath = join(dataDir, 'items.jsonl');
+      await writeFile(itemsPath, '{"id":1,"name":"a"}\n');
+      const db = LinesDB.create({ dataDir });
+      unwrap(await db.initialize());
+      await appendFile(itemsPath, '{"id":2,"name":"added-in-editor"}\n');
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      unwrap(db.insert('items', { id: 3, name: 'c' }));
+      await db.close();
+      consoleError.mockRestore();
+
+      expect(await readFile(itemsPath, 'utf-8')).toBe('{"id":1,"name":"a"}\n{"id":2,"name":"added-in-editor"}\n');
     });
   });
 

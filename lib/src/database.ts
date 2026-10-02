@@ -1,5 +1,5 @@
 import { createDatabase, type SQLiteDatabase } from './sqlite-adapter.js';
-import { JsonlReader } from './jsonl-reader.js';
+import { JsonlReader, hashJsonlContent } from './jsonl-reader.js';
 import { JsonlWriter } from './jsonl-writer.js';
 import { SchemaLoader } from './schema-loader.js';
 import { DirectoryScanner } from './directory-scanner.js';
@@ -14,6 +14,7 @@ import type {
   TableConfig,
   StandardSchema,
   ValidationError,
+  JsonlConflictError,
   Table,
   TableDefs,
   WhereCondition,
@@ -64,6 +65,8 @@ export class LinesDB<Tables extends TableDefs> {
   private keyOrders: Map<string, Set<string>> = new Map();
   /** The row each rowid was inserted from, per table loaded with detailed validation */
   private rowOriginsByRowid: Map<string, Map<string, RowOrigin>> = new Map();
+  /** Hash of each JSONL file's content as this database last read or wrote it */
+  private fileHashes: Map<string, string> = new Map();
 
   private constructor(config: DatabaseConfig<Tables>, dbPath?: string) {
     this.config = config;
@@ -408,12 +411,20 @@ export class LinesDB<Tables extends TableDefs> {
     // Read every JSONL file of the table, remembering where each row came from
     let data: JsonObject[] = [];
     const origins: RowOrigin[] = [];
+    const contentHashes = new Map<string, string>();
     for (const jsonlPath of config.jsonlPaths ?? [config.jsonlPath]) {
-      const readResult = await JsonlReader.read(jsonlPath);
+      const readResult = await JsonlReader.readSnapshot(jsonlPath);
       if (!readResult.ok) {
         throw readResult.error;
       }
-      readResult.value.forEach((row, rowIndex) => {
+      const { rows, contentHash } = readResult.value;
+      if (!rows.ok) {
+        throw rows.error;
+      }
+      if (contentHash !== undefined) {
+        contentHashes.set(jsonlPath, contentHash);
+      }
+      rows.value.forEach((row, rowIndex) => {
         data.push(row);
         origins.push({ file: jsonlPath, rowIndex });
       });
@@ -625,6 +636,9 @@ export class LinesDB<Tables extends TableDefs> {
       this.insertData(tableName, schema, validatedData);
     }
 
+    for (const [jsonlPath, contentHash] of contentHashes) {
+      this.fileHashes.set(jsonlPath, contentHash);
+    }
     return { loaded: true, rowCount: data.length, errors: [] };
   }
 
@@ -1795,15 +1809,18 @@ export class LinesDB<Tables extends TableDefs> {
       finalRows = deserializedRows.map((row) => biSchema.backward!(row) as JsonObject);
     }
 
+    const existingRows = await this.readUnchangedRows(tableConfig.jsonlPath);
+
     // An empty list means no field is written back, not that every field is
     const fields = options?.fields ?? this.config.writeBackFields;
-    finalRows = await this.mergeWithExistingLines(tableName, tableConfig.jsonlPath, finalRows, {
+    finalRows = this.mergeWithExistingLines(tableName, existingRows, finalRows, {
       fields,
       strictFields: options?.strictFields ?? false,
     });
 
     // Write back to JSONL file
     await JsonlWriter.write(tableConfig.jsonlPath, finalRows);
+    this.fileHashes.set(tableConfig.jsonlPath, hashJsonlContent(JsonlWriter.serialize(finalRows)));
   }
 
   /**
@@ -1819,12 +1836,12 @@ export class LinesDB<Tables extends TableDefs> {
    * cover a directory of tables that do not all share it; a sync asked for a single table by name
    * rejects them instead, since there the caller named both the table and the fields.
    */
-  private async mergeWithExistingLines(
+  private mergeWithExistingLines(
     tableName: string,
-    jsonlPath: string,
+    existingRows: JsonObject[],
     rows: JsonObject[],
     options: { fields?: readonly string[]; strictFields: boolean },
-  ): Promise<JsonObject[]> {
+  ): JsonObject[] {
     if (rows.length === 0) {
       return rows;
     }
@@ -1839,7 +1856,6 @@ export class LinesDB<Tables extends TableDefs> {
       );
     }
 
-    const existingRows = await this.readExistingRows(jsonlPath);
     // Without `fields` the rows are written whole, so matching them to their line only decides the
     // order: fall back to database order rather than failing when they cannot be matched
     const existing = this.matchExistingRows(tableName, rows, existingRows, { required: fields !== undefined });
@@ -1921,17 +1937,29 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
-   * Read the rows a JSONL file currently holds, treating a missing file as empty
+   * Read the rows a JSONL file currently holds, treating a missing file as empty, and refuse to go on
+   * when the file is not the one this database last read or wrote: writing over it would drop the
+   * changes made to it since
    */
-  private async readExistingRows(jsonlPath: string): Promise<JsonObject[]> {
-    const result = await JsonlReader.read(jsonlPath);
-    if (result.ok) {
-      return result.value;
+  private async readUnchangedRows(jsonlPath: string): Promise<JsonObject[]> {
+    const result = await JsonlReader.readSnapshot(jsonlPath);
+    if (!result.ok && (result.error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw result.error;
     }
-    if ((result.error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return [];
+    const snapshot = result.ok ? result.value : { rows: ok<JsonObject[]>([]), contentHash: undefined };
+
+    const knownHash = this.fileHashes.get(jsonlPath);
+    if (knownHash !== undefined && snapshot.contentHash !== knownHash) {
+      const conflictError = new Error(
+        `JSONL file '${jsonlPath}' was changed after the database read it, so it was not overwritten. ` +
+          `Create the database again and call initialize() to load the current file, then retry the write.`,
+      ) as JsonlConflictError;
+      conflictError.name = 'JsonlConflictError';
+      conflictError.file = jsonlPath;
+      throw conflictError;
     }
-    throw result.error;
+
+    return unwrap(snapshot.rows);
   }
 
   /**

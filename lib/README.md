@@ -411,6 +411,32 @@ unwrap(
 `unwrap()` inside the callback turns a failed `tx.insert()`/`tx.update()` into a thrown error, which
 `transaction()` catches and rolls back on - see [Error Handling](#error-handling).
 
+### Files Changed After Loading
+
+The database remembers what each JSONL file held when `initialize()` read it, and what it last wrote
+there. A sync that finds the file changed since - a line added in an editor, a value edited by hand,
+the file deleted - leaves the file alone instead of writing over those changes, and fails with a
+`JsonlConflictError` naming the file:
+
+```typescript
+const result = await db.transaction((tx) => unwrap(tx.update('users', { age: 31 }, { id: 1 })));
+
+if (!result.ok && result.error.name === 'JsonlConflictError') {
+  console.log(`${(result.error as JsonlConflictError).file} changed on disk`);
+}
+```
+
+To pick up the changes, create the database again and call `initialize()`, then retry the write. Do
+not retry on the same instance: `transaction()` commits before it writes the files, so the database
+already holds the change the file did not get. `transaction()` and `sync()` without a table name write
+back every table, so a change to any table's file fails them. An auto-sync after a write outside a
+transaction fails the same way, and reports the error through `console.error`.
+
+The file is checked right before it is written, with no lock held in between, so a change saved in
+the instant between the check and the write - by an editor or by another process writing the same
+file - is still overwritten. The check is meant for a single user editing files on their own
+machine, where a change landing in that window is unlikely.
+
 ### Writing Back Only Some Fields
 
 A sync writes each row back in full by default, which materializes values a validation schema

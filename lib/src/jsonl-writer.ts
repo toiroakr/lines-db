@@ -6,8 +6,14 @@ export class JsonlWriter {
    * Write data to JSONL file
    */
   static async write(filePath: string, data: JsonObject[]): Promise<void> {
-    const lines = data.map((obj) => JSON.stringify(obj)).join('\n');
-    await writeFile(filePath, lines + '\n', 'utf-8');
+    await writeFile(filePath, this.serialize(data), 'utf-8');
+  }
+
+  /**
+   * The content {@link write} writes for the data
+   */
+  static serialize(data: JsonObject[]): string {
+    return data.map((obj) => JSON.stringify(obj)).join('\n') + '\n';
   }
 
   /**
