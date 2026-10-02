@@ -1,7 +1,19 @@
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { normalize } from 'node:path';
 import type { JsonObject, ColumnDefinition, TableSchema, JsonlParseError } from './types.js';
 import { type Result, ok, err, toError } from './result.js';
+
+/** Fingerprint of a JSONL file's content, to tell whether the file changed since it was read */
+export function hashJsonlContent(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+export interface JsonlSnapshot {
+  rows: JsonObject[];
+  /** Undefined when the rows come from an override rather than the file */
+  contentHash: string | undefined;
+}
 
 export class JsonlReader {
   private static overrides: Map<string, JsonObject[]> | null = null;
@@ -30,10 +42,21 @@ export class JsonlReader {
    * Read JSONL file and parse each line as JSON
    */
   static async read(filePath: string): Promise<Result<JsonObject[], JsonlParseError | Error>> {
+    const result = await this.readSnapshot(filePath);
+    return result.ok ? ok(result.value.rows) : result;
+  }
+
+  /**
+   * Read JSONL file like {@link read}, along with a hash of the content the rows were parsed from
+   */
+  static async readSnapshot(filePath: string): Promise<Result<JsonlSnapshot, JsonlParseError | Error>> {
     const overrideRows = this.overrides?.get(normalize(filePath));
     if (overrideRows) {
       // Return clones to avoid accidental mutations from consumers
-      return ok(overrideRows.map((row) => JSON.parse(JSON.stringify(row)) as JsonObject));
+      return ok({
+        rows: overrideRows.map((row) => JSON.parse(JSON.stringify(row)) as JsonObject),
+        contentHash: undefined,
+      });
     }
 
     let content: string;
@@ -61,7 +84,7 @@ export class JsonlReader {
       }
     }
 
-    return ok(rows);
+    return ok({ rows, contentHash: hashJsonlContent(content) });
   }
 
   /**

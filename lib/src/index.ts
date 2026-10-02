@@ -1,6 +1,7 @@
 export { LinesDB } from './database.js';
 export type { SyncOptions } from './database.js';
 export { JsonlReader } from './jsonl-reader.js';
+export type { JsonlSnapshot } from './jsonl-reader.js';
 export { ok, err, unwrap } from './result.js';
 export type { Result } from './result.js';
 export { JsonlWriter } from './jsonl-writer.js';
@@ -39,6 +40,7 @@ export type {
   StandardSchemaIssue,
   ValidationError,
   JsonlParseError,
+  JsonlConflictError,
   ValidationResult,
   TableValidationResult,
   ValidationErrorDetail,

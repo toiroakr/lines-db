@@ -135,6 +135,11 @@ export interface JsonlParseError extends Error {
   line: number; // 1-based physical line, including blank lines
 }
 
+export interface JsonlConflictError extends Error {
+  name: 'JsonlConflictError';
+  file: string;
+}
+
 export type JsonValue = string | number | boolean | null | JsonObject | JsonArray;
 export interface JsonObject {
   [key: string]: JsonValue;
