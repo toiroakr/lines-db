@@ -70,6 +70,7 @@ lines-db/
 - 型安全なクエリAPI
 - Node.js 22.12+サポート
 - バリデーションと型生成のためのCLIツール
+- ブラウザでテーブルを閲覧・編集できる UI（`lines-db studio`）
 
 ### 🔌 VSCode拡張: [lines-db-vscode](./extension)
 

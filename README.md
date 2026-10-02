@@ -70,6 +70,7 @@ The main npm package that provides the database functionality.
 - Type-safe query APIs
 - Node.js 22.12+ support
 - CLI tools for validation and type generation
+- Browser UI to browse and edit tables (`lines-db studio`)
 
 ### 🔌 VSCode Extension: [lines-db-vscode](./extension)
 

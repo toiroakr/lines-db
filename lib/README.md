@@ -6,6 +6,7 @@ A data management library that treats JSONL (JSON Lines) files as tables. Perfec
 
 - 📝 Load JSONL files as database tables
 - ✅ **CLI tools for validation and data migration**
+- 🖥️ **Browser UI to browse and edit tables** (`lines-db studio`)
 - 🔄 Automatic schema inference
 - 📦 **JSON column support** with automatic serialization/deserialization
 - ✅ Built-in validation using StandardSchema (Valibot, Zod, etc.)
@@ -187,6 +188,36 @@ const { filled } = unwrap(
 The result also lists the tables without a schema file (`tablesWithoutSchema`), the lines that are
 not JSON objects (`unreadableLines`), and the named fields no table produced a value for
 (`unproducedFields`).
+
+### Browse and Edit in the Browser
+
+```bash
+npx lines-db studio <dataDir> [--port 4848] [--open] [--write-filled-values primaryKey|all]
+```
+
+Starts a local web UI at `http://127.0.0.1:4848` that lists the tables of `dataDir` and lets you edit a
+cell, add a row and delete a row. Every change goes through the same path as `db.update()` /
+`db.insert()` / `db.delete()` in a transaction, so a value the schema rejects is not written and its
+issues are shown next to the table; a saved change rewrites only the line it belongs to.
+
+- The URL printed at start-up holds a token generated for the run. Opening it signs the browser in
+  with an HttpOnly, SameSite=Strict cookie; a request without the token is refused with 401.
+- A save writes the fields you wrote and leaves the values the schema fills in out of the file
+  (`writeFilledValues: 'primaryKey'`, see [Values the Schema Fills In](#values-the-schema-fills-in));
+  `--write-filled-values all` writes them as a sync does by default.
+- A value the schema filled in rather than the file is shown dimmed with a **default** mark. **Use
+  default** in a cell's editor removes the value from the file and leaves it to the schema; a new
+  row's empty field is left to the schema too.
+- A table needs a primary key (an `id` column, or `primaryKey` in its schema file) to be edited; one
+  without is shown read-only.
+- A table whose rows fail validation on load is left out, and the failing rows are listed at the top
+  of the page. Fix them in the JSONL or schema file and click **Reload**.
+- When the files change on disk while the studio is open, the page reloads the rows on its own. A
+  save that would overwrite a file changed by something else stops with the name of that file, writes
+  nothing, and the tables are reloaded from the files. A save writes back only the table it edits, so
+  a change to another table's file does not stop it.
+- The server only answers requests addressed to the local host, and only accepts writes sent as
+  `application/json` from its own page.
 
 ## TypeScript Usage
 

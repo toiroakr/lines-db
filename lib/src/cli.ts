@@ -15,6 +15,8 @@ import { styleText } from 'node:util';
 import { writeFile, stat, readdir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
+import { spawn } from 'node:child_process';
+import { startStudioServer, type StudioServer } from './studio/server.js';
 import { fillFields } from './fill.js';
 
 const originalEmitWarning = process.emitWarning;
@@ -341,6 +343,64 @@ const fillCommand = defineCommand({
   },
 });
 
+let studio: StudioServer | undefined;
+
+const studioCommand = defineCommand({
+  name: 'studio',
+  description: 'Browse and edit the tables of a data directory in the browser',
+  args: z.object({
+    dataDir: arg(z.string(), {
+      positional: true,
+      description: 'Directory containing JSONL and schema files',
+    }),
+    port: arg(z.coerce.number().int().min(0).max(65535).default(4848), {
+      alias: 'p',
+      description: 'Port to listen on (0 picks a free one)',
+    }),
+    open: arg(z.boolean().default(false), {
+      description: 'Open the studio in the default browser',
+    }),
+    writeFilledValues: arg(z.enum(['all', 'primaryKey']).default('primaryKey'), {
+      description: 'Values the schema fills in that a save writes: all of them, or only a generated primary key',
+    }),
+  }),
+  run: async (args) => {
+    try {
+      studio = await startStudioServer({
+        dataDir: args.dataDir,
+        port: args.port,
+        writeFilledValues: args.writeFilledValues,
+      });
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+
+    console.log(`lines-db studio is running at ${styleText('cyan', studio.loginUrl)}`);
+    console.log('Open this URL to sign in; it holds a token generated for this run. Press Ctrl+C to stop.');
+    if (args.open) openInBrowser(studio.loginUrl);
+
+    // Not resolving once the server listens: runMain exits the process as soon as run resolves.
+    // Ctrl+C is handled by runMain, which awaits cleanup before it exits.
+    await new Promise<never>(() => {});
+  },
+  cleanup: async () => {
+    await studio?.close();
+  },
+});
+
+function openInBrowser(url: string): void {
+  const [command, ...commandArgs] =
+    process.platform === 'darwin'
+      ? ['open', url]
+      : process.platform === 'win32'
+        ? ['cmd', '/c', 'start', '""', url]
+        : ['xdg-open', url];
+  spawn(command, commandArgs, { stdio: 'ignore', detached: true })
+    .on('error', () => console.warn(`Could not open a browser; visit ${url}`))
+    .unref();
+}
+
 const program = defineCommand({
   name: '@toiroakr/lines-db',
   description: 'Database utilities for JSONL files',
@@ -349,6 +409,7 @@ const program = defineCommand({
     validate: validateCommand,
     migrate: migrateCommand,
     fill: fillCommand,
+    studio: studioCommand,
   },
 });
 
