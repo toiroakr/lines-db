@@ -279,15 +279,25 @@ function Block(props: ValueFieldProps & { shape: 'map' | 'list' }) {
       {asJson ? (
         <RawJson {...props} />
       ) : (
-        <div key={version} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-1.5 gap-y-2">
+        <div key={version} className="grid min-w-0 gap-2.5">
           {entries.length === 0 && (
-            <span className="col-span-full font-mono text-xs text-muted-foreground italic">
-              {shape === 'list' ? '[ ]' : '{ }'}
-            </span>
+            <span className="font-mono text-xs text-muted-foreground italic">{shape === 'list' ? '[ ]' : '{ }'}</span>
           )}
           {entries.map(([key, item]) => (
-            <div key={key} className="contents">
-              <span className="pt-1 font-mono text-[11px] text-muted-foreground">{key}</span>
+            <div key={key} className="grid min-w-0 gap-1">
+              <div className="flex min-h-4 items-center gap-1">
+                <span className="font-mono text-[11px] text-muted-foreground">{key}</span>
+                {!readOnly && canRemove(key) && (
+                  <button
+                    type="button"
+                    aria-label={`Remove ${nameOf([...path, key])}`}
+                    className="ml-auto text-muted-foreground hover:text-destructive"
+                    onClick={() => onChange(removeIn(value, [key]))}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </div>
               <ValueField
                 path={[...path, key]}
                 value={item}
@@ -296,16 +306,6 @@ function Block(props: ValueFieldProps & { shape: 'map' | 'list' }) {
                 leeway={leeway}
                 onChange={(next) => change([key], next)}
               />
-              {!readOnly && canRemove(key) && (
-                <button
-                  type="button"
-                  aria-label={`Remove ${nameOf([...path, key])}`}
-                  className="pt-1 text-muted-foreground hover:text-destructive"
-                  onClick={() => onChange(removeIn(value, [key]))}
-                >
-                  <X className="size-3.5" />
-                </button>
-              )}
             </div>
           ))}
           {!readOnly &&
@@ -315,7 +315,7 @@ function Block(props: ValueFieldProps & { shape: 'map' | 'list' }) {
                 autoFocus
                 aria-label={`New key in ${name}`}
                 placeholder="key, then Enter"
-                className="col-span-full h-7 font-mono text-xs"
+                className="h-7 font-mono text-xs"
                 value={newKey}
                 onChange={(event) => setNewKey(event.target.value)}
                 onBlur={() => setNewKey(undefined)}
@@ -332,7 +332,7 @@ function Block(props: ValueFieldProps & { shape: 'map' | 'list' }) {
               <button
                 type="button"
                 aria-label={shape === 'list' ? `Add an item to ${name}` : `Add a key to ${name}`}
-                className="col-span-full flex items-center gap-1 justify-self-start text-[11px] text-muted-foreground hover:text-foreground"
+                className="flex items-center gap-1 justify-self-start text-[11px] text-muted-foreground hover:text-foreground"
                 onClick={() => (shape === 'list' ? onChange([...list, emptyLike(list.at(-1))]) : setNewKey(''))}
               >
                 <Plus className="size-3" /> {shape === 'list' ? 'item' : 'key'}
