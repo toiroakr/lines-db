@@ -232,8 +232,9 @@ rewrites the table's JSONL file as a whole, so the formatting of the other lines
 - When the files change on disk while the studio is open, the page reloads the rows on its own, or,
   with changes pending, says so. A save checks the files first: a changed schema file is loaded so the
   save is validated against it, and a change to the edited table's own file stops the save with the
-  name of that file, writes nothing, and reloads the tables. A save writes back only the table it
-  edits, so a change to another table's file does not stop it.
+  name of that file, writes nothing, and reloads the tables. A save writes back the table it edits and
+  any table a foreign-key action (`CASCADE` or `SET NULL`) can change from it, so a change to one of
+  those files stops it too; a change to an unrelated table's file does not.
 - The server only answers requests addressed to the local host, and only accepts writes sent as
   `application/json` from its own page.
 
