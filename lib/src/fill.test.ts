@@ -73,6 +73,16 @@ describe('fillFields', () => {
     expect(await readLines(jsonlPath)).toEqual(['{"id":"generated","name":"a"}', '']);
   });
 
+  it('fills the first row of a file starting with a byte order mark, and keeps the mark', async () => {
+    const jsonlPath = join(dataDir, 'Widget.jsonl');
+    await writeFile(join(dataDir, 'Widget.schema.ts'), HOOK_SCHEMA);
+    await writeFile(jsonlPath, '\u{feff}{"name":"a"}\n');
+
+    unwrap(await fillFields({ path: dataDir, loadFiller: useHook }));
+
+    expect(await readFile(jsonlPath, 'utf-8')).toBe('\u{feff}{"id":"generated-1","name":"a"}\n');
+  });
+
   it('fills the named fields, leaving a value the row already has alone', async () => {
     const jsonlPath = await writeTable('Widget', [
       '{"name":"dated","createdAt":"2020-01-02T03:04:05.000Z"}',

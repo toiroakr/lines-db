@@ -2029,6 +2029,11 @@ export class LinesDB<Tables extends TableDefs> {
     namedFields: readonly string[] = [],
   ): Array<{ written: JsonObject; narrowed: boolean }> {
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
+    // Not left to the recorded changes: an ON DELETE / ON UPDATE action changes these columns in SQLite
+    // without a write through this database
+    const actionColumns = (this.schemas.get(tableName)?.foreignKeys ?? [])
+      .filter((fk) => [fk.onDelete, fk.onUpdate].some((action) => action === 'CASCADE' || action === 'SET NULL'))
+      .map((fk) => fk.column);
     const lines = this.matchExistingRows(tableName, lineRows, existingRows, { required: false });
     const changes = this.fieldChanges.get(tableName);
 
@@ -2043,7 +2048,7 @@ export class LinesDB<Tables extends TableDefs> {
         return { written: lineRow, narrowed: false };
       }
 
-      const keep = new Set([...Object.keys(line ?? {}), ...(rowChanges?.set ?? [])]);
+      const keep = new Set([...Object.keys(line ?? {}), ...(rowChanges?.set ?? []), ...actionColumns]);
       for (const key of rowChanges?.reset ?? []) keep.delete(key);
       for (const key of namedFields) keep.add(key);
       if (pkName) keep.add(pkName);
@@ -2564,9 +2569,6 @@ export class LinesDB<Tables extends TableDefs> {
 
       // Written back before COMMIT, so a failed write-back rolls the change back instead of leaving the
       // database holding rows its files do not; a read-only database has no changes to write back
-      if (this.db.isTransaction() === false) {
-        throw new Error('The transaction was ended by SQL run through getDb() before its files were written back');
-      }
       if (!this.hasSeveralDataDirs()) {
         written = await this.writeBackTogether(this.tablesChangedInTransaction());
       }
@@ -2633,7 +2635,28 @@ export class LinesDB<Tables extends TableDefs> {
    * Get the underlying SQLite database instance
    */
   getDb(): SQLiteDatabase {
-    return this.db;
+    if (!this.inTransaction) return this.db;
+    // Not handed out as is inside a transaction: SQL run on it would go unseen by the write-back, and
+    // a COMMIT could end the transaction before the files are written
+    const guard = (sql: string) => {
+      for (const statement of sql.split(';')) this.refuseTransactionControl(statement);
+    };
+    return {
+      prepare: (sql: string) => {
+        guard(sql);
+        const statement = this.db.prepare(sql);
+        return {
+          run: (...params: unknown[]) => this.trackRawSql(() => statement.run(...params)),
+          get: (...params: unknown[]) => this.trackRawSql(() => statement.get(...params)),
+          all: (...params: unknown[]) => this.trackRawSql(() => statement.all(...params)),
+        };
+      },
+      exec: (sql: string) => {
+        guard(sql);
+        this.trackRawSql(() => this.db.exec(sql));
+      },
+      close: () => this.db.close(),
+    };
   }
 }
 

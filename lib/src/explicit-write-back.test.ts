@@ -229,6 +229,22 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
     expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"a","note":"kept","name":"Alicia"}\n');
   });
 
+  it('writes a column a foreign-key action set, though the schema filled it in before', async () => {
+    await writeFile(join(dataDir, 'pets.jsonl'), '{"id":"p"}\n{"id":"q","owner":null}\n');
+    await writeFile(
+      join(dataDir, 'pets.schema.ts'),
+      "export const foreignKeys = [{ column: 'owner', references: { table: 'people', column: 'id' }, onDelete: 'SET NULL' }];\n" +
+        "export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: { ...data, owner: data.owner === undefined ? 'a' : data.owner } }) } };\n",
+    );
+    await load('{"id":"a","name":"Alice"}\n');
+
+    await write((tx) => unwrap(tx.delete('people', { id: 'a' })));
+
+    expect(await readFile(join(dataDir, 'pets.jsonl'), 'utf-8')).toBe(
+      '{"id":"p","owner":null}\n{"id":"q","owner":null}\n',
+    );
+  });
+
   it('writes the fields a migration transform set while loading', async () => {
     await writeFile(peoplePath(), '{"id":"a","name":"Alice"}\n');
     await writeFile(join(dataDir, 'people.schema.ts'), DEFAULTS_SCHEMA);

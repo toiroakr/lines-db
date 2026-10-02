@@ -11,8 +11,6 @@ export interface SQLiteDatabase {
   prepare(sql: string): SQLiteStatement;
   exec(sql: string): void;
   close(): void;
-  /** Whether a transaction is open, where the SQLite binding can tell (node:sqlite from 22.16) */
-  isTransaction(): boolean | undefined;
 }
 
 export interface SQLiteStatement {
@@ -65,9 +63,6 @@ function createNodeDatabase(path: string): SQLiteDatabase {
     },
     close(): void {
       db.close();
-    },
-    isTransaction(): boolean | undefined {
-      return db.isTransaction;
     },
   };
 }

@@ -98,7 +98,8 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
   for (const { table, fields, fill } of tables) {
     const file = join(dataDir, `${table}.jsonl`);
     const read = await readFile(file, 'utf-8');
-    const lines = splitLines(read);
+    const bom = read.startsWith('\u{feff}') ? '\u{feff}' : '';
+    const lines = splitLines(read.slice(bom.length));
     const written = new Set<string>();
     const unreadable: number[] = [];
     let count = 0;
@@ -126,7 +127,7 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
 
     if (unreadable.length > 0) unreadableLines.push({ file, lines: unreadable });
     if (count === 0) continue;
-    writes.push({ file, read, content: lines.map((line) => `${line.text}${line.eol}`).join('') });
+    writes.push({ file, read, content: bom + lines.map((line) => `${line.text}${line.eol}`).join('') });
     filled.push({ table, file, fields: [...written], count });
   }
 

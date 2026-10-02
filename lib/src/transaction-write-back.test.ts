@@ -213,16 +213,21 @@ describe('LinesDB.transaction write-back', () => {
     expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"A"}\n');
   });
 
-  it('fails without writing a file when SQL run through getDb() ended the transaction', async () => {
-    const write = vi.spyOn(JsonlWriter, 'write');
+  it('refuses transaction control through getDb() inside a transaction', async () => {
     const result = await db.transaction((tx) => {
       unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
       tx.getDb().exec('COMMIT');
     });
 
-    expect(!result.ok && result.error.message).toContain('getDb()');
-    expect(write).not.toHaveBeenCalled();
-    write.mockRestore();
+    expect(result.ok).toBe(false);
+    expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"a"}\n');
+    expect(unwrap(db.find('items'))).toEqual([{ id: 1, name: 'a' }]);
+  });
+
+  it('writes back a change made through getDb() inside a transaction', async () => {
+    unwrap(await db.transaction((tx) => void tx.getDb().prepare('UPDATE items SET name = ?').run('Z')));
+
+    expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"Z"}\n');
   });
 
   it('keeps a field its schema does not know in a line it writes back, as the database has no column to hold it', async () => {
