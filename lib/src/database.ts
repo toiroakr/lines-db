@@ -142,6 +142,13 @@ export class LinesDB<Tables extends TableDefs> {
    * unknown, so their rows are written back whole
    */
   private rawSqlTables: Set<string> = new Set();
+  /**
+   * The lines read, by rowid, that hold a field the table has no column for: kept to write that field
+   * back, also once the row's primary key changed and its line can no longer be found by it
+   */
+  private linesWithUnknownFields: Map<string, Map<string, JsonObject>> = new Map();
+  /** Whether a transaction's callback has returned and its files are being written back */
+  private transactionClosing = false;
   /** Whether a transaction() call is past its guard but has not begun yet */
   private transactionStarting = false;
   /** The tables changed in the running transaction, or 'all' once raw SQL may have changed any */
@@ -741,14 +748,21 @@ export class LinesDB<Tables extends TableDefs> {
     }
 
     this.fieldChanges.delete(tableName);
-    if (transformedFields.some((fields) => fields.length > 0)) {
+    this.linesWithUnknownFields.delete(tableName);
+    const columnNames = new Set(schema.columns.map((column) => column.name));
+    const withUnknown = data.map((row) => Object.keys(row).some((key) => !columnNames.has(key)));
+    if (transformedFields.some((fields) => fields.length > 0) || withUnknown.includes(true)) {
       const rowids = this.queryInternal<JsonObject>(
         `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)} ORDER BY rowid`,
       );
+      const lines = new Map<string, JsonObject>();
       rowids.forEach((row, index) => {
+        const rowid = row[ROWID_ALIAS] as number | bigint;
         const set = transformedFields[index] ?? [];
-        if (set.length > 0) this.noteFieldChanges(tableName, row[ROWID_ALIAS] as number | bigint, { set });
+        if (set.length > 0) this.noteFieldChanges(tableName, rowid, { set });
+        if (withUnknown[index]) lines.set(String(rowid), data[index]);
       });
+      this.linesWithUnknownFields.set(tableName, lines);
     }
 
     for (const [jsonlPath, contentHash] of contentHashes) {
@@ -1085,6 +1099,7 @@ export class LinesDB<Tables extends TableDefs> {
     try {
       this.enforceReadOnlySql();
       this.refuseTransactionControl(sql);
+      if (this.transactionClosing) throw new Error('Cannot run SQL while a transaction writes its files back');
       return ok(this.trackRawSql(() => this.executeInternal(sql, params)));
     } catch (error) {
       return err(toError(error));
@@ -1341,7 +1356,7 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     data: Tables[K],
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
-    this.assertWritable(tableName);
+    this.assertMutable(tableName);
 
     // Not inserting the row as given: a value the schema fills in would be missing, unlike in a loaded row
     const row = this.validateAndTransform(tableName, data);
@@ -1384,7 +1399,7 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     records: Tables[K][],
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
-    this.assertWritable(tableName);
+    this.assertMutable(tableName);
 
     const schema = this.schemas.get(tableName);
     if (!schema) {
@@ -1447,7 +1462,7 @@ export class LinesDB<Tables extends TableDefs> {
     where: WhereCondition<Tables[K]>,
     options?: UpdateOptions,
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
-    this.assertWritable(tableName);
+    this.assertMutable(tableName);
 
     const schema = this.schemas.get(tableName);
     if (!schema) {
@@ -1497,6 +1512,23 @@ export class LinesDB<Tables extends TableDefs> {
       result = this.executeInternal(sql, values);
     }
 
+    const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
+    if (pkName && Object.hasOwn(data, pkName)) {
+      // An INTEGER PRIMARY KEY is the rowid, so a new key moves the row, and what is kept by rowid with it
+      const moved = this.queryInternal<JsonObject>(
+        `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)} WHERE ${this.quoteIdentifier(pkName)} = ?`,
+        [this.normalizeValue((data as Record<string, unknown>)[pkName])],
+      );
+      if (targets.length === 1 && moved.length === 1) {
+        const from = String(targets[0][ROWID_ALIAS]);
+        const to = moved[0][ROWID_ALIAS];
+        if (from !== String(to)) {
+          this.moveRowMetadata(tableName, from, String(to));
+          targets[0] = { ...targets[0], [ROWID_ALIAS]: to };
+        }
+      }
+    }
+
     for (const target of targets) {
       const set = Object.keys(data).filter(
         (key) => !sameStoredValue(target[key], this.normalizeValue((data as Record<string, unknown>)[key])),
@@ -1536,7 +1568,7 @@ export class LinesDB<Tables extends TableDefs> {
     records: Array<Partial<Tables[K]> & Record<string, unknown>>,
     options?: { validate?: boolean },
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
-    this.assertWritable(tableName);
+    this.assertMutable(tableName);
 
     const schema = this.schemas.get(tableName);
     if (!schema) {
@@ -1676,7 +1708,7 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     where: WhereCondition<Tables[K]>,
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
-    this.assertWritable(tableName);
+    this.assertMutable(tableName);
 
     const schema = this.schemas.get(tableName);
     if (!schema) {
@@ -1718,7 +1750,7 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     records: Array<Partial<Tables[K]> & Record<string, unknown>>,
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
-    this.assertWritable(tableName);
+    this.assertMutable(tableName);
 
     const schema = this.schemas.get(tableName);
     if (!schema) {
@@ -1935,6 +1967,16 @@ export class LinesDB<Tables extends TableDefs> {
     }
   }
 
+  /** Writable, and not while a transaction writes back the rows it has already read */
+  private assertMutable(tableName: string): void {
+    this.assertWritable(tableName);
+    if (this.transactionClosing) {
+      throw new Error(
+        `Cannot write to table '${tableName}' while a transaction writes its files back; write once it has finished`,
+      );
+    }
+  }
+
   private assertWritable(tableName?: string): void {
     if (this.hasSeveralDataDirs()) {
       const target = tableName ? `table '${tableName}'` : 'the database';
@@ -2000,6 +2042,13 @@ export class LinesDB<Tables extends TableDefs> {
         ({ written }) => written,
       );
     }
+    // Not added before narrowing: a field the line holds that the row lacks reads as a renamed one there
+    const columns = new Set(this.schemas.get(tableName)?.columns.map((column) => column.name));
+    const readLines = this.linesWithUnknownFields.get(tableName);
+    finalRows = finalRows.map((row, index) => {
+      const line = readLines?.get(rowids[index]);
+      return line ? keepUnknownFields(line, row, columns) : row;
+    });
     finalRows = this.mergeWithExistingLines(tableName, existingRows, finalRows, {
       fields,
       strictFields: options?.strictFields ?? false,
@@ -2086,9 +2135,19 @@ export class LinesDB<Tables extends TableDefs> {
    * Forget the field changes of deleted rows: a deleted row's rowid can be given to a row inserted
    * later, which must not inherit them
    */
+  private moveRowMetadata(tableName: string, from: string, to: string): void {
+    for (const byRow of [this.fieldChanges.get(tableName), this.linesWithUnknownFields.get(tableName)]) {
+      const kept = byRow?.get(from);
+      if (!byRow || kept === undefined) continue;
+      byRow.delete(from);
+      byRow.set(to, kept as never);
+    }
+  }
+
   private forgetFieldChanges(tableName: string, rowids: string[]): void {
     for (const rowid of rowids) {
       this.fieldChanges.get(tableName)?.delete(rowid);
+      this.linesWithUnknownFields.get(tableName)?.delete(rowid);
     }
   }
 
@@ -2350,11 +2409,10 @@ export class LinesDB<Tables extends TableDefs> {
       }
     });
 
-    const columns = new Set(this.schemas.get(tableName)?.columns.map((column) => column.name));
     const writtenRows = existingRows
       .filter((base) => rowByLine.has(base))
       .map((base) => {
-        const row = keepUnknownFields(base, rowByLine.get(base)!, columns);
+        const row = rowByLine.get(base)!;
         // A row missing a named field - a backward transformation can drop it - keeps what the file
         // holds, and a field the line did not have is inserted where the schema declares it
         return tableFields
@@ -2578,6 +2636,9 @@ export class LinesDB<Tables extends TableDefs> {
       this.transactionChanges = new Set();
 
       const result = await fn(this);
+      // Not open to writes from here: the rows are read for the write-back, and a write made during its
+      // awaits would join the transaction without reaching the files
+      this.transactionClosing = true;
 
       // Written back before COMMIT, so a failed write-back rolls the change back instead of leaving the
       // database holding rows its files do not; a read-only database has no changes to write back
@@ -2606,6 +2667,8 @@ export class LinesDB<Tables extends TableDefs> {
       }
       this.inTransaction = false;
       return err(toError(failure));
+    } finally {
+      this.transactionClosing = false;
     }
   }
 

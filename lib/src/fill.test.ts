@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { writeFileSync } from 'node:fs';
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fillFields } from './fill.js';
@@ -131,6 +131,16 @@ describe('fillFields', () => {
       failing.renameTo = undefined;
       failing.writeTo = undefined;
     }
+  });
+
+  // Not run on Windows: it has no POSIX file modes
+  it.skipIf(process.platform === 'win32')('keeps the permissions of a file it fills', async () => {
+    const jsonlPath = await writeTable('Widget', ['{"name":"a"}']);
+    await chmod(jsonlPath, 0o600);
+
+    unwrap(await fillFields({ path: dataDir, loadFiller: useHook }));
+
+    expect((await stat(jsonlPath)).mode & 0o777).toBe(0o600);
   });
 
   it('fills the named fields, leaving a value the row already has alone', async () => {

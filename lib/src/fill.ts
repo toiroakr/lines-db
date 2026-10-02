@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { type Result, ok, err, toError } from './result.js';
@@ -166,7 +166,11 @@ async function replaceAll(writes: Array<{ file: string; read: string; content: s
   }));
   const replaced: typeof staged = [];
   try {
-    for (const { temporary, content } of staged) await writeFile(temporary, content, 'utf-8');
+    for (const { file, temporary, content } of staged) {
+      await writeFile(temporary, content, 'utf-8');
+      // Not left to the umask: the file replaced would otherwise lose a mode such as 0600
+      await chmod(temporary, (await stat(file)).mode & 0o7777);
+    }
     for (const write of staged) {
       await rename(write.temporary, write.file);
       replaced.push(write);

@@ -259,6 +259,38 @@ describe('LinesDB.transaction write-back', () => {
     expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":1,"name":"Z"}\n');
   });
 
+  it('keeps a field its schema does not know on a row whose primary key changed', async () => {
+    await db.close();
+    await writeFile(itemsPath(), '{"id":1,"name":"a","note":"kept"}\n');
+    await writeFile(
+      join(dataDir, 'items.schema.ts'),
+      "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: { id: data.id, name: data.name } }) } };\n",
+    );
+    db = LinesDB.create<TableDefs>({ dataDir });
+    unwrap(await db.initialize());
+
+    unwrap(await db.transaction((tx) => void unwrap(tx.update('items', { id: 9 }, { id: 1 }))));
+
+    expect(await readFile(itemsPath(), 'utf-8')).toBe('{"id":9,"name":"a","note":"kept"}\n');
+  });
+
+  it('refuses a write made while a transaction writes its files back, which the files would miss', async () => {
+    const write = JsonlWriter.write.bind(JsonlWriter);
+    let lateWrite: { ok: boolean } | undefined;
+    const spy = vi.spyOn(JsonlWriter, 'write').mockImplementation(async (path, rows) => {
+      lateWrite ??= db.insert('tags', { id: 2, label: 'late' });
+      return write(path, rows);
+    });
+    try {
+      unwrap(await db.transaction((tx) => void unwrap(tx.update('items', { name: 'A' }, { id: 1 }))));
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(lateWrite?.ok).toBe(false);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
   it('refuses a sync inside a transaction, as it would write rows the transaction may roll back', async () => {
     const result = await db.transaction(async (tx) => {
       unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
