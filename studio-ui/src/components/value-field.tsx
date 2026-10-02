@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Braces, ListTree, Plus, X } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { Input, TextLines } from '@/components/ui/input';
 import { Tooltip } from '@/components/ui/tooltip';
 import { JsonEditor } from '@/components/json-editor';
 import type { Issue, JsonValue, NestedLeeway } from '@/lib/types';
@@ -91,22 +91,12 @@ function Scalar({ path, value, issues, readOnly, onChange, shape }: ValueFieldPr
       </div>
     ) : shape === 'number' ? (
       <NumberInput name={name} value={value} readOnly={readOnly} invalid={own.length > 0} onChange={onChange} />
-    ) : typeof value === 'string' && (value.includes('\n') || value.length > 80) ? (
-      <textarea
-        aria-label={name}
-        aria-invalid={own.length > 0}
-        readOnly={readOnly}
-        rows={3}
-        className="w-full rounded-md border bg-transparent px-2 py-1.5 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
     ) : (
-      <Input
+      <TextLines
         aria-label={name}
         aria-invalid={own.length > 0}
         readOnly={readOnly}
-        className="h-7 font-mono text-xs"
+        className="min-h-7 py-1 font-mono text-xs"
         value={typeof value === 'string' ? value : String(value ?? '')}
         onChange={(event) => onChange(event.target.value)}
       />

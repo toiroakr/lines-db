@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { ArrowUpRight, Ban, Eraser, Lock, RotateCcw, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Input, TextLines } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ValueField } from '@/components/value-field';
@@ -187,12 +187,21 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
             </button>
           ))}
         </div>
-      ) : (
+      ) : isNumber(column) ? (
         <Input
           className={cn('h-8 font-mono text-xs', state === 'default' && 'text-muted-foreground')}
           aria-label={column.name}
           aria-invalid={'error' in parsed || issues.length > 0}
-          inputMode={isNumber(column) ? 'decimal' : undefined}
+          inputMode="decimal"
+          readOnly={readOnly}
+          value={text}
+          onChange={(event) => hand(event.target.value)}
+        />
+      ) : (
+        <TextLines
+          className={cn('font-mono text-xs', state === 'default' && 'text-muted-foreground')}
+          aria-label={column.name}
+          aria-invalid={'error' in parsed || issues.length > 0}
           readOnly={readOnly}
           value={text}
           onChange={(event) => hand(event.target.value)}

@@ -34,6 +34,9 @@ export function formatValue(value: JsonValue | undefined): string {
   return String(value);
 }
 
+/** A value as a cell of one line shows it, with each line break of a string as a mark */
+export const cellText = (value: JsonValue | undefined): string => formatValue(value).replaceAll('\n', '↵');
+
 /** A value as its editor starts with it */
 export function editableText(column: Pick<Column, 'type'>, value: JsonValue | undefined): string {
   if (value === undefined || value === null) return '';

@@ -65,7 +65,7 @@ import {
   type Batch,
   type Pending,
 } from '@/lib/pending';
-import { formatValue, isBoolean } from '@/lib/values';
+import { cellText, formatValue, isBoolean } from '@/lib/values';
 import type { Column, Issue, JsonObject, JsonValue, Reference, TableInfo } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { fieldIssues, issuePath } from '@/lib/check';
@@ -1002,7 +1002,7 @@ function Cell({
     ) : value === null ? (
       <span className="text-muted-foreground italic">null</span>
     ) : (
-      <span className={cn(state === 'default' && 'text-muted-foreground')}>{formatValue(value)}</span>
+      <span className={cn(state === 'default' && 'text-muted-foreground')}>{cellText(value)}</span>
     );
 
   const contents = (

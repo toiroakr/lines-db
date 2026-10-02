@@ -1,7 +1,7 @@
 import { useMemo, useState, type KeyboardEvent } from 'react';
 import { Check, CircleAlert, Eraser, LoaderCircle, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Input, TextLines } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { JsonEditor } from '@/components/json-editor';
 import type { Column, Issue, JsonValue } from '@/lib/types';
@@ -100,7 +100,7 @@ export function CellEditor({
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape') onClose();
-    if (!json && event.key === 'Enter' && !event.nativeEvent.isComposing) {
+    if (!json && event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       apply();
     }
@@ -143,12 +143,21 @@ export function CellEditor({
           onChange={setText}
           onSubmit={apply}
         />
-      ) : (
+      ) : isNumber(column) ? (
         <Input
           autoFocus
           className="font-mono"
           aria-label={column.name}
-          inputMode={isNumber(column) ? 'decimal' : undefined}
+          inputMode="decimal"
+          aria-invalid={'error' in parsed || issues.length > 0}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+        />
+      ) : (
+        <TextLines
+          autoFocus
+          className="font-mono"
+          aria-label={column.name}
           aria-invalid={'error' in parsed || issues.length > 0}
           value={text}
           onChange={(event) => setText(event.target.value)}
@@ -185,7 +194,8 @@ export function CellEditor({
         )}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        {json ? '⌘↵' : '↵'} to set · Esc to close · nothing is written until you save
+        {json ? '⌘↵' : '↵'} to set{!json && !isNumber(column) && !isBoolean(column) ? ' · ⇧↵ for a new line' : ''} · Esc
+        to close · nothing is written until you save
       </p>
     </div>
   );

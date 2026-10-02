@@ -41,6 +41,16 @@ describe('FormField', () => {
     expect(model.onChange).toHaveBeenLastCalledWith('Alicia');
   });
 
+  it('breaks a line of text on Shift+Enter only, not on Enter alone', async () => {
+    const model = field({ name: 'bio', type: 'TEXT' }, '');
+    render(<FormField table="users" model={model} />);
+    const bio = screen.getByRole('textbox', { name: 'bio' });
+
+    await userEvent.type(bio, 'a{Enter}b{Shift>}{Enter}{/Shift}c');
+
+    expect(model.onChange).toHaveBeenLastCalledWith('ab\nc');
+  });
+
   it('holds back a number it cannot read, and says why', () => {
     const model = field({ name: 'age', type: 'INTEGER' }, 30);
     render(<FormField table="users" model={model} />);

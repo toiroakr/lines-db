@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { ValueField } from './value-field';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { Issue, JsonValue, NestedLeeway } from '@/lib/types';
@@ -131,5 +132,31 @@ describe('ValueField', () => {
 
     expect(screen.queryByRole('button', { name: 'Remove metadata.0.name' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Remove metadata.0.gift' })).toBeTruthy();
+  });
+
+  it('breaks a line of a string inside the value on Shift+Enter, not on Enter alone', async () => {
+    const onChange = vi.fn();
+    // Not the field alone: the typed text shows only once the value it hands on comes back to it
+    function Holder() {
+      const [value, setValue] = useState<JsonValue>({ note: '' });
+      return (
+        <TooltipProvider>
+          <ValueField
+            path={['metadata']}
+            value={value}
+            issues={[]}
+            onChange={(next) => {
+              onChange(next);
+              setValue(next);
+            }}
+          />
+        </TooltipProvider>
+      );
+    }
+    render(<Holder />);
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'metadata.note' }), 'a{Enter}b{Shift>}{Enter}{/Shift}c');
+
+    expect(onChange).toHaveBeenLastCalledWith({ note: 'ab\nc' });
   });
 });

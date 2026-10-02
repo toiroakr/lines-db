@@ -73,6 +73,16 @@ describe('CellEditor', () => {
     expect(onApply).toHaveBeenCalledWith('Guest');
   });
 
+  it('breaks a line of text on Shift+Enter, and sets the text on Enter', async () => {
+    const { onApply } = renderEditor('Alice', true);
+    const input = screen.getByRole('textbox', { name: 'name' });
+
+    await userEvent.clear(input);
+    await userEvent.type(input, 'line one{Shift>}{Enter}{/Shift}line two{Enter}');
+
+    expect(onApply).toHaveBeenCalledWith('line one\nline two');
+  });
+
   it('leaves Enter that confirms an input method composition to the input method', () => {
     const { onApply, onClose } = renderEditor('Alice', true);
     const input = screen.getByRole('textbox');
