@@ -422,6 +422,28 @@ describe('LinesDB.transaction write-back', () => {
     ]);
   });
 
+  it('refuses SQL that lifts query_only, which the guard relies on to refuse writes through the database', async () => {
+    const attempts = [
+      "PRAGMA query_only = OFF; INSERT INTO tags (id, label) VALUES (10, 'p')",
+      "/* lift */ pragma main.query_only=0; INSERT INTO tags (id, label) VALUES (11, 'q')",
+    ];
+    const refused: boolean[] = [];
+    await db.transaction(async () => {
+      await Promise.resolve();
+      for (const sql of attempts) {
+        try {
+          db.getDb().exec(sql);
+          refused.push(false);
+        } catch {
+          refused.push(true);
+        }
+      }
+    });
+
+    expect(refused).toEqual([true, true]);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
   it('still answers reads made through the database while the callback awaits', async () => {
     let queried: unknown;
     let prepared: unknown;

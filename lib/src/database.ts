@@ -1975,6 +1975,12 @@ export class LinesDB<Tables extends TableDefs> {
         `'${sql.trim()}' would end the transaction before its files are written back; return from the callback to commit, or throw to roll back`,
       );
     }
+    // Not left to the caller: SQL through the database is held read-only with this pragma, which the SQL could lift
+    if (/^PRAGMA\s+(?:\w+\.)?query_only\b/i.test(sql.replace(leadingComments, ''))) {
+      throw new Error(
+        `'${sql.trim()}' would lift the read-only mode that refuses writes made while a transaction runs`,
+      );
+    }
   }
 
   private enforceReadOnlySql(): void {
@@ -2822,7 +2828,10 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
-   * Get the underlying SQLite database instance
+   * Get a handle for running SQL on the underlying SQLite database. It wraps the connection rather than
+   * being it, also outside a transaction: while a transaction() callback runs, SQL that changes rows is
+   * refused unless the handle came from the callback's `tx`, and SQL that would end the transaction is
+   * refused for every handle. Outside a transaction it runs SQL unchanged.
    */
   getDb(): SQLiteDatabase {
     // Handed out as a wrapper even outside a transaction: a handle kept from before one would otherwise
