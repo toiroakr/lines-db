@@ -501,16 +501,21 @@ async function loadSnapshot(dataDir: string, writeFilledValues: WriteFilledValue
  * the column counts as taking it when no issue is about that field; an issue about another field is
  * the row's own and says nothing of this one
  */
-function withLeeway<Column extends { name: string; type?: string }>(
+function withLeeway<Column extends { name: string; type?: string; notNull?: boolean }>(
   db: LinesDB<TableDefs>,
   tableName: string,
   sample: JsonObject | undefined,
   columns: Column[],
 ): Array<Column & { nullable: boolean; optional: boolean; nested?: Record<string, NestedLeeway> }> {
-  const takes = prober(db, tableName, sample ?? {});
+  const probe = prober(db, tableName, sample ?? {});
   return columns.map((column) => {
     const { [column.name]: _removed, ...without } = sample ?? {};
     const value = sample?.[column.name];
+    // Not taken on the schema's word alone for a NOT NULL column: the row is written as the schema leaves it
+    const takes = (row: JsonObject) => {
+      const { taken, value: validated } = probe(row);
+      return taken && (!column.notNull || (validated?.[column.name] ?? null) !== null);
+    };
     return {
       ...column,
       nullable: takes({ ...without, [column.name]: null }),
@@ -528,13 +533,14 @@ function withLeeway<Column extends { name: string; type?: string }>(
  * reports on another field, or on the row as a whole
  */
 function prober(db: LinesDB<TableDefs>, tableName: string, sample: JsonObject) {
-  const issuesOf = (row: JsonObject) => {
+  const issuesOf = (result: ReturnType<typeof tryValidate>) =>
+    !result ? undefined : result.ok ? [] : perKey(result.error.issues).map((issue) => JSON.stringify(issue));
+  const before = new Set(issuesOf(tryValidate(db, tableName, sample)));
+  return (row: JsonObject): { taken: boolean; value?: JsonObject } => {
     const result = tryValidate(db, tableName, row);
-    if (!result) return undefined;
-    return result.ok ? [] : perKey(result.error.issues).map((issue) => JSON.stringify(issue));
+    const taken = issuesOf(result)?.every((issue) => before.has(issue)) ?? false;
+    return { taken, value: result?.ok ? result.value : undefined };
   };
-  const before = new Set(issuesOf(sample));
-  return (row: JsonObject) => issuesOf(row)?.every((issue) => before.has(issue)) ?? false;
 }
 
 /**
@@ -598,7 +604,8 @@ function nestedLeeway(
   sample: JsonObject,
   column: string,
 ): Record<string, NestedLeeway> {
-  const takes = prober(db, tableName, sample);
+  const probe = prober(db, tableName, sample);
+  const takes = (row: JsonObject) => probe(row).taken;
   const at = (path: Array<string | number>, change: (object: JsonObject) => JsonObject) =>
     ({ ...sample, [column]: changeAt(sample[column], path, change) }) as JsonObject;
 

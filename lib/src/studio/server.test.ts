@@ -443,7 +443,11 @@ describe('studio server', () => {
 
   it('says of each column whether the schema lets it be null, and whether it lets the key be left out', async () => {
     await studio.close();
-    await writeFile(join(dataDir, 'people.jsonl'), '{"id":1,"name":"a","nick":"b","note":"c"}\n');
+    // Not one row alone: a column every row holds a value in is NOT NULL, which would refuse null and a missing key
+    await writeFile(
+      join(dataDir, 'people.jsonl'),
+      '{"id":1,"name":"a","nick":"b","note":"c"}\n{"id":2,"name":"b","note":null}\n',
+    );
     await writeFile(
       join(dataDir, 'people.schema.ts'),
       `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
@@ -556,7 +560,7 @@ describe('studio server', () => {
 
   it('does not take removing a field another field needs, though the issue is about that other field', async () => {
     await studio.close();
-    await writeFile(join(dataDir, 'ranges.jsonl'), '{"id":1,"from":1,"to":2}\n');
+    await writeFile(join(dataDir, 'ranges.jsonl'), '{"id":1,"from":1,"to":2}\n{"id":2,"from":1}\n{"id":3}\n');
     await writeFile(
       join(dataDir, 'ranges.schema.ts'),
       `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
@@ -591,6 +595,20 @@ describe('studio server', () => {
     const tags = tagged.columns.find((column: { name: string }) => column.name === 'tags');
 
     expect(tags.nested?.['']?.open).toBeUndefined();
+  });
+
+  it('takes null and leaving a key out only where the column is not NOT NULL, for a table without a schema', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'loose.jsonl'), '{"id":1,"name":"a","note":null}\n{"id":2,"name":"b","note":"x"}\n');
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const loose = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'loose',
+    );
+    const column = (name: string) => loose.columns.find((candidate: { name: string }) => candidate.name === name);
+
+    expect(column('name')).toMatchObject({ nullable: false, optional: false });
+    expect(column('note')).toMatchObject({ nullable: true, optional: true });
   });
 
   it('lists the schema file of each table, or null for a table without one', async () => {
