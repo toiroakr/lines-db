@@ -1,3 +1,4 @@
+const TRIGGER_DEFINITION = /^\s*CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i;
 const CLOSER: Record<string, string> = { "'": "'", '"': '"', '`': '`', '[': ']' };
 
 /**
@@ -24,7 +25,7 @@ export function splitStatements(sql: string): string[] {
       const stop = end === -1 ? sql.length : end + 1;
       current += sql.slice(i, stop);
       i = stop;
-    } else if (char === ';') {
+    } else if (char === ';' && !insideTriggerBody(current)) {
       statements.push(current);
       current = '';
       i += 1;
@@ -35,4 +36,12 @@ export function splitStatements(sql: string): string[] {
   }
   statements.push(current);
   return statements.map((statement) => statement.trim()).filter((statement) => statement.length > 0);
+}
+
+/**
+ * Whether a `;` after this text is inside the body of a trigger, which only a `;` followed by `END` and
+ * another `;` closes. Only an END right after a `;` counts, as the END of a CASE in the body does not
+ */
+function insideTriggerBody(statement: string): boolean {
+  return TRIGGER_DEFINITION.test(statement) && !/;\s*END$/i.test(statement.trimEnd());
 }

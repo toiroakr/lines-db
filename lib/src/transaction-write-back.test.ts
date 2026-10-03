@@ -422,6 +422,14 @@ describe('LinesDB.transaction write-back', () => {
     ]);
   });
 
+  it('accepts SQL that defines a trigger through getDb(), whose END does not end the transaction', async () => {
+    const result = await db.transaction((tx) => {
+      tx.getDb().exec('CREATE TRIGGER items_touched AFTER UPDATE ON items BEGIN UPDATE tags SET label = label; END');
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it('refuses a COMMIT that a semicolon in a comment would hide, as it would end the transaction early', async () => {
     let refused = false;
     const result = await db.transaction((tx) => {
