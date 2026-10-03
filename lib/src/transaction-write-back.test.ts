@@ -560,6 +560,15 @@ describe('LinesDB.transaction write-back', () => {
     expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
   });
 
+  it('refuses SQL that lifts query_only while a transaction is starting, before it has begun', async () => {
+    const started = db.transaction((tx) => void unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+    const lift = () => db.getDb().exec("PRAGMA query_only = OFF; INSERT INTO tags (id, label) VALUES (14, 'm')");
+    expect(lift).toThrow();
+    unwrap(await started);
+
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
   it('writes back the records a batchInsert() inserted before a later one failed', async () => {
     unwrap(
       await db.transaction((tx) => {

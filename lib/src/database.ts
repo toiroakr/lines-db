@@ -1983,7 +1983,8 @@ export class LinesDB<Tables extends TableDefs> {
    * `;` inside a comment would otherwise cut a statement in two and hide what it starts with
    */
   private refuseUnsafeSql(sql: string): void {
-    if (!this.inTransaction) return;
+    // Not only once begun: the read-only mode is held from the moment a transaction starts until it closes
+    if (!this.inTransaction && !this.transactionStarting && !this.transactionClosing) return;
     for (const statement of sql.split(';')) this.refuseTransactionControl(statement);
     const gap = String.raw`(?:\s|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)`;
     const name = String.raw`(?:\w+|"[^"]*"|\x60[^\x60]*\x60|\[[^\]]*\])`;
