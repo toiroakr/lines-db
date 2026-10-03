@@ -398,6 +398,18 @@ describe('NewRecordDialog', () => {
     expect(onAdd).not.toHaveBeenCalled();
   });
 
+  it('adds no row while a field inside a JSON value holds text it cannot read', async () => {
+    const onAdd = vi.fn();
+    const orders = { ...users, columns: [...users.columns, { name: 'meta', type: 'JSON' }] };
+    render(<NewRecordDialog table={orders} open onClose={vi.fn()} onAdd={onAdd} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Make meta a number' }));
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'meta' }), { target: { value: '3a' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
   it('leaves a field out of the row again on request', async () => {
     const onAdd = vi.fn();
     render(<NewRecordDialog table={users} open onClose={vi.fn()} onAdd={onAdd} />);

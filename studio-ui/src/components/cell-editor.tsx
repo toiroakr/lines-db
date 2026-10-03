@@ -48,6 +48,7 @@ export function CellEditor({
   );
   const [text, setText] = useState(initial);
   const [editAnyway, setEditAnyway] = useState(false);
+  const [fieldsValid, setFieldsValid] = useState(true);
   const parsed = useMemo(() => parseInput(column, text), [column, text]);
   const edited = text !== initial;
   const { result, checking } = useLiveCheck(table, edited && 'value' in parsed ? preview(parsed.value) : undefined);
@@ -96,7 +97,7 @@ export function CellEditor({
     canUseDefault && value !== undefined && JSON.stringify(next) === JSON.stringify(value);
   const set = (next: JsonValue) => (unchanged(next) ? onClose() : onApply(next));
   const apply = () => {
-    if ('value' in parsed) set(parsed.value);
+    if ('value' in parsed && fieldsValid) set(parsed.value);
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape') onClose();
@@ -147,6 +148,7 @@ export function CellEditor({
           issues={issues}
           leeway={column.nested}
           onChange={(next) => setText(JSON.stringify(next, null, 2))}
+          onValidity={setFieldsValid}
         />
       ) : isNumber(column) ? (
         <Input
@@ -181,7 +183,7 @@ export function CellEditor({
         </ul>
       )}
       <div className="flex flex-wrap items-center gap-1.5">
-        <Button size="sm" onClick={apply} disabled={'error' in parsed}>
+        <Button size="sm" onClick={apply} disabled={'error' in parsed || !fieldsValid}>
           <Check /> Set
         </Button>
         {canRemove && (

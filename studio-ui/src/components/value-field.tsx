@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
 import { Braces, ListTree, Plus, X } from 'lucide-react';
 import { Input, TextLines } from '@/components/ui/input';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -20,6 +20,8 @@ export interface ValueFieldProps {
   /** What the schema takes of each object inside the column's value, as the column lists it */
   leeway?: Record<string, NestedLeeway>;
   onChange: (value: JsonValue) => void;
+  /** Told whether every field inside the value holds text it can read, as the value handed on is the last one read */
+  onValidity?: (valid: boolean) => void;
 }
 
 const nameOf = (path: Path) => path.join('.');
@@ -32,11 +34,42 @@ const patternOf = (path: Path) =>
 /** Where an issue is inside the value at the path, as its message is prefixed with */
 const within = (issue: Issue, path: Path) => (issue.path ?? []).slice(path.length).map(segmentKey).join('.');
 
+/** Told by each field inside a value whether it holds text it can read */
+const Validity = createContext<(id: string, valid: boolean) => void>(() => {});
+
+function useValidity(valid: boolean) {
+  const report = useContext(Validity);
+  const id = useId();
+  useEffect(() => {
+    report(id, valid);
+    return () => report(id, true);
+  }, [report, id, valid]);
+}
+
+export function ValueField({ onValidity, ...props }: ValueFieldProps) {
+  const invalid = useRef(new Set<string>());
+  const told = useRef(onValidity);
+  told.current = onValidity;
+  const report = useCallback((id: string, valid: boolean) => {
+    const was = invalid.current.size === 0;
+    if (valid) invalid.current.delete(id);
+    else invalid.current.add(id);
+    const now = invalid.current.size === 0;
+    if (now !== was) told.current?.(now);
+  }, []);
+  if (!onValidity) return <Value {...props} />;
+  return (
+    <Validity.Provider value={report}>
+      <Value {...props} />
+    </Validity.Provider>
+  );
+}
+
 /**
  * A JSON value as fields: a field per scalar, a block per map or list, and a JSON editor for what the
  * form cannot show. Its shape is read once, so typing `12` into a text field does not turn it into a number
  */
-export function ValueField(props: ValueFieldProps) {
+function Value(props: ValueFieldProps) {
   const [shape, setShape] = useState<Shape>(() => shapeOf(props.value));
   const make = (next: JsonValue) => {
     setShape(shapeOf(next));
@@ -131,6 +164,7 @@ function NumberInput({
     setText(String(value));
   }, [value]);
   const parsed = parseInput({ type: 'REAL' }, text);
+  useValidity(!('error' in parsed));
   return (
     <>
       <Input
@@ -190,6 +224,7 @@ function NullValue({ path, issues, readOnly, onMake }: ValueFieldProps & { onMak
 function RawJson({ path, value, issues, readOnly, onChange }: ValueFieldProps) {
   const name = nameOf(path);
   const [error, setError] = useState<string>();
+  useValidity(error === undefined);
   const under = issuesUnder(issues, path);
   return (
     <div className="grid min-w-0 gap-1" data-path={name}>

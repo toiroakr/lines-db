@@ -38,6 +38,22 @@ describe('ValueField', () => {
     expect(onChange).toHaveBeenLastCalledWith({ visits: 4 });
   });
 
+  it('tells whether every field inside the value holds text it can read, as a number field holding 3a does not', () => {
+    const onValidity = vi.fn();
+    render(
+      <TooltipProvider>
+        <ValueField path={['metadata']} value={{ visits: 3 }} issues={[]} onChange={vi.fn()} onValidity={onValidity} />
+      </TooltipProvider>,
+    );
+    const visits = screen.getByRole('textbox', { name: 'metadata.visits' });
+
+    fireEvent.change(visits, { target: { value: '3a' } });
+    expect(onValidity).toHaveBeenLastCalledWith(false);
+
+    fireEvent.change(visits, { target: { value: '4' } });
+    expect(onValidity).toHaveBeenLastCalledWith(true);
+  });
+
   it('removes a key of a map', async () => {
     const onChange = field({ source: 'web', visits: 3 });
 

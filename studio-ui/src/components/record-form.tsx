@@ -93,7 +93,8 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
     : issues;
 
   // Not the parse alone: an emptied number field reads as no number, while the value handed on is the last one read
-  const valid = json || text === textOf(column, value) || !('error' in parsed);
+  const [fieldsValid, setFieldsValid] = useState(true);
+  const valid = json ? fieldsValid : text === textOf(column, value) || !('error' in parsed);
   const report = useRef(model.onValidity);
   report.current = model.onValidity;
   useEffect(() => report.current?.(valid), [valid]);
@@ -178,6 +179,7 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
           readOnly={readOnly}
           leeway={column.nested}
           onChange={handValue}
+          onValidity={setFieldsValid}
         />
       ) : isBoolean(column) ? (
         <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">

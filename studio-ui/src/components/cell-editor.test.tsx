@@ -140,6 +140,17 @@ describe('CellEditor', () => {
     expect(onApply).toHaveBeenCalledWith({ source: 'mobile', device: 'iOS' });
   });
 
+  it('sets no JSON value while a field inside it holds text it cannot read', async () => {
+    const onApply = renderJson({ visits: 3 });
+
+    const visits = screen.getByRole('textbox', { name: 'metadata.visits' });
+    fireEvent.change(visits, { target: { value: '4' } });
+    fireEvent.change(visits, { target: { value: '4a' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Set' }));
+
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
   it('switches a JSON value to a JSON editor named after the field', async () => {
     renderJson({ source: 'web' });
 
