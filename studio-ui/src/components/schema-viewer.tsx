@@ -12,7 +12,7 @@ import { fetchSchema, type SchemaDefinition, type SchemaResponse } from '@/lib/a
 
 /** How the schema of another table is reached: where its link points, and what a plain click on it does */
 interface SchemaLinks {
-  /** Where the schema of a table opens, or undefined when it has no schema file */
+  /** Where the schema of a table opens, or undefined when it has no schema file or is the one shown */
   hrefOf: (table: string) => string | undefined;
   /** Opens the schema as a new history entry, which the back button returns from */
   open: (table: string) => void;

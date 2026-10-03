@@ -446,7 +446,7 @@ export function App() {
                 setSchemaTrail(trail);
               }}
               hrefOf={(name) =>
-                meta?.tables.find((candidate) => candidate.name === name)?.schemaFile
+                name !== schemaDialog.name && meta?.tables.find((candidate) => candidate.name === name)?.schemaFile
                   ? formatHash(table?.name ?? '', name)
                   : undefined
               }
