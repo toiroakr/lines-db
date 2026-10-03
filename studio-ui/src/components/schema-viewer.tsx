@@ -10,6 +10,14 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Tabs } from 'radix-ui';
 import { fetchSchema, type SchemaDefinition, type SchemaResponse } from '@/lib/api';
 
+/** How the schema of another table is reached: where its link points, and what a plain click on it does */
+interface SchemaLinks {
+  /** Where the schema of a table opens, or undefined when it has no schema file */
+  hrefOf: (table: string) => string | undefined;
+  /** Opens the schema as a new history entry, which the back button returns from */
+  open: (table: string) => void;
+}
+
 /** The source of a schema file, highlighted and read-only */
 export function SchemaViewer({ source, label }: { source: string; label: string }) {
   const host = useRef<HTMLDivElement>(null);
@@ -44,6 +52,7 @@ export function SchemaDialog({
   file,
   backTo,
   hrefOf,
+  onOpenSchema,
   onClose,
 }: {
   table: string;
@@ -52,6 +61,8 @@ export function SchemaDialog({
   backTo?: string;
   /** Where the schema of another table opens, or undefined when it has no schema file */
   hrefOf: (table: string) => string | undefined;
+  /** Opens the schema of another table as a new history entry, which the back button returns from */
+  onOpenSchema: (table: string) => void;
   onClose: () => void;
 }) {
   const [schema, setSchema] = useState<SchemaResponse | { error: string }>();
@@ -94,7 +105,7 @@ export function SchemaDialog({
           <p className="text-sm text-destructive">{schema.error}</p>
         ) : (
           // Keyed by table so the tab starts at Definition again, without the dialog and its backdrop being remounted
-          <SchemaTabs key={table} schema={schema} file={file} hrefOf={hrefOf} />
+          <SchemaTabs key={table} schema={schema} file={file} links={{ hrefOf, open: onOpenSchema }} />
         )}
       </DialogContent>
     </Dialog>
@@ -105,15 +116,7 @@ const tabTrigger =
   'border-b-2 border-transparent px-3 py-1.5 text-sm text-muted-foreground data-[state=active]:border-foreground data-[state=active]:text-foreground';
 
 /** The declared definition first and the code as the file holds it second; only the code for a table not loaded */
-function SchemaTabs({
-  schema,
-  file,
-  hrefOf,
-}: {
-  schema: SchemaResponse;
-  file: string;
-  hrefOf: (table: string) => string | undefined;
-}) {
+function SchemaTabs({ schema, file, links }: { schema: SchemaResponse; file: string; links: SchemaLinks }) {
   if (!schema.definition) return <SchemaViewer source={schema.source} label={file} />;
   return (
     <Tabs.Root defaultValue="definition" className="grid grid-cols-[minmax(0,1fr)] gap-3">
@@ -126,7 +129,7 @@ function SchemaTabs({
         </Tabs.Trigger>
       </Tabs.List>
       <Tabs.Content value="definition" className="max-h-[70vh] overflow-auto">
-        <SchemaDefinitionView definition={schema.definition} hrefOf={hrefOf} />
+        <SchemaDefinitionView definition={schema.definition} links={links} />
       </Tabs.Content>
       <Tabs.Content value="code">
         <SchemaViewer source={schema.source} label={file} />
@@ -138,13 +141,7 @@ function SchemaTabs({
 const heading = 'mb-1.5 text-xs font-medium text-muted-foreground';
 const cell = 'px-3 py-1.5 text-left font-mono text-xs';
 
-function SchemaDefinitionView({
-  definition,
-  hrefOf,
-}: {
-  definition: SchemaDefinition;
-  hrefOf: (table: string) => string | undefined;
-}) {
+function SchemaDefinitionView({ definition, links }: { definition: SchemaDefinition; links: SchemaLinks }) {
   const { columns, foreignKeys, indexes } = definition;
   return (
     <div className="grid gap-5">
@@ -177,7 +174,7 @@ function SchemaDefinitionView({
                   </td>
                   <td className={cell}>{constraints.join(', ') || '—'}</td>
                   <td className={cell}>
-                    {reference ? <TableLink table={reference.table} column={reference.column} hrefOf={hrefOf} /> : '—'}
+                    {reference ? <TableLink table={reference.table} column={reference.column} links={links} /> : '—'}
                   </td>
                 </tr>
               );
@@ -191,7 +188,7 @@ function SchemaDefinitionView({
           <ul className="grid gap-1 font-mono text-xs">
             {foreignKeys.map((key) => (
               <li key={key.column}>
-                {key.column} → <TableLink table={key.references.table} column={key.references.column} hrefOf={hrefOf} />
+                {key.column} → <TableLink table={key.references.table} column={key.references.column} links={links} />
                 {key.onDelete && <span className="text-muted-foreground"> · on delete {key.onDelete}</span>}
                 {key.onUpdate && <span className="text-muted-foreground"> · on update {key.onUpdate}</span>}
               </li>
@@ -217,19 +214,19 @@ function SchemaDefinitionView({
 }
 
 /** A reference to a column of another table, a link to that table's schema when it has one */
-function TableLink({
-  table,
-  column,
-  hrefOf,
-}: {
-  table: string;
-  column: string;
-  hrefOf: (table: string) => string | undefined;
-}) {
-  const href = hrefOf(table);
+function TableLink({ table, column, links }: { table: string; column: string; links: SchemaLinks }) {
+  const href = links.hrefOf(table);
   return href ? (
     <>
-      <a href={href} className="text-primary underline-offset-2 hover:underline">
+      <a
+        href={href}
+        className="text-primary underline-offset-2 hover:underline"
+        onClick={(event) => {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          links.open(table);
+        }}
+      >
         {table}
       </a>
       .{column}

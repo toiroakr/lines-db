@@ -28,7 +28,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CellEditor } from '@/components/cell-editor';
 import { SchemaDialog } from '@/components/schema-viewer';
 import { CopyPath } from '@/components/copy-path';
-import { formatHash, parseHash } from '@/lib/hash';
+import { formatHash, parseHash, schemaTrailOf } from '@/lib/hash';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import {
   fetchRows,
@@ -78,7 +78,7 @@ export function App() {
   const [editing, setEditing] = useState<Editing>();
   const [filter, setFilter] = useState('');
   const [schemaTable, setSchemaTable] = useState(() => parseHash(location.hash).schema);
-  const [schemaTrail, setSchemaTrail] = useState<string[]>([]);
+  const [schemaTrail, setSchemaTrail] = useState(() => schemaTrailOf(history.state));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const toggleSidebar = () => {
@@ -136,12 +136,7 @@ export function App() {
   useEffect(() => {
     const onHash = () => {
       const { table: shown, schema } = parseHash(location.hash);
-      setSchemaTrail((trail) => {
-        if (schema === null) return [];
-        if (trail.at(-1) === schema) return trail.slice(0, -1);
-        const left = stateRef.current.schemaTable;
-        return left !== null && left !== schema ? [...trail, left] : trail;
-      });
+      setSchemaTrail(schema === null ? [] : schemaTrailOf(history.state));
       setSchemaTable(schema);
       if (!selectRef.current(shown)) {
         history.replaceState(null, '', formatHash(stateRef.current.tableName ?? '', schema));
@@ -444,6 +439,12 @@ export function App() {
               table={schemaDialog.name}
               file={schemaDialog.schemaFile!}
               backTo={schemaTrail.at(-1)}
+              onOpenSchema={(name) => {
+                const trail = [...schemaTrail, schemaDialog.name];
+                history.pushState({ schemaTrail: trail }, '', formatHash(table?.name ?? '', name));
+                setSchemaTable(name);
+                setSchemaTrail(trail);
+              }}
               hrefOf={(name) =>
                 meta?.tables.find((candidate) => candidate.name === name)?.schemaFile
                   ? formatHash(table?.name ?? '', name)

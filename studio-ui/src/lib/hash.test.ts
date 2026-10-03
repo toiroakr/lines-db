@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatHash, parseHash } from './hash';
+import { formatHash, parseHash, schemaTrailOf } from './hash';
 
 describe('parseHash', () => {
   it('reads the table name the hash holds', () => {
@@ -34,4 +34,21 @@ describe('formatHash', () => {
   it('is read back by parseHash', () => {
     expect(parseHash(formatHash('a?b', 'c&d'))).toEqual({ table: 'a?b', schema: 'c&d' });
   });
+});
+
+describe('schemaTrailOf', () => {
+  it('reads the schemas opened before the one shown from the state of the history entry', () => {
+    expect(schemaTrailOf({ schemaTrail: ['orders', 'customers'] })).toEqual(['orders', 'customers']);
+  });
+
+  it('keeps a table that appears twice in the trail, as a foreign key can lead back to where it started', () => {
+    expect(schemaTrailOf({ schemaTrail: ['a', 'b', 'a'] })).toEqual(['a', 'b', 'a']);
+  });
+
+  it.each([null, undefined, 'a', {}, { schemaTrail: 'a' }, { schemaTrail: ['a', 1] }])(
+    'reads %j, which is not a trail, as none',
+    (state) => {
+      expect(schemaTrailOf(state)).toEqual([]);
+    },
+  );
 });

@@ -24,3 +24,9 @@ export function formatHash(table: string, schema?: string | null): string {
   const base = `#${encodeURIComponent(table)}`;
   return schema ? `${base}?schema=${encodeURIComponent(schema)}` : base;
 }
+
+/** The schemas opened before the one shown, which a link to a schema writes into the state of its history entry */
+export function schemaTrailOf(state: unknown): string[] {
+  const trail = (state as { schemaTrail?: unknown } | null)?.schemaTrail;
+  return Array.isArray(trail) && trail.every((name) => typeof name === 'string') ? trail : [];
+}
