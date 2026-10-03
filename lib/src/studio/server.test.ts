@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { request } from 'node:http';
 import { startStudioServer, type StudioServer } from './server.js';
 
@@ -837,7 +838,67 @@ describe('studio server', () => {
     const response = await fetch(`${studio.url}/api/tables/users/schema`);
 
     expect(response.status).toBe(200);
-    expect(await bodyOf(response)).toEqual({ file: 'users.schema.ts', source: NAME_REQUIRED_SCHEMA });
+    expect(await bodyOf(response)).toMatchObject({ file: 'users.schema.ts', source: NAME_REQUIRED_SCHEMA });
+  });
+
+  it('gives the columns of a table next to its schema source, for the page to show without reading the code', async () => {
+    const body = await bodyOf(await fetch(`${studio.url}/api/tables/users/schema`));
+
+    expect(body.definition.columns.map((column: { name: string }) => column.name)).toEqual(
+      expect.arrayContaining(['id', 'name']),
+    );
+    expect(body.definition.foreignKeys).toEqual([]);
+  });
+
+  it('reads the files again before answering, so a table added a moment ago has its schema served', async () => {
+    await writeFile(join(dataDir, 'late.jsonl'), '{"id":1,"name":"a"}\n');
+    await writeFile(join(dataDir, 'late.schema.ts'), NAME_REQUIRED_SCHEMA);
+
+    const response = await fetch(`${studio.url}/api/tables/late/schema`);
+
+    expect(response.status).toBe(200);
+    expect((await bodyOf(response)).definition.columns.map((column: { name: string }) => column.name)).toEqual([
+      'id',
+      'name',
+    ]);
+  });
+
+  it('gives the columns the schema file declares, read from its types, with the primary key and unique flags of the table', async () => {
+    // Inside the package, so that the TypeScript it reads the types with is found
+    const dir = await mkdtemp(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'run-'));
+    try {
+      await writeFile(join(dir, 'members.jsonl'), '{"id":1,"name":"Alice"}\n');
+      await writeFile(
+        join(dir, 'members.schema.ts'),
+        `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data: unknown) => ({ value: data }),
+  types: undefined as unknown as { input: { id: number; name?: string; nickname: string | null }; output: unknown } } };\n`,
+      );
+      const other = await startStudioServer({ dataDir: dir, port: 0 });
+      try {
+        const body = await bodyOf(
+          await globalThis.fetch(`${other.url}/api/tables/members/schema`, {
+            headers: { Authorization: `Bearer ${other.token}` },
+          }),
+        );
+
+        expect(body.definition.columnsFrom).toBe('schema');
+        expect(body.definition.columns).toEqual([
+          { name: 'id', type: 'number', optional: false, nullable: false, primaryKey: true },
+          { name: 'name', type: 'string', optional: true, nullable: false },
+          { name: 'nickname', type: 'string', optional: false, nullable: true },
+        ]);
+      } finally {
+        await other.close();
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('gives the columns inferred from the rows, as such, for a schema that declares no types', async () => {
+    const body = await bodyOf(await fetch(`${studio.url}/api/tables/users/schema`));
+
+    expect(body.definition.columnsFrom).toBe('rows');
   });
 
   it('answers 404 for the schema of a table without a schema file, or of a table that does not exist', async () => {
@@ -940,7 +1001,7 @@ describe('studio server', () => {
       const schema = await bodyOf(await fetch(`${studio.url}/api/tables/notes/schema`));
 
       expect(notes.schemaFile).toBe('notes.schema.ts');
-      expect(schema).toEqual({ file: 'notes.schema.ts', source: NAME_REQUIRED_SCHEMA });
+      expect(schema).toEqual({ file: 'notes.schema.ts', source: NAME_REQUIRED_SCHEMA, definition: null });
     });
 
     it('gives its rows as the file holds them, with the issues of each failing row by its index', async () => {
@@ -1252,6 +1313,39 @@ describe('studio server', () => {
       );
 
       expect(pets).toEqual([expect.objectContaining({ invalidRows: 1, primaryKey: null })]);
+    });
+
+    it('gives no definition for a table whose rows fail a foreign key, as it is not loaded', async () => {
+      await studio.close();
+      await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');
+      await writeFile(join(dataDir, 'pets.jsonl'), '{"id":1,"owner":1,"name":"a"}\n{"id":2,"owner":9,"name":"b"}\n');
+      await writeFile(
+        join(dataDir, 'pets.schema.ts'),
+        "export const foreignKeys = [{ column: 'owner', references: { table: 'owners', column: 'id' } }];\n" +
+          "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+      );
+      studio = await startStudioServer({ dataDir, port: 0 });
+
+      const pets = await bodyOf(await fetch(`${studio.url}/api/tables/pets/schema`));
+
+      expect(pets.definition).toBeNull();
+    });
+
+    it('keeps the foreign key a schema declares to a table with failing rows in its definition', async () => {
+      await studio.close();
+      await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');
+      await writeFile(join(dataDir, 'owners.schema.ts'), NAME_REQUIRED_SCHEMA);
+      await writeFile(join(dataDir, 'pets.jsonl'), '{"id":1,"owner":1,"name":"a"}\n');
+      await writeFile(
+        join(dataDir, 'pets.schema.ts'),
+        "export const foreignKeys = [{ column: 'owner', references: { table: 'owners', column: 'id' } }];\n" +
+          "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+      );
+      studio = await startStudioServer({ dataDir, port: 0 });
+
+      const pets = await bodyOf(await fetch(`${studio.url}/api/tables/pets/schema`));
+
+      expect(pets.definition.foreignKeys).toEqual([{ column: 'owner', references: { table: 'owners', column: 'id' } }]);
     });
 
     it('refuses to add or delete rows until the failing rows are fixed', async () => {

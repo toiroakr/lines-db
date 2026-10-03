@@ -346,7 +346,10 @@ test('shows failing cells and fields outside the schema from the file', async ({
   await app.screenshot('The failing row and the field outside the schema');
 });
 
-test('shows the schema file source in the Schema dialog', async ({ app, screen }) => {
+test('shows the declared definition in the Schema dialog, and the schema file source in its Code tab', async ({
+  app,
+  screen,
+}) => {
   await app.open('/');
   await screen
     .getByRole('navigation')
@@ -355,11 +358,116 @@ test('shows the schema file source in the Schema dialog', async ({ app, screen }
   await screen.getByRole('button', 'Schema', { exact: true }).tap();
   const dialog = screen.getByRole('dialog', 'users.schema.ts');
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('cell').filter({ hasText: 'email' })).toBeVisible();
+  await expect(dialog.getByRole('heading', 'Columns', { exact: true })).toBeVisible();
+  await app.screenshot('The Schema dialog on its definition');
+  await dialog.getByRole('tab', 'Code', { exact: true }).tap();
   const source = await readFile(new URL('../fixtures/users.schema.ts', import.meta.url), 'utf8');
   await expect(dialog.getByLabel('users.schema.ts', { exact: true })).toHaveText(source);
-  await app.screenshot('The Schema dialog');
+  await app.screenshot('The Schema dialog on its code');
   await dialog.getByRole('button', 'Close', { exact: true }).tap();
   await expect(dialog).toBeHidden();
+});
+
+test('follows a foreign key to the schema of the table it references, and back', async ({ app, screen, browser }) => {
+  await app.open('/');
+  await screen
+    .getByRole('navigation')
+    .getByRole('button', /^orders/)
+    .tap();
+  await screen.getByRole('button', 'Schema', { exact: true }).tap();
+  const hash = () => browser.evaluate(async () => location.hash);
+  const orders = screen.getByRole('dialog', 'orders.schema.ts');
+  const users = screen.getByRole('dialog', 'users.schema.ts');
+  await expect(orders).toBeVisible();
+  expect(await hash()).toBe('#orders?schema=orders');
+  await expect(orders.getByRole('button', /^Back to the schema/)).toHaveCount(0);
+
+  await orders.getByRole('link', 'users', { exact: true }).first().tap();
+  await expect(users).toBeVisible();
+  expect(await hash()).toBe('#orders?schema=users');
+  await app.screenshot('The schema reached through a foreign key');
+
+  await users.getByRole('button', 'Back to the schema of orders', { exact: true }).tap();
+  await expect(orders).toBeVisible();
+  expect(await hash()).toBe('#orders?schema=orders');
+
+  await orders.getByRole('link', 'users', { exact: true }).first().tap();
+  await expect(users).toBeVisible();
+  await browser.evaluate(async () => (history.back(), null));
+  await expect(orders).toBeVisible();
+  await browser.evaluate(async () => (history.forward(), null));
+  await expect(users).toBeVisible();
+  await expect(users.getByRole('button', 'Back to the schema of orders', { exact: true })).toBeVisible();
+
+  await browser.evaluate(async () => (setTimeout(() => location.reload(), 0), null));
+  await expect(users).toBeVisible();
+  await expect(users.getByRole('button', 'Back to the schema of orders', { exact: true })).toBeVisible();
+  expect(await hash()).toBe('#orders?schema=users');
+});
+
+test('leaves no schema entry in the history once the dialog is closed after following a foreign key', async ({
+  app,
+  screen,
+  browser,
+}) => {
+  await app.open('/');
+  await screen
+    .getByRole('navigation')
+    .getByRole('button', /^orders/)
+    .tap();
+  await screen.getByRole('button', 'Schema', { exact: true }).tap();
+  await screen.getByRole('dialog', 'orders.schema.ts').getByRole('link', 'users', { exact: true }).first().tap();
+  await expect(screen.getByRole('dialog', 'users.schema.ts')).toBeVisible();
+
+  await screen.getByRole('dialog').getByRole('button', 'Close', { exact: true }).tap();
+  await expect(screen.getByRole('dialog')).toBeHidden();
+  expect(await browser.evaluate(async () => location.hash)).toBe('#orders');
+
+  await browser.evaluate(async () => (history.back(), null));
+  await expect(screen.getByRole('heading', 'notes', { exact: true })).toBeVisible();
+  await expect(screen.getByRole('dialog')).toBeHidden();
+  expect(await browser.evaluate(async () => location.hash)).not.toContain('schema');
+});
+
+test('leaves no schema entry in the history when a schema opened by its address is closed after following a link', async ({
+  app,
+  screen,
+  browser,
+}) => {
+  await app.open('/');
+  await app.open('/#orders?schema=orders');
+  await expect(screen.getByRole('dialog', 'orders.schema.ts')).toBeVisible();
+  await screen.getByRole('dialog', 'orders.schema.ts').getByRole('link', 'users', { exact: true }).first().tap();
+  await expect(screen.getByRole('dialog', 'users.schema.ts')).toBeVisible();
+
+  await screen.getByRole('dialog').getByRole('button', 'Close', { exact: true }).tap();
+  await expect(screen.getByRole('dialog')).toBeHidden();
+  expect(await browser.evaluate(async () => location.hash)).toBe('#orders');
+
+  await browser.evaluate(async () => (history.back(), null));
+  await expect(screen.getByRole('heading', 'notes', { exact: true })).toBeVisible();
+  await expect(screen.getByRole('dialog')).toBeHidden();
+});
+
+test('opens the schema again when history returns to a table it was open on', async ({ app, screen, browser }) => {
+  await app.open('/');
+  await screen
+    .getByRole('navigation')
+    .getByRole('button', /^orders/)
+    .tap();
+  await screen.getByRole('button', 'Schema', { exact: true }).tap();
+  await expect(screen.getByRole('dialog', 'orders.schema.ts')).toBeVisible();
+
+  await browser.evaluate(async () => ((location.hash = '#users'), null));
+  await expect(screen.getByRole('heading', 'users', { exact: true })).toBeVisible();
+  await expect(screen.getByRole('dialog')).toBeHidden();
+
+  await browser.evaluate(async () => (history.back(), null));
+  await expect(screen.getByRole('dialog', 'orders.schema.ts')).toBeVisible();
+  expect(await browser.evaluate(async () => location.hash)).toBe('#orders?schema=orders');
+  await screen.getByRole('dialog').getByRole('button', 'Close', { exact: true }).tap();
+  await expect(screen.getByRole('heading', 'orders', { exact: true })).toBeVisible();
 });
 
 test('opens and closes the table drawer at 390px', async ({ app, screen, browser }) => {

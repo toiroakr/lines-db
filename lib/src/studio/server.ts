@@ -10,6 +10,7 @@ import { ErrorFormatter } from '../error-formatter.js';
 import { unwrap } from '../result.js';
 import { JsonlReader, hashJsonlContent } from '../jsonl-reader.js';
 import { findSchemaFile } from '../schema-extensions.js';
+import { readDeclaredColumns } from './declared-columns.js';
 import { replaceRows } from './file-rows.js';
 import type {
   ColumnDefinition,
@@ -253,6 +254,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         sendJson(res, 405, { message: 'Method not allowed' });
         return;
       }
+      await reloadIfChanged();
       // Not looked up for a name that is not a table: the name would otherwise reach the file system as is
       const known = Boolean(snapshot.db.getSchema(tableName)) || snapshot.invalid.has(tableName);
       const schemaPath = known ? await findSchemaFile(dataDir, tableName) : undefined;
@@ -260,7 +262,33 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         sendJson(res, 404, { message: `Table '${tableName}' has no schema file` });
         return;
       }
-      sendJson(res, 200, { file: basename(schemaPath), source: await readFile(schemaPath, 'utf-8') });
+      const loaded = snapshot.invalid.has(tableName) ? undefined : snapshot.db.getSchema(tableName);
+      const declared = loaded && (await readDeclaredColumns(schemaPath, dataDir));
+      const flagsOf = (name: string) => {
+        const column = loaded?.columns.find((candidate) => candidate.name === name);
+        return { ...(column?.primaryKey ? { primaryKey: true } : {}), ...(column?.unique ? { unique: true } : {}) };
+      };
+      sendJson(res, 200, {
+        file: basename(schemaPath),
+        source: await readFile(schemaPath, 'utf-8'),
+        definition: loaded
+          ? {
+              // Declared when the types of the schema can be read, as the columns the database holds are inferred
+              // from the values of the rows: a field left out of every row is missing, and one in every row is not null
+              columnsFrom: declared ? 'schema' : 'rows',
+              columns: declared
+                ? declared.map((column) => ({ ...column, ...flagsOf(column.name) }))
+                : loaded.columns.map((column) => ({
+                    name: column.name,
+                    type: column.valueType ?? column.type,
+                    ...(column.notNull ? { notNull: true } : {}),
+                    ...flagsOf(column.name),
+                  })),
+              foreignKeys: loaded.declaredForeignKeys ?? [],
+              indexes: loaded.indexes ?? [],
+            }
+          : null,
+      });
       return;
     }
     const isRows = segments[0] === 'api' && segments[1] === 'tables' && resource === 'rows' && segments.length <= 5;

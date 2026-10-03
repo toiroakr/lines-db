@@ -237,7 +237,7 @@ rewrites the table's JSONL file as a whole, so the formatting of the other lines
 - **Add record** opens a dialog with a field for each column, the primary key among them. The fields
   left empty are left out of the row, and the whole row is checked as it is filled in.
 - The header also switches the colors between those of the system, light and dark.
-- **Schema** shows the table's schema file (`<table>.schema.ts` and the like) as it is on disk, highlighted.
+- **Schema** opens on the table's declared definition: its columns, foreign keys and indexes. The columns are read from the types of the schema file (its Standard Schema `types`) with the TypeScript installed in your project: the compiler API of TypeScript 5 and 6, or the Corsa API of TypeScript 7.1 and later, whichever the project has; each column shows its type and whether it is optional or nullable. Without TypeScript, or when the schema declares no types, the columns are inferred from the values in the rows instead, and the page says so. A foreign key links to the schema of the table it references, and the address (`#orders?schema=customers`) names the schema that is open. The **Code** tab shows the schema file (`<table>.schema.ts` and the like) as it is on disk, highlighted. A table with failing rows has only the code.
 - A table needs a primary key (an `id` column, or `primaryKey` in its schema file) with a value on every row to be edited; one
   without is shown read-only.
 - A table whose rows fail validation on load is shown as its JSONL file holds it, with the failing

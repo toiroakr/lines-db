@@ -34,7 +34,7 @@ import { CellEditor } from '@/components/cell-editor';
 import { SchemaDialog } from '@/components/schema-viewer';
 import { CopyPath } from '@/components/copy-path';
 import { NewRecordDialog, RecordDrawer, type FieldModel } from '@/components/record-form';
-import { tableNameOf } from '@/lib/hash';
+import { formatHash, parseHash, schemaOpenedInApp, schemaTrailOf } from '@/lib/hash';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import {
   fetchRows,
@@ -80,7 +80,7 @@ type OpenRow = { row: 'existing'; key: JsonValue } | { row: 'new'; id: string };
 /** A row of another table to open once its rows are read: the one whose column holds the value */
 type Opening = { table: string; column: string; value: JsonValue };
 
-const tableFromHash = () => tableNameOf(location.hash);
+const tableFromHash = () => parseHash(location.hash).table;
 
 export function App() {
   const [meta, setMeta] = useState<TablesResponse>();
@@ -90,7 +90,8 @@ export function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Editing>();
   const [filter, setFilter] = useState('');
-  const [schemaShown, setSchemaShown] = useState(false);
+  const [schemaTable, setSchemaTable] = useState(() => parseHash(location.hash).schema);
+  const [schemaTrail, setSchemaTrail] = useState(() => schemaTrailOf(history.state));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [openRow, setOpenRow] = useState<OpenRow>();
@@ -122,11 +123,12 @@ export function App() {
   const generation = useRef(0);
 
   const table = meta?.tables.find((candidate) => candidate.name === current) ?? meta?.tables[0];
+  const schemaDialog = meta?.tables.find((candidate) => candidate.name === schemaTable && candidate.schemaFile);
   const changeCount = countChanges(pending);
   const dirty = changeCount > 0;
 
-  const stateRef = useRef({ dirty, editing, current, tableName: table?.name });
-  stateRef.current = { dirty, editing, current, tableName: table?.name };
+  const stateRef = useRef({ dirty, editing, current, tableName: table?.name, schemaTable });
+  stateRef.current = { dirty, editing, current, tableName: table?.name, schemaTable };
 
   const load = useCallback(async (name?: string) => {
     // Not trusting the order responses arrive in: a slower, older load must not overwrite a newer one
@@ -161,15 +163,31 @@ export function App() {
     if (filesChanged && !dirty && !editing) void load(current);
   }, [filesChanged, dirty, editing, current, load]);
 
-  const selectRef = useRef<(name: string) => boolean>(() => false);
+  const selectRef = useRef<(name: string, fromHistory?: boolean) => boolean>(() => false);
+  const closeOnArrival = useRef(false);
   useEffect(() => {
     const onHash = () => {
-      if (!selectRef.current(tableFromHash())) {
-        history.replaceState(null, '', `#${encodeURIComponent(stateRef.current.tableName ?? '')}`);
+      const { table: shown, schema } = parseHash(location.hash);
+      if (closeOnArrival.current && schema !== null) {
+        closeOnArrival.current = false;
+        history.replaceState(null, '', formatHash(shown));
+        setSchemaTable(null);
+        setSchemaTrail([]);
+        return;
+      }
+      setSchemaTrail(schema === null ? [] : schemaTrailOf(history.state));
+      setSchemaTable(schema);
+      if (!selectRef.current(shown, true)) {
+        history.replaceState(null, '', formatHash(stateRef.current.tableName ?? '', schema));
       }
     };
+    // Also popstate: going back across entries with one address, as a circular foreign key leaves, fires only that
     window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    window.addEventListener('popstate', onHash);
+    return () => {
+      window.removeEventListener('hashchange', onHash);
+      window.removeEventListener('popstate', onHash);
+    };
   }, []);
 
   useEffect(() => {
@@ -189,7 +207,7 @@ export function App() {
   }, [load]);
 
   /** Whether the table is now the one shown */
-  const selectTable = (name: string): boolean => {
+  const selectTable = (name: string, fromHistory = false): boolean => {
     if (name === table?.name) return true;
     if (dirty) {
       setNotice({
@@ -205,7 +223,12 @@ export function App() {
     setOpenRow(undefined);
     setFilter('');
     setNotice(undefined);
-    location.hash = encodeURIComponent(name);
+    // Not rewritten for history: its entry already holds the address, and the schema open on it
+    if (!fromHistory) {
+      location.hash = formatHash(name);
+      setSchemaTable(null);
+      setSchemaTrail([]);
+    }
     setCurrent(name);
     return true;
   };
@@ -515,7 +538,16 @@ export function App() {
             </div>
             <div className="ml-auto flex items-center gap-2">
               {table?.schemaFile && (
-                <Button size="sm" variant="outline" aria-label="Schema" onClick={() => setSchemaShown(true)}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  aria-label="Schema"
+                  onClick={() => {
+                    history.pushState({ schemaTrail: [], schemaInApp: true }, '', formatHash(table.name, table.name));
+                    setSchemaTable(table.name);
+                    setSchemaTrail([]);
+                  }}
+                >
                   <FileCode /> <span className="hidden sm:inline">Schema</span>
                 </Button>
               )}
@@ -585,8 +617,42 @@ export function App() {
               }}
             />
           )}
-          {schemaShown && table?.schemaFile && (
-            <SchemaDialog table={table.name} file={table.schemaFile} onClose={() => setSchemaShown(false)} />
+          {schemaDialog && (
+            <SchemaDialog
+              table={schemaDialog.name}
+              file={schemaDialog.schemaFile!}
+              backTo={schemaTrail.at(-1)}
+              onOpenSchema={(name) => {
+                const trail = [...schemaTrail, schemaDialog.name];
+                history.pushState(
+                  { schemaTrail: trail, schemaInApp: schemaOpenedInApp(history.state) },
+                  '',
+                  formatHash(table?.name ?? '', name),
+                );
+                setSchemaTable(name);
+                setSchemaTrail(trail);
+              }}
+              hrefOf={(name) =>
+                name !== schemaDialog.name && meta?.tables.find((candidate) => candidate.name === name)?.schemaFile
+                  ? formatHash(table?.name ?? '', name)
+                  : undefined
+              }
+              onClose={() => {
+                const inApp = schemaOpenedInApp(history.state);
+                const steps = schemaTrail.length + (inApp ? 1 : 0);
+                if (steps > 0) {
+                  // Back to the entry before the schema, which the hashchange then shows without it. An address
+                  // typed in has none: its own entry is the first, so going back from it could leave the page, and
+                  // the schema it names is closed once there instead
+                  closeOnArrival.current = !inApp;
+                  history.go(-steps);
+                  return;
+                }
+                history.replaceState(null, '', formatHash(table?.name ?? ''));
+                setSchemaTable(null);
+                setSchemaTrail([]);
+              }}
+            />
           )}
 
           {dirty && (

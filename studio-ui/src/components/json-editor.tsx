@@ -86,5 +86,5 @@ export function JsonEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [issueKey]);
 
-  return <div ref={host} className={cn('overflow-auto rounded-md border bg-muted/30', className)} />;
+  return <div ref={host} className={cn('overflow-auto rounded-md border bg-background', className)} />;
 }

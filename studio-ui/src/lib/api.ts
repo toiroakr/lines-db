@@ -34,9 +34,46 @@ export async function fetchTables(): Promise<TablesResponse> {
   return readJson(await fetch('/api/tables', authorized()));
 }
 
+export interface ForeignKeyDefinition {
+  column: string;
+  references: { table: string; column: string };
+  onDelete?: string;
+  onUpdate?: string;
+}
+
+export interface IndexDefinition {
+  name?: string;
+  columns: string[];
+  unique?: boolean;
+}
+
+/** What the schema file declares, as the server read it from the loaded table */
+export interface DefinitionColumn {
+  name: string;
+  type: string;
+  primaryKey?: boolean;
+  unique?: boolean;
+  /** Declared: the field may be left out of a row */
+  optional?: boolean;
+  /** Declared: the value may be null */
+  nullable?: boolean;
+  /** Inferred from the rows: every row has the field */
+  notNull?: boolean;
+}
+
+export interface SchemaDefinition {
+  /** Whether the columns are read from the schema's types, or inferred from the values in the rows */
+  columnsFrom: 'schema' | 'rows';
+  columns: DefinitionColumn[];
+  foreignKeys: ForeignKeyDefinition[];
+  indexes: IndexDefinition[];
+}
+
 export interface SchemaResponse {
   file: string;
   source: string;
+  /** Null for a table with failing rows, which is not loaded */
+  definition: SchemaDefinition | null;
 }
 
 export async function fetchSchema(table: string): Promise<SchemaResponse> {

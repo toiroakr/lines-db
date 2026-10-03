@@ -713,6 +713,7 @@ export class LinesDB<Tables extends TableDefs> {
       }
     }
     if (foreignKeys) {
+      schema.declaredForeignKeys = foreignKeys;
       schema.foreignKeys =
         failedDependencies && failedDependencies.size > 0
           ? foreignKeys.filter((fk) => !failedDependencies.has(fk.references.table))
