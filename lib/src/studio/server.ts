@@ -739,16 +739,19 @@ function unknownFields(
   const kept = new Set<string>();
   rows.forEach((row, index) => {
     if (issues.has(index)) return;
-    const validated = db.validateRow(tableName, row);
-    if (validated.ok) for (const key of Object.keys(validated.value)) kept.add(key);
+    const validated = tryValidate(db, tableName, row);
+    if (validated?.ok) for (const key of Object.keys(validated.value)) kept.add(key);
   });
   const unknown = new Set<string>();
   for (const [key, indexes] of failingOn) {
     if (kept.has(key)) continue;
     const clears = indexes.every((index) => {
       const { [key]: _removed, ...rest } = rows[index];
-      const result = db.validateRow(tableName, rest);
-      return result.ok || !perKey(result.error.issues).some((issue) => fieldOf(issue) === key);
+      // Not counted as clearing it when the schema throws without the key: it relies on the key being there
+      const result = tryValidate(db, tableName, rest);
+      return (
+        result !== undefined && (result.ok || !perKey(result.error.issues).some((issue) => fieldOf(issue) === key))
+      );
     });
     if (clears) unknown.add(key);
   }

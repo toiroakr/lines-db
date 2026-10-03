@@ -664,6 +664,24 @@ describe('studio server', () => {
     });
   });
 
+  it('lists a table with rows that fail validation, though its schema throws on a row without a field', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'gauges.jsonl'), '{"id":1,"meta":{"level":1}}\n');
+    await writeFile(
+      join(dataDir, 'gauges.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+        data.meta.level > 5 ? { value: data } : { issues: [{ message: 'too low', path: ['meta', 'level'] }] } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const response = await fetch(`${studio.url}/api/tables`);
+
+    expect(response.status).toBe(200);
+    expect((await bodyOf(response)).tables.find((table: { name: string }) => table.name === 'gauges')).toMatchObject({
+      invalidRows: 1,
+    });
+  });
+
   it('lists the foreign keys of a table with rows that fail validation, so a failing row can open the row it refers to', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');
