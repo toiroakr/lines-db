@@ -854,6 +854,22 @@ describe('studio server', () => {
       expect(pets).toEqual([expect.objectContaining({ invalidRows: 1, primaryKey: null })]);
     });
 
+    it('gives no definition for a table whose rows fail a foreign key, as it is not loaded', async () => {
+      await studio.close();
+      await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');
+      await writeFile(join(dataDir, 'pets.jsonl'), '{"id":1,"owner":1,"name":"a"}\n{"id":2,"owner":9,"name":"b"}\n');
+      await writeFile(
+        join(dataDir, 'pets.schema.ts'),
+        "export const foreignKeys = [{ column: 'owner', references: { table: 'owners', column: 'id' } }];\n" +
+          "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+      );
+      studio = await startStudioServer({ dataDir, port: 0 });
+
+      const pets = await bodyOf(await fetch(`${studio.url}/api/tables/pets/schema`));
+
+      expect(pets.definition).toBeNull();
+    });
+
     it('keeps the foreign key a schema declares to a table with failing rows in its definition', async () => {
       await studio.close();
       await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');

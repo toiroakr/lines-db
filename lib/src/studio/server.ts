@@ -213,7 +213,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         sendJson(res, 404, { message: `Table '${tableName}' has no schema file` });
         return;
       }
-      const loaded = snapshot.db.getSchema(tableName);
+      const loaded = snapshot.invalid.has(tableName) ? undefined : snapshot.db.getSchema(tableName);
       sendJson(res, 200, {
         file: basename(schemaPath),
         source: await readFile(schemaPath, 'utf-8'),
