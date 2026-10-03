@@ -32,6 +32,29 @@ describe('FormField', () => {
     vi.restoreAllMocks();
   });
 
+  it('tells the text it cannot read no longer stands once the field is removed from the row', () => {
+    const onValidity = vi.fn();
+    const model = field({ name: 'age', type: 'INTEGER' }, 30, { onValidity });
+    const { rerender } = render(<FormField table="users" model={model} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'age' }), { target: { value: '3a' } });
+    expect(onValidity).toHaveBeenLastCalledWith(false);
+
+    rerender(<FormField table="users" model={{ ...model, state: 'reset' }} />);
+
+    expect(onValidity).toHaveBeenLastCalledWith(true);
+  });
+
+  it('tells the text it cannot read no longer stands once the field cannot be edited, as for a row marked deleted', () => {
+    const onValidity = vi.fn();
+    const model = field({ name: 'age', type: 'INTEGER' }, 30, { onValidity });
+    const { rerender } = render(<FormField table="users" model={model} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'age' }), { target: { value: '3a' } });
+
+    rerender(<FormField table="users" model={{ ...model, readOnly: true }} />);
+
+    expect(onValidity).toHaveBeenLastCalledWith(true);
+  });
+
   it('hands each text it is given to the form as the value of the field', () => {
     const model = field({ name: 'name', type: 'TEXT' }, 'Alice');
     render(<FormField table="users" model={model} />);
