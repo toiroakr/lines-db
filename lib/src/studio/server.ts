@@ -341,12 +341,14 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       return { status: 200, body: { ok: true, ...(stillFailing.length > 0 ? { stillFailing } : {}) }, changed: true };
     };
 
+    let reloaded = false;
     const outcome = await serialize(async (): Promise<Outcome> => {
       // Not left to the watcher: its event may not have fired yet, and a changed schema file is no
       // conflict a write-back detects, so the rows would be validated against the old schema
       const changedFiles = unwrap(await snapshot.db.findExternalChanges());
       if (changedFiles.length > 0) {
         await reloadUnlocked();
+        reloaded = true;
         if (write.kind === 'check') changedFiles.length = 0;
         // Not saved over an outside edit of the edited table's own file: the change was made on rows
         // the page showed before that edit
@@ -422,7 +424,8 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     });
     sendJson(res, outcome.status, outcome.body);
     // Not before the response: the page that saved would still be in its editor when the event arrives
-    if (outcome.changed) notifyChanged();
+    // Not only when the outcome says so: the watcher finds nothing left to reload once this did
+    if (outcome.changed || reloaded) notifyChanged();
   }
 
   try {

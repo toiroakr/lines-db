@@ -297,6 +297,18 @@ describe('studio server', () => {
     events.close();
   });
 
+  it('tells an open page over /api/events when a check finds a JSONL file changed on disk before the watcher does', async () => {
+    const events = await openEvents();
+    await writeFile(join(dataDir, 'users.jsonl'), '{"id":1,"name":"Alice","active":true,"tags":[]}\n');
+
+    await sendJsonRequest('POST', `${studio.url}/api/tables/users/check`, {
+      updates: [{ key: 1, changes: { name: 'Alicia' } }],
+    });
+
+    await events.waitFor('changed');
+    events.close();
+  });
+
   it('refuses a request that does not present the token printed at start-up', async () => {
     const response = await globalThis.fetch(`${studio.url}/api/tables`);
 
