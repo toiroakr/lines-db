@@ -65,15 +65,16 @@ export function SchemaDialog({
   onOpenSchema: (table: string) => void;
   onClose: () => void;
 }) {
-  const [schema, setSchema] = useState<SchemaResponse | { error: string }>();
+  const [loaded, setLoaded] = useState<{ table: string; result: SchemaResponse | { error: string } }>();
+  // Not shown for another table: the render that follows a change of `table` still holds the previous result
+  const schema = loaded?.table === table ? loaded.result : undefined;
 
   useEffect(() => {
     let current = true;
-    setSchema(undefined);
     fetchSchema(table).then(
-      (response) => current && setSchema(response),
+      (response) => current && setLoaded({ table, result: response }),
       (error: { message?: string }) =>
-        current && setSchema({ error: error.message ?? 'The schema file could not be read' }),
+        current && setLoaded({ table, result: { error: error.message ?? 'The schema file could not be read' } }),
     );
     return () => {
       current = false;
