@@ -4,7 +4,7 @@ import { chmod, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, extname, join, relative, resolve as resolvePath } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { LinesDB } from '../database.js';
 import { ErrorFormatter } from '../error-formatter.js';
 import { unwrap } from '../result.js';
@@ -13,6 +13,7 @@ import { findSchemaFile } from '../schema-extensions.js';
 import { replaceRows } from './file-rows.js';
 import type {
   ColumnDefinition,
+  ForeignKeyDefinition,
   JsonlConflictError,
   JsonlParseError,
   JsonObject,
@@ -184,11 +185,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           invalidRows: 0,
           readOnlyReason: whyReadOnly(snapshot.db, name),
           schemaFile: null as string | null,
-          references: (snapshot.db.getSchema(name)?.foreignKeys ?? []).map((fk) => ({
-            column: fk.column,
-            table: fk.references.table,
-            referencedColumn: fk.references.column,
-          })),
+          references: await referencesOf(snapshot.db, dataDir, name),
         });
       }
       for (const [name, { file, issues }] of snapshot.invalid) {
@@ -212,7 +209,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           invalidRows: issues.size,
           readOnlyReason: null,
           schemaFile: null,
-          references: [],
+          references: await referencesOf(snapshot.db, dataDir, name),
         });
       }
       for (const table of tables) {
@@ -510,24 +507,61 @@ function withLeeway<Column extends { name: string; type?: string }>(
   sample: JsonObject | undefined,
   columns: Column[],
 ): Array<Column & { nullable: boolean; optional: boolean; nested?: Record<string, NestedLeeway> }> {
-  const takes = (row: JsonObject, field: string) => {
-    const result = tryValidate(db, tableName, row);
-    return (
-      result !== undefined && (result.ok || !perKey(result.error.issues).some((issue) => fieldOf(issue) === field))
-    );
-  };
+  const takes = prober(db, tableName, sample ?? {});
   return columns.map((column) => {
     const { [column.name]: _removed, ...without } = sample ?? {};
     const value = sample?.[column.name];
     return {
       ...column,
-      nullable: takes({ ...without, [column.name]: null }, column.name),
-      optional: takes(without, column.name),
+      nullable: takes({ ...without, [column.name]: null }),
+      optional: takes(without),
       ...(sample && value !== null && typeof value === 'object'
         ? { nested: nestedLeeway(db, tableName, sample, column.name) }
         : {}),
     };
   });
+}
+
+/**
+ * Whether the schema takes a change of the sample row: it does when the change brings no issue the
+ * sample did not have. Not only an issue about the field changed counts, as a check across fields
+ * reports on another field, or on the row as a whole
+ */
+function prober(db: LinesDB<TableDefs>, tableName: string, sample: JsonObject) {
+  const issuesOf = (row: JsonObject) => {
+    const result = tryValidate(db, tableName, row);
+    if (!result) return undefined;
+    return result.ok ? [] : perKey(result.error.issues).map((issue) => JSON.stringify(issue));
+  };
+  const before = new Set(issuesOf(sample));
+  return (row: JsonObject) => issuesOf(row)?.every((issue) => before.has(issue)) ?? false;
+}
+
+/**
+ * The foreign keys of a table, as the row form opens the row a key refers to by them. A table whose
+ * rows failed its schema on load has no schema in the database, so they are read from its schema file
+ */
+async function referencesOf(db: LinesDB<TableDefs>, dataDir: string, tableName: string) {
+  const foreignKeys = db.getSchema(tableName)?.foreignKeys ?? (await foreignKeysInFile(dataDir, tableName));
+  return foreignKeys.map((fk) => ({
+    column: fk.column,
+    table: fk.references.table,
+    referencedColumn: fk.references.column,
+  }));
+}
+
+/** The foreign keys a table's schema file exports, as the database reads them on load */
+async function foreignKeysInFile(dataDir: string, tableName: string): Promise<ForeignKeyDefinition[]> {
+  const schemaPath = await findSchemaFile(dataDir, tableName);
+  if (!schemaPath) return [];
+  try {
+    const module = await import(`${pathToFileURL(schemaPath).href}?t=${Date.now()}`);
+    const exported = module.schema ?? module.default;
+    return exported?.foreignKeys ?? module.foreignKeys ?? [];
+  } catch {
+    // Not failing the listing: the file failed to load on start too, and its problem is listed there
+    return [];
+  }
 }
 
 /**
@@ -564,13 +598,7 @@ function nestedLeeway(
   sample: JsonObject,
   column: string,
 ): Record<string, NestedLeeway> {
-  const issuesOf = (row: JsonObject) => {
-    const result = tryValidate(db, tableName, row);
-    if (!result) return undefined;
-    return result.ok ? [] : result.error.issues.map((issue) => JSON.stringify(issue));
-  };
-  const before = new Set(issuesOf(sample));
-  const takes = (row: JsonObject) => issuesOf(row)?.every((issue) => before.has(issue)) ?? false;
+  const takes = prober(db, tableName, sample);
   const at = (path: Array<string | number>, change: (object: JsonObject) => JsonObject) =>
     ({ ...sample, [column]: changeAt(sample[column], path, change) }) as JsonObject;
 
@@ -589,9 +617,10 @@ function nestedLeeway(
     }
     if (value === null || typeof value !== 'object') return;
     const entries = Object.entries(value);
-    record(pattern.join('.'), {
-      open: takes(at(path, (object) => ({ ...object, [PROBE_KEY]: entries[0]?.[1] ?? null }))),
-    });
+    // Not tried on an empty object: with no value of its own to give a new key, any value tried may be refused
+    if (entries.length > 0) {
+      record(pattern.join('.'), { open: takes(at(path, (object) => ({ ...object, [PROBE_KEY]: entries[0][1] }))) });
+    }
     for (const [key, item] of entries) {
       record([...pattern, key].join('.'), {
         optional: takes(

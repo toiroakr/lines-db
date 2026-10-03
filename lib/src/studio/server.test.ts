@@ -533,6 +533,66 @@ describe('studio server', () => {
     expect(nested).toMatchObject({ '*': { open: false }, '*.name': { optional: false } });
   });
 
+  it('lists the foreign keys of a table with rows that fail validation, so a failing row can open the row it refers to', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');
+    await writeFile(join(dataDir, 'pets.jsonl'), '{"id":1,"owner":1,"name":"a"}\n{"id":2,"owner":1}\n');
+    await writeFile(
+      join(dataDir, 'pets.schema.ts'),
+      "export const foreignKeys = [{ column: 'owner', references: { table: 'owners', column: 'id' } }];\n" +
+        "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => typeof data.name === 'string' ? { value: data } : { issues: [{ message: 'name', path: ['name'] }] } } };\n",
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const pets = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'pets',
+    );
+
+    expect(pets).toMatchObject({
+      invalidRows: 1,
+      references: [{ column: 'owner', table: 'owners', referencedColumn: 'id' }],
+    });
+  });
+
+  it('does not take removing a field another field needs, though the issue is about that other field', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'ranges.jsonl'), '{"id":1,"from":1,"to":2}\n');
+    await writeFile(
+      join(dataDir, 'ranges.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+        'to' in data && !('from' in data) ? { issues: [{ message: 'to needs from', path: ['to'] }] } : { value: data } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const ranges = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'ranges',
+    );
+    const column = (name: string) => ranges.columns.find((candidate: { name: string }) => candidate.name === name);
+
+    expect(column('from')).toMatchObject({ optional: false });
+    expect(column('to')).toMatchObject({ optional: true });
+  });
+
+  it('leaves unknown whether an empty object takes new keys, having no value to try one with', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'tagged.jsonl'), '{"id":1,"tags":{}}\n');
+    await writeFile(
+      join(dataDir, 'tagged.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        const issues = Object.entries(data.tags).filter(([, value]) => typeof value !== 'string').map(([key]) => ({ message: 'string', path: ['tags', key] }));
+        return issues.length ? { issues } : { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const tagged = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'tagged',
+    );
+    const tags = tagged.columns.find((column: { name: string }) => column.name === 'tags');
+
+    expect(tags.nested?.['']?.open).toBeUndefined();
+  });
+
   it('lists the schema file of each table, or null for a table without one', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'notes.jsonl'), '{"title":"first"}\n');
