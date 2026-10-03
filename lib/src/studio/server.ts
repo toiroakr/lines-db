@@ -541,8 +541,8 @@ function withLeeway<Column extends { name: string; type?: string; notNull?: bool
     // Not taken while the field still fails: a sample failing for it already, as with no row that passes,
     // has its issue among the sample's, so the change brings no new one
     const takes = (row: JsonObject) => {
-      const { taken, value: validated, failing } = probe(row);
-      return taken && !failing.has(column.name) && (!column.notNull || (validated?.[column.name] ?? null) !== null);
+      const { taken, value: validated, failsAt } = probe(row);
+      return taken && !failsAt([column.name]) && (!column.notNull || (validated?.[column.name] ?? null) !== null);
     };
     return {
       ...column,
@@ -564,11 +564,16 @@ function prober(db: LinesDB<TableDefs>, tableName: string, sample: JsonObject) {
   const issuesOf = (result: ReturnType<typeof tryValidate>) =>
     !result ? undefined : result.ok ? [] : perKey(result.error.issues).map((issue) => JSON.stringify(issue));
   const before = new Set(issuesOf(tryValidate(db, tableName, sample)));
-  return (row: JsonObject): { taken: boolean; value?: JsonObject; failing: Set<string | undefined> } => {
+  return (
+    row: JsonObject,
+  ): { taken: boolean; value?: JsonObject; failsAt: (path: Array<string | number>) => boolean } => {
     const result = tryValidate(db, tableName, row);
     const taken = issuesOf(result)?.every((issue) => before.has(issue)) ?? false;
-    const failing = new Set(result && !result.ok ? result.error.issues.map(fieldOf) : []);
-    return { taken, value: result?.ok ? result.value : undefined, failing };
+    const paths = result && !result.ok ? perKey(result.error.issues).map((issue) => (issue.path ?? []).map(keyOf)) : [];
+    // Whether an issue is about the value at the path or one inside it
+    const failsAt = (path: Array<string | number>) =>
+      paths.some((at) => path.every((segment, index) => at[index] === String(segment)));
+    return { taken, value: result?.ok ? result.value : undefined, failsAt };
   };
 }
 
@@ -638,6 +643,11 @@ function nestedLeeway(
 ): Record<string, NestedLeeway> {
   const probe = prober(db, tableName, sample);
   const takes = (row: JsonObject) => probe(row).taken;
+  // Not taken while the key still fails: a sample failing for it already has its issue among the sample's
+  const leaves = (row: JsonObject, path: Array<string | number>) => {
+    const { taken, failsAt } = probe(row);
+    return taken && !failsAt([column, ...path]);
+  };
   const at = (path: Array<string | number>, change: (object: JsonObject) => JsonObject) =>
     ({ ...sample, [column]: changeAt(sample[column], path, change) }) as JsonObject;
 
@@ -665,11 +675,12 @@ function nestedLeeway(
     }
     for (const [key, item] of entries) {
       record([...pattern, segmentOf(key)].join('.'), {
-        optional: takes(
+        optional: leaves(
           at(path, (object) => {
             const { [key]: _removed, ...rest } = object;
             return rest;
           }),
+          [...path, key],
         ),
       });
       walk(item, [...path, key], [...pattern, segmentOf(key)]);
@@ -708,6 +719,10 @@ function perKey(issues: readonly StandardSchemaIssue[]): StandardSchemaIssue[] {
     return keys.map((key) => ({ ...issue, keys: [key], path: [...(issue.path ?? []), { key }] }));
   });
 }
+
+/** A segment of an issue's path as the key it names */
+const keyOf = (segment: PropertyKey | { key: PropertyKey }) =>
+  typeof segment === 'object' && segment !== null && 'key' in segment ? String(segment.key) : String(segment);
 
 /** The field of the row an issue is about, if it is about one */
 function fieldOf(issue: StandardSchemaIssue): string | undefined {

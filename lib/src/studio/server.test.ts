@@ -664,6 +664,33 @@ describe('studio server', () => {
     });
   });
 
+  it('takes leaving out a key inside a value only once the key no longer fails, as for a field', async () => {
+    await studio.close();
+    await writeFile(
+      join(dataDir, 'memos.jsonl'),
+      '{"id":1,"meta":{"source":"","note":""}}\n{"id":2,"meta":{"source":"","note":""}}\n',
+    );
+    await writeFile(
+      join(dataDir, 'memos.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        const issues = [];
+        if (!data.meta.source) issues.push({ message: 'source is required', path: ['meta', 'source'] });
+        if ('note' in data.meta && !data.meta.note) issues.push({ message: 'note is empty', path: ['meta', 'note'] });
+        return issues.length ? { issues } : { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const memos = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'memos',
+    );
+
+    expect(memos.columns.find((column: { name: string }) => column.name === 'meta').nested).toMatchObject({
+      source: { optional: false },
+      note: { optional: true },
+    });
+  });
+
   it('lists a table with rows that fail validation, though its schema throws on a row without a field', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'gauges.jsonl'), '{"id":1,"meta":{"level":1}}\n');
