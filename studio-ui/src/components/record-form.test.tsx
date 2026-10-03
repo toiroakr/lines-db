@@ -95,6 +95,12 @@ describe('FormField', () => {
     expect(model.onChange).toHaveBeenLastCalledWith(31);
   });
 
+  it('names the options of a boolean after its field, telling one boolean field from another', () => {
+    render(<FormField table="users" model={field({ name: 'active', type: 'INTEGER', valueType: 'boolean' }, true)} />);
+
+    expect(within(screen.getByRole('group', { name: 'active' })).getByRole('button', { name: 'true' })).toBeTruthy();
+  });
+
   it('sets a boolean from the option pressed, showing which one holds', async () => {
     const model = field({ name: 'active', type: 'INTEGER', valueType: 'boolean' }, true);
     render(<FormField table="users" model={model} />);

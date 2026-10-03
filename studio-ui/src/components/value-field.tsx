@@ -105,7 +105,7 @@ function Scalar({ path, value, issues, readOnly, onChange, shape }: ValueFieldPr
   const own = issuesAt(issues, path);
   const control =
     shape === 'boolean' ? (
-      <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
+      <div role="group" aria-label={name} className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
         {[true, false].map((option) => (
           <button
             key={String(option)}

@@ -129,6 +129,17 @@ describe('ValueField', () => {
     expect(onChange).toHaveBeenLastCalledWith({});
   });
 
+  it('names the options of a boolean inside the value after its path, telling one from another', () => {
+    field({ gift: true, wrapped: false });
+
+    expect(
+      within(screen.getByRole('group', { name: 'metadata.gift' })).getByRole('button', { name: 'true' }),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByRole('group', { name: 'metadata.wrapped' })).getByRole('button', { name: 'false' }),
+    ).toBeTruthy();
+  });
+
   it('sets a boolean in a map from the option pressed', async () => {
     const onChange = field({ gift: true });
 

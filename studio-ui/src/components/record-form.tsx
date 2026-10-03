@@ -184,7 +184,7 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
           onValidity={setFieldsValid}
         />
       ) : isBoolean(column) ? (
-        <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
+        <div role="group" aria-label={column.name} className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
           {['true', 'false'].map((option) => (
             <button
               key={option}
