@@ -132,13 +132,13 @@ export function App() {
     if (filesChanged && !dirty && !editing) void load(current);
   }, [filesChanged, dirty, editing, current, load]);
 
-  const selectRef = useRef<(name: string) => boolean>(() => false);
+  const selectRef = useRef<(name: string, fromHistory?: boolean) => boolean>(() => false);
   useEffect(() => {
     const onHash = () => {
       const { table: shown, schema } = parseHash(location.hash);
       setSchemaTrail(schema === null ? [] : schemaTrailOf(history.state));
       setSchemaTable(schema);
-      if (!selectRef.current(shown)) {
+      if (!selectRef.current(shown, true)) {
         history.replaceState(null, '', formatHash(stateRef.current.tableName ?? '', schema));
       }
     };
@@ -163,7 +163,7 @@ export function App() {
   }, [load]);
 
   /** Whether the table is now the one shown */
-  const selectTable = (name: string): boolean => {
+  const selectTable = (name: string, fromHistory = false): boolean => {
     if (name === table?.name) return true;
     if (dirty) {
       setNotice({
@@ -178,9 +178,12 @@ export function App() {
     setEditing(undefined);
     setFilter('');
     setNotice(undefined);
-    location.hash = formatHash(name);
-    setSchemaTable(null);
-    setSchemaTrail([]);
+    // Not rewritten for history: its entry already holds the address, and the schema open on it
+    if (!fromHistory) {
+      location.hash = formatHash(name);
+      setSchemaTable(null);
+      setSchemaTrail([]);
+    }
     setCurrent(name);
     return true;
   };

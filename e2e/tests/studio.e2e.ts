@@ -386,6 +386,26 @@ test('follows a foreign key to the schema of the table it references, and back',
   expect(await hash()).toBe('#reviews?schema=users');
 });
 
+test('opens the schema again when history returns to a table it was open on', async ({ app, screen, browser }) => {
+  await app.open('/');
+  await screen
+    .getByRole('navigation')
+    .getByRole('button', /^reviews/)
+    .tap();
+  await screen.getByRole('button', 'Schema', { exact: true }).tap();
+  await expect(screen.getByRole('dialog', 'reviews.schema.ts')).toBeVisible();
+
+  await browser.evaluate(async () => ((location.hash = '#users'), null));
+  await expect(screen.getByRole('heading', 'users', { exact: true })).toBeVisible();
+  await expect(screen.getByRole('dialog')).toBeHidden();
+
+  await browser.evaluate(async () => (history.back(), null));
+  await expect(screen.getByRole('dialog', 'reviews.schema.ts')).toBeVisible();
+  expect(await browser.evaluate(async () => location.hash)).toBe('#reviews?schema=reviews');
+  await screen.getByRole('dialog').getByRole('button', 'Close', { exact: true }).tap();
+  await expect(screen.getByRole('heading', 'reviews', { exact: true })).toBeVisible();
+});
+
 test('opens and closes the table drawer at 390px', async ({ app, screen, browser }) => {
   await browser.setViewport({ width: 390, height: 844 });
   await app.open('/');
