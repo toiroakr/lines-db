@@ -103,6 +103,17 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     }
     return byTable.get(name)!;
   };
+  // Not read on each listing: a table with no foreign keys in the database has them read from its schema
+  // file, imported anew each time, and they stay the same until the files are read again
+  type References = Awaited<ReturnType<typeof referencesOf>>;
+  const references = new WeakMap<Snapshot, Map<string, References>>();
+  const referencesFor = async (name: string): Promise<References> => {
+    const current = snapshot;
+    const byTable = references.get(current) ?? new Map<string, References>();
+    references.set(current, byTable);
+    if (!byTable.has(name)) byTable.set(name, await referencesOf(current.db, dataDir, name));
+    return byTable.get(name)!;
+  };
   // Not found on each listing either for a table whose rows fail validation: finding it validates rows
   const invalidColumns = new WeakMap<Snapshot, Map<string, { columns: Columns; rowCount: number }>>();
   const invalidColumnsOf = async (name: string): Promise<{ columns: Columns; rowCount: number }> => {
@@ -209,7 +220,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           invalidRows: 0,
           readOnlyReason: whyReadOnly(snapshot.db, name),
           schemaFile: null as string | null,
-          references: await referencesOf(snapshot.db, dataDir, name),
+          references: await referencesFor(name),
         });
       }
       for (const [name, { issues }] of snapshot.invalid) {
@@ -222,7 +233,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           invalidRows: issues.size,
           readOnlyReason: null,
           schemaFile: null,
-          references: await referencesOf(snapshot.db, dataDir, name),
+          references: await referencesFor(name),
         });
       }
       for (const table of tables) {
