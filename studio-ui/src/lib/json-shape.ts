@@ -54,7 +54,8 @@ export function removeIn(value: JsonValue, path: Path): JsonValue {
 
 /** A value shaped as the sample with nothing filled in, for a new item of a list */
 export function emptyLike(sample: JsonValue | undefined): JsonValue {
-  if (sample === undefined || sample === null) return '';
+  if (sample === undefined) return '';
+  if (sample === null) return null;
   if (typeof sample === 'boolean') return false;
   if (typeof sample === 'number') return 0;
   if (typeof sample === 'string') return '';

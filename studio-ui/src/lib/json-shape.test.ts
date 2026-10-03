@@ -49,6 +49,11 @@ describe('emptyLike', () => {
       tags: [],
     });
   });
+
+  it('gives null for an item shaped as null, and text only for a list with no item to shape it', () => {
+    expect(emptyLike(null)).toBeNull();
+    expect(emptyLike(undefined)).toBe('');
+  });
 });
 
 describe('issuesAt / issuesUnder', () => {
