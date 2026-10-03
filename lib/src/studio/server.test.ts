@@ -559,6 +559,26 @@ describe('studio server', () => {
     expect(nested).toMatchObject({ '*': { open: false }, '*.name': { optional: false } });
   });
 
+  it('finds what the schema takes of a table with rows that fail validation once per load of the files', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'counted.jsonl'), '{"id":1,"name":"a"}\n{"id":2}\n');
+    await writeFile(
+      join(dataDir, 'counted.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        globalThis.countedValidations = (globalThis.countedValidations ?? 0) + 1;
+        return typeof data.name === 'string' ? { value: data } : { issues: [{ message: 'name', path: ['name'] }] };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+    const counted = () => (globalThis as { countedValidations?: number }).countedValidations ?? 0;
+    await fetch(`${studio.url}/api/tables`);
+    const first = counted();
+
+    await fetch(`${studio.url}/api/tables`);
+
+    expect(counted()).toBe(first);
+  });
+
   it('lists the foreign keys of a table with rows that fail validation, so a failing row can open the row it refers to', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');

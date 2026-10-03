@@ -103,6 +103,30 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     }
     return byTable.get(name)!;
   };
+  // Not found on each listing either for a table whose rows fail validation: finding it validates rows
+  const invalidColumns = new WeakMap<Snapshot, Map<string, { columns: Columns; rowCount: number }>>();
+  const invalidColumnsOf = async (name: string): Promise<{ columns: Columns; rowCount: number }> => {
+    const current = snapshot;
+    const byTable = invalidColumns.get(current) ?? new Map<string, { columns: Columns; rowCount: number }>();
+    invalidColumns.set(current, byTable);
+    if (!byTable.has(name)) {
+      const { file, issues } = current.invalid.get(name)!;
+      const rows = unwrap(await JsonlReader.read(file));
+      const unknown = unknownFields(current.db, name, rows, issues);
+      const inferred = unwrap(JsonlReader.inferSchema(name, rows)).columns;
+      // A field no row holds - a required one every row lacks - has no column to fill it in otherwise;
+      // its type is unknown, so it is edited as JSON, which takes any value
+      const missing = [...new Set([...issues.values()].flat().map(fieldOf))].filter(
+        (field): field is string => field !== undefined && !inferred.some((column) => column.name === field),
+      );
+      const columns = withLeeway(current.db, name, rows.find((_, index) => !issues.has(index)) ?? rows[0], [
+        ...inferred,
+        ...missing.map((field) => ({ name: field, type: 'JSON' as const, notNull: false, primaryKey: false })),
+      ]).map((column) => ({ ...column, primaryKey: false, ...(unknown.has(column.name) ? { unknown: true } : {}) }));
+      byTable.set(name, { columns, rowCount: rows.length });
+    }
+    return byTable.get(name)!;
+  };
 
   const eventClients = new Set<ServerResponse>();
   const notifyChanged = (): void => {
@@ -188,24 +212,13 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           references: await referencesOf(snapshot.db, dataDir, name),
         });
       }
-      for (const [name, { file, issues }] of snapshot.invalid) {
-        const rows = unwrap(await JsonlReader.read(file));
-        const unknown = unknownFields(snapshot.db, name, rows, issues);
-        const inferred = unwrap(JsonlReader.inferSchema(name, rows)).columns;
-        // A field no row holds - a required one every row lacks - has no column to fill it in otherwise;
-        // its type is unknown, so it is edited as JSON, which takes any value
-        const missing = [...new Set([...issues.values()].flat().map(fieldOf))].filter(
-          (field): field is string => field !== undefined && !inferred.some((column) => column.name === field),
-        );
-        const columns = withLeeway(snapshot.db, name, rows.find((_, index) => !issues.has(index)) ?? rows[0], [
-          ...inferred,
-          ...missing.map((field) => ({ name: field, type: 'JSON' as const, notNull: false, primaryKey: false })),
-        ]).map((column) => ({ ...column, primaryKey: false, ...(unknown.has(column.name) ? { unknown: true } : {}) }));
+      for (const [name, { issues }] of snapshot.invalid) {
+        const { columns, rowCount } = await invalidColumnsOf(name);
         tables.push({
           name,
           columns,
           primaryKey: null,
-          rowCount: rows.length,
+          rowCount,
           invalidRows: issues.size,
           readOnlyReason: null,
           schemaFile: null,
