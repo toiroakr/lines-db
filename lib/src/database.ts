@@ -2877,6 +2877,8 @@ export class LinesDB<Tables extends TableDefs> {
     };
     return {
       prepare: (sql: string) => {
+        // Also when prepared: SQLite runs some pragmas then, not only when the statement is stepped
+        if (!idle()) this.refuseUnsafeSql(sql, viaTransaction());
         const statement = this.db.prepare(sql);
         return {
           run: (...params: unknown[]) => guarded(sql, () => statement.run(...params)),

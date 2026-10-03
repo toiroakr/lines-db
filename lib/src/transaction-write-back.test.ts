@@ -680,6 +680,26 @@ describe('LinesDB.transaction write-back', () => {
     expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
   });
 
+  it('refuses to prepare a statement that lifts query_only, which SQLite runs when it prepares it', async () => {
+    let threw = false;
+    await db.transaction(async () => {
+      await Promise.resolve();
+      try {
+        db.getDb().prepare('PRAGMA query_only = OFF');
+      } catch {
+        threw = true;
+      }
+    });
+
+    expect(threw).toBe(true);
+  });
+
+  it('still prepares a statement outside a transaction without looking at it', () => {
+    const statement = db.getDb().prepare('PRAGMA query_only = OFF');
+
+    expect(statement).toBeDefined();
+  });
+
   it('writes back the records a batchInsert() inserted before a later one failed', async () => {
     unwrap(
       await db.transaction((tx) => {
