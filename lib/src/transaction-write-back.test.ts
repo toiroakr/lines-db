@@ -700,6 +700,53 @@ describe('LinesDB.transaction write-back', () => {
     expect(statement).toBeDefined();
   });
 
+  it('lets only reads through the database while the callback awaits, as anything else could change the transaction', async () => {
+    const statements = [
+      'PRAGMA ignore_check_constraints = ON',
+      'PRAGMA defer_foreign_keys = ON',
+      'PRAGMA journal_mode = OFF',
+      'PRAGMA writable_schema = 1',
+      "ATTACH DATABASE ':memory:' AS other",
+      'REINDEX',
+      'PRAGMA no_such_pragma',
+    ];
+    const reads = ['SELECT label FROM tags', 'PRAGMA table_info(tags)', 'PRAGMA query_only', 'EXPLAIN SELECT 1'];
+    const refused: boolean[] = [];
+    const answered: boolean[] = [];
+    await db.transaction(async () => {
+      await Promise.resolve();
+      for (const sql of statements) {
+        try {
+          db.getDb().exec(sql);
+          refused.push(false);
+        } catch {
+          refused.push(true);
+        }
+      }
+      for (const sql of reads) {
+        try {
+          db.getDb().prepare(sql).all();
+          answered.push(true);
+        } catch {
+          answered.push(false);
+        }
+      }
+    });
+
+    expect(refused).toEqual(statements.map(() => true));
+    expect(answered).toEqual(reads.map(() => true));
+  });
+
+  it('still lets the callback run any SQL through its own tx handle', async () => {
+    const result = await db.transaction((tx) => {
+      tx.getDb().exec('PRAGMA defer_foreign_keys = ON');
+      tx.getDb().exec("UPDATE tags SET label = 'y' WHERE id = 1");
+    });
+
+    expect(result.ok).toBe(true);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'y' }]);
+  });
+
   it('writes back the records a batchInsert() inserted before a later one failed', async () => {
     unwrap(
       await db.transaction((tx) => {

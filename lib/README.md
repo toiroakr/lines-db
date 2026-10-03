@@ -376,7 +376,9 @@ transaction on such a failure; only a thrown error inside the callback rolls it 
 
 Write through `tx`, not `db`, inside the callback: while a transaction is open, a write made through `db` itself
 (for example from other code running while the callback awaits) is refused, since it would otherwise be committed or
-rolled back with the transaction.
+rolled back with the transaction. SQL run through `db` (`getDb()`, `execute()`, `query()`) may only read while it
+runs: a `SELECT`, `VALUES`, `WITH` or `EXPLAIN`, or a pragma that reads such as `PRAGMA table_info(...)`. Anything else,
+including transaction control and a `PRAGMA` that sets something, is refused; run it through `tx`.
 
 ### Core API
 

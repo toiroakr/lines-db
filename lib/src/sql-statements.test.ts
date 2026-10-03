@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { splitStatements } from './sql-statements.js';
+import { isReadOnlyStatement, splitStatements } from './sql-statements.js';
 
 describe('splitStatements', () => {
   it('splits at a semicolon', () => {
@@ -56,5 +56,73 @@ describe('splitStatements', () => {
     const trigger =
       'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = CASE WHEN 1 THEN 1 ELSE 2 END; DELETE FROM c; END';
     expect(splitStatements(`${trigger}; SELECT 1`)).toEqual([trigger, 'SELECT 1']);
+  });
+});
+
+describe('isReadOnlyStatement', () => {
+  it.each([
+    'SELECT 1',
+    'select * from tags',
+    'WITH x AS (SELECT 1) SELECT * FROM x',
+    'VALUES (1), (2)',
+    'EXPLAIN DELETE FROM tags',
+    'EXPLAIN QUERY PLAN SELECT 1',
+  ])('lets a read through: %s', (statement) => {
+    expect(isReadOnlyStatement(statement)).toBe(true);
+  });
+
+  it.each([
+    'PRAGMA table_info(tags)',
+    'PRAGMA main.table_info("tags")',
+    `PRAGMA 'main'."index_list"(tags)`,
+    'PRAGMA foreign_key_check',
+    'PRAGMA query_only',
+    'PRAGMA user_version',
+    'PRAGMA foreign_keys',
+    'PRAGMA "journal_mode"',
+  ])('lets a read of a pragma through: %s', (statement) => {
+    expect(isReadOnlyStatement(statement)).toBe(true);
+  });
+
+  it.each([
+    'INSERT INTO tags VALUES (1)',
+    'REPLACE INTO tags VALUES (1)',
+    'UPDATE tags SET label = 1',
+    'DELETE FROM tags',
+    'CREATE TABLE t (id)',
+    'DROP TABLE tags',
+    'ALTER TABLE tags ADD COLUMN x',
+    "ATTACH DATABASE ':memory:' AS other",
+    'DETACH DATABASE other',
+    'VACUUM',
+    'REINDEX',
+    'ANALYZE',
+  ])('refuses a statement that is not a read: %s', (statement) => {
+    expect(isReadOnlyStatement(statement)).toBe(false);
+  });
+
+  it.each(['BEGIN', 'COMMIT', 'END', 'ROLLBACK', 'SAVEPOINT a', 'RELEASE a', 'ROLLBACK TO a'])(
+    'refuses transaction control: %s',
+    (statement) => {
+      expect(isReadOnlyStatement(statement)).toBe(false);
+    },
+  );
+
+  it.each([
+    'PRAGMA query_only = 0',
+    "PRAGMA 'main'.query_only = 0",
+    'PRAGMA user_version = 5',
+    'PRAGMA user_version(5)',
+    'PRAGMA foreign_keys = OFF',
+    'PRAGMA ignore_check_constraints = ON',
+    'PRAGMA writable_schema = 1',
+    'PRAGMA journal_mode = OFF',
+    'PRAGMA no_such_pragma',
+  ])('refuses a pragma that sets something or is not known to read: %s', (statement) => {
+    expect(isReadOnlyStatement(statement)).toBe(false);
+  });
+
+  it('refuses an empty statement', () => {
+    expect(isReadOnlyStatement('')).toBe(false);
   });
 });

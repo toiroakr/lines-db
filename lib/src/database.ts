@@ -27,7 +27,7 @@ import type {
 } from './types.js';
 import type { BiDirectionalSchema } from './schema.js';
 import { type Result, ok, err, toError, unwrap } from './result.js';
-import { splitStatements } from './sql-statements.js';
+import { isReadOnlyStatement, splitStatements } from './sql-statements.js';
 
 /**
  * Options for {@link LinesDB.update}
@@ -1974,6 +1974,13 @@ export class LinesDB<Tables extends TableDefs> {
     // and a BEGIN while it starts would make its own BEGIN fail with one left open that it never rolls back
     if (!this.inTransaction && !this.transactionStarting && !this.transactionClosing) return;
     for (const statement of splitStatements(sql)) {
+      // Closed by default: SQL run through the database while a transaction runs may only read, as any
+      // other statement or pragma could change the transaction, and none can be listed one by one
+      if (this.inTransaction && !viaTransaction && !isReadOnlyStatement(statement)) {
+        throw new Error(
+          `'${sql.trim()}' is not a read: while a transaction runs, SQL that changes anything must go through the callback's tx`,
+        );
+      }
       if (/^(BEGIN|COMMIT|END|ROLLBACK(?!\s+(TRANSACTION\s+)?TO\b))\b/i.test(statement)) {
         throw new Error(
           `'${sql.trim()}' would end the transaction before its files are written back; return from the callback to commit, or throw to roll back`,
@@ -1982,16 +1989,6 @@ export class LinesDB<Tables extends TableDefs> {
       // Not once begun, when a SAVEPOINT is a transaction nested in it and does no harm
       if (!this.inTransaction && /^SAVEPOINT\b/i.test(statement)) {
         throw new Error(`'${sql.trim()}' would open a transaction of its own while the transaction starts`);
-      }
-      // Not left to the database itself: query_only does not stop a ROLLBACK TO from undoing what tx wrote
-      if (
-        this.inTransaction &&
-        !viaTransaction &&
-        /^(SAVEPOINT|RELEASE|ROLLBACK\s+(TRANSACTION\s+)?TO)\b/i.test(statement)
-      ) {
-        throw new Error(
-          `'${sql.trim()}' would change a savepoint of the running transaction; run it through the callback's tx`,
-        );
       }
       // Only setting it: reading the pragma changes nothing, and reads through the database stay available
       if (
