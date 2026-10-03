@@ -338,6 +338,38 @@ describe('LinesDB.transaction write-back', () => {
     expect(threw).toBe(true);
   });
 
+  it('refuses a write made through a tx kept from an earlier transaction while a later one runs', async () => {
+    let kept: typeof db | undefined;
+    unwrap(
+      await db.transaction((tx) => {
+        kept = tx;
+      }),
+    );
+
+    let stale: { ok: boolean } | undefined;
+    const result = await db.transaction(async () => {
+      await Promise.resolve();
+      stale = kept!.insert('tags', { id: 2, label: 'x' });
+    });
+
+    expect(result.ok).toBe(true);
+    expect(stale?.ok).toBe(false);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('still answers reads made through the database while the callback awaits', async () => {
+    let queried: unknown;
+    let prepared: unknown;
+    await db.transaction(async () => {
+      await Promise.resolve();
+      queried = db.query('SELECT label FROM tags');
+      prepared = db.getDb().prepare('SELECT label FROM tags').all();
+    });
+
+    expect(queried).toEqual({ ok: true, value: [{ label: 'x' }] });
+    expect(prepared).toEqual([{ label: 'x' }]);
+  });
+
   it('refuses a write made while a transaction is starting, as its write-back would read the transaction', async () => {
     const started = db.transaction((tx) => void unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
     const early = db.insert('tags', { id: 2, label: 'early' });

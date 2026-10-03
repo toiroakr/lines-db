@@ -155,8 +155,10 @@ export class LinesDB<Tables extends TableDefs> {
   private transactionClosing = false;
   /** Whether a transaction() call is past its guard but has not begun yet */
   private transactionStarting = false;
-  /** Whether the running call came in through the object a transaction() callback receives */
+  /** Whether the running call came in through the object the running transaction() callback receives */
   private viaTransactionObject = false;
+  /** Identifies the running transaction, so an object kept from an earlier one is not taken for its own */
+  private transactionToken: object | undefined;
   /** The tables changed in the running transaction, or 'all' once raw SQL may have changed any */
   private transactionChanges: Set<string> | 'all' | undefined;
   /** Hash of each JSONL file's content as this database last read or wrote it */
@@ -2013,15 +2015,15 @@ export class LinesDB<Tables extends TableDefs> {
    * Run a query() with the database read-only while a transaction starts or writes its files back.
    * Not refused outright as execute() is: a query that only reads changes nothing the files would miss
    */
-  private readOnlyWhileTransactionSettles<T>(run: () => T): T {
-    if (!this.transactionStarting && !this.transactionClosing && !(this.inTransaction && !this.viaTransactionObject)) {
+  private readOnlyWhileTransactionSettles<T>(run: () => T, viaTransaction = this.viaTransactionObject): T {
+    if (!this.transactionStarting && !this.transactionClosing && !(this.inTransaction && !viaTransaction)) {
       return run();
     }
     this.db.exec('PRAGMA query_only = ON');
     try {
       return run();
     } catch (error) {
-      if (/readonly/i.test(toError(error).message)) this.refuseWhileTransactionSettles('change rows');
+      if (/readonly/i.test(toError(error).message)) this.refuseWhileTransactionSettles('change rows', viaTransaction);
       throw error;
     } finally {
       if (!this.hasSeveralDataDirs()) this.db.exec('PRAGMA query_only = OFF');
@@ -2703,6 +2705,7 @@ export class LinesDB<Tables extends TableDefs> {
     }
     // Not left to inTransaction: it is set only after the awaits below, which a second call could slip past
     this.transactionStarting = true;
+    const token = {};
 
     let fieldChangesBefore: Map<string, Map<string, FieldChanges>> | undefined;
     let rawSqlTablesBefore: Set<string> | undefined;
@@ -2718,10 +2721,11 @@ export class LinesDB<Tables extends TableDefs> {
       );
       this.db.exec('BEGIN TRANSACTION');
       this.inTransaction = true;
+      this.transactionToken = token;
       this.transactionStarting = false;
       this.transactionChanges = new Set();
 
-      const result = await fn(this.scopedToTransaction());
+      const result = await fn(this.scopedToTransaction(token));
       // Not open to writes from here: the rows are read for the write-back, and a write made during its
       // awaits would join the transaction without reaching the files
       this.transactionClosing = true;
@@ -2756,6 +2760,7 @@ export class LinesDB<Tables extends TableDefs> {
       return err(toError(failure));
     } finally {
       this.transactionClosing = false;
+      this.transactionToken = undefined;
     }
   }
 
@@ -2764,14 +2769,14 @@ export class LinesDB<Tables extends TableDefs> {
    * long as they run; a write made through the database itself in the meantime is refused, since writes are
    * synchronous and cannot be queued until the transaction ends
    */
-  private scopedToTransaction(): LinesDB<Tables> {
+  private scopedToTransaction(token: object): LinesDB<Tables> {
     return new Proxy(this, {
       get: (target, property) => {
         const value: unknown = Reflect.get(target, property, target);
         if (typeof value !== 'function') return value;
         return (...args: unknown[]) => {
           const before = target.viaTransactionObject;
-          target.viaTransactionObject = true;
+          target.viaTransactionObject = before || target.transactionToken === token;
           try {
             return value.apply(target, args);
           } finally {
@@ -2832,10 +2837,8 @@ export class LinesDB<Tables extends TableDefs> {
         guard(sql);
         const statement = this.db.prepare(sql);
         // Not checked only when prepared: a statement kept by the callback can run after it returned
-        const settled = <T>(run: () => T): T => {
-          this.refuseWhileTransactionSettles('run SQL', viaTransaction);
-          return this.trackRawSql(run);
-        };
+        const settled = <T>(run: () => T): T =>
+          this.readOnlyWhileTransactionSettles(() => this.trackRawSql(run), viaTransaction);
         return {
           run: (...params: unknown[]) => settled(() => statement.run(...params)),
           get: (...params: unknown[]) => settled(() => statement.get(...params)),
@@ -2844,8 +2847,7 @@ export class LinesDB<Tables extends TableDefs> {
       },
       exec: (sql: string) => {
         guard(sql);
-        this.refuseWhileTransactionSettles('run SQL', viaTransaction);
-        this.trackRawSql(() => this.db.exec(sql));
+        this.readOnlyWhileTransactionSettles(() => this.trackRawSql(() => this.db.exec(sql)), viaTransaction);
       },
       close: () => this.db.close(),
     };
