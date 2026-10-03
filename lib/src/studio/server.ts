@@ -92,8 +92,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   // and finding it reads the table's file for a sample row
   type Columns = ReturnType<typeof withLeeway<ColumnDefinition>>;
   const leeway = new WeakMap<Snapshot, Map<string, Columns>>();
-  const loadedColumnsOf = async (name: string): Promise<Columns> => {
-    const current = snapshot;
+  const loadedColumnsOf = async (current: Snapshot, name: string): Promise<Columns> => {
     const byTable = leeway.get(current) ?? new Map<string, Columns>();
     leeway.set(current, byTable);
     if (!byTable.has(name)) {
@@ -107,8 +106,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   // file, imported anew each time, and they stay the same until the files are read again
   type References = Awaited<ReturnType<typeof referencesOf>>;
   const references = new WeakMap<Snapshot, Map<string, References>>();
-  const referencesFor = async (name: string): Promise<References> => {
-    const current = snapshot;
+  const referencesFor = async (current: Snapshot, name: string): Promise<References> => {
     const byTable = references.get(current) ?? new Map<string, References>();
     references.set(current, byTable);
     if (!byTable.has(name)) byTable.set(name, await referencesOf(current.db, dataDir, name));
@@ -116,8 +114,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   };
   // Not found on each listing either for a table whose rows fail validation: finding it validates rows
   const invalidColumns = new WeakMap<Snapshot, Map<string, { columns: Columns; rowCount: number }>>();
-  const invalidColumnsOf = async (name: string): Promise<{ columns: Columns; rowCount: number }> => {
-    const current = snapshot;
+  const invalidColumnsOf = async (current: Snapshot, name: string): Promise<{ columns: Columns; rowCount: number }> => {
     const byTable = invalidColumns.get(current) ?? new Map<string, { columns: Columns; rowCount: number }>();
     invalidColumns.set(current, byTable);
     if (!byTable.has(name)) {
@@ -201,47 +198,52 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     }
 
     if (req.method === 'GET' && url.pathname === '/api/tables') {
-      await reloadIfChanged();
-      // Not listed as loaded when rows failed a constraint on load: its passing rows are in the database,
-      // but its rows are fixed in the file, by index
-      const loadedTables = snapshot.db.getTableNames().filter((name) => !snapshot.invalid.has(name));
-      const tables = [];
-      for (const name of loadedTables) {
-        const columns = await loadedColumnsOf(name);
-        const primaryKey = columns.find((column) => column.primaryKey)?.name ?? null;
-        const rowCount =
-          unwrap(snapshot.db.queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM "${name.replaceAll('"', '""')}"`))?.n ??
-          0;
-        tables.push({
-          name,
-          columns,
-          primaryKey,
-          rowCount,
-          invalidRows: 0,
-          readOnlyReason: whyReadOnly(snapshot.db, name),
-          schemaFile: null as string | null,
-          references: await referencesFor(name),
-        });
-      }
-      for (const [name, { issues }] of snapshot.invalid) {
-        const { columns, rowCount } = await invalidColumnsOf(name);
-        tables.push({
-          name,
-          columns,
-          primaryKey: null,
-          rowCount,
-          invalidRows: issues.size,
-          readOnlyReason: null,
-          schemaFile: null,
-          references: await referencesFor(name),
-        });
-      }
-      for (const table of tables) {
-        const schemaPath = await findSchemaFile(dataDir, table.name);
-        table.schemaFile = schemaPath ? basename(schemaPath) : null;
-      }
-      tables.sort((a, b) => a.name.localeCompare(b.name));
-      sendJson(res, 200, { dataDir: resolvePath(dataDir), tables, problems: snapshot.problems });
+      // Not left open to a reload between its awaits: one would close the database the listing reads
+      const listing = await serialize(async () => {
+        await reloadIfChangedUnlocked();
+        const current = snapshot;
+        // Not listed as loaded when rows failed a constraint on load: its passing rows are in the database,
+        // but its rows are fixed in the file, by index
+        const loadedTables = current.db.getTableNames().filter((name) => !current.invalid.has(name));
+        const tables = [];
+        for (const name of loadedTables) {
+          const columns = await loadedColumnsOf(current, name);
+          const primaryKey = columns.find((column) => column.primaryKey)?.name ?? null;
+          const rowCount =
+            unwrap(current.db.queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM "${name.replaceAll('"', '""')}"`))
+              ?.n ?? 0;
+          tables.push({
+            name,
+            columns,
+            primaryKey,
+            rowCount,
+            invalidRows: 0,
+            readOnlyReason: whyReadOnly(current.db, name),
+            schemaFile: null as string | null,
+            references: await referencesFor(current, name),
+          });
+        }
+        for (const [name, { issues }] of current.invalid) {
+          const { columns, rowCount } = await invalidColumnsOf(current, name);
+          tables.push({
+            name,
+            columns,
+            primaryKey: null,
+            rowCount,
+            invalidRows: issues.size,
+            readOnlyReason: null,
+            schemaFile: null,
+            references: await referencesFor(current, name),
+          });
+        }
+        for (const table of tables) {
+          const schemaPath = await findSchemaFile(dataDir, table.name);
+          table.schemaFile = schemaPath ? basename(schemaPath) : null;
+        }
+        tables.sort((a, b) => a.name.localeCompare(b.name));
+        return { dataDir: resolvePath(dataDir), tables, problems: current.problems };
+      });
+      sendJson(res, 200, listing);
       return;
     }
 
