@@ -203,8 +203,8 @@ npx lines-db studio <dataDir> [--port 4848] [--open] [--write-filled-values prim
 ```
 
 Starts a local web UI at `http://127.0.0.1:4848` that lists the tables of `dataDir` with their row
-counts and shows a table as a grid. Click a cell to edit it, add records, or select rows to delete;
-the changes stay pending - highlighted in the grid - until **Save N changes** writes them all in one
+counts and shows a table as a grid. Click a cell to edit it, edit a whole row in the row form beside
+the grid, add records from a dialog of their fields, or select rows to delete; the changes stay pending - highlighted in the grid - until **Save N changes** writes them all in one
 transaction through `db.update()` / `db.insert()` / `db.delete()`, or **Discard** drops them. A value
 the schema rejects writes nothing: the issues are shown with the change they came from, and the
 pending changes stay for you to fix. A save changes the values of the rows it edits only, but
@@ -218,13 +218,25 @@ rewrites the table's JSONL file as a whole, so the formatting of the other lines
   `--write-filled-values all` writes them as a sync does by default.
 - A value the schema filled in rather than the file is shown dimmed with a **default** mark. **Remove
   field** in a cell's editor removes the field from the line and leaves its value to the schema; a new
-  row's empty field is left to the schema too.
+  row's empty field is left to the schema too. **Remove field** and **Set null** are offered only where
+  the schema takes them: the studio validates a sample row with the field removed and with it set to
+  null, and inside a JSON value with a key added or removed, to find which a schema allows.
 - A cell's editor checks the value as you type, against the schema as a save would
   (`POST /api/tables/:name/check`, which validates the change without writing it), and lists the
-  issues under the field. A JSON column opens in a dialog with syntax highlighting, and a syntax
-  error is marked where it is. Comments and trailing commas are accepted there and dropped when the
-  value is set, as it is saved as plain JSON. **Set** puts the value among the pending changes; nothing is written
-  until you save.
+  issues under the field. A JSON value is edited as fields of its own: a map as a field per key, a
+  list as a field per item and a list of maps as a block per item, with an issue shown under the key it
+  is about. Each block switches to a JSON editor with syntax highlighting, where a syntax error is
+  marked where it is; comments and trailing commas are accepted there and dropped when the value is
+  set, as it is saved as plain JSON. A text field grows with its lines, and Shift+Enter breaks a line.
+  **Set** (Enter, or Cmd/Ctrl+Enter for JSON) puts the value among the pending changes; nothing is
+  written until you save.
+- The row form, shown beside the grid from the button at the right of the header, edits every field of
+  a row at once, and its changes join the pending ones. While it is shown, a click on a row shows that
+  row in it and a double click edits the cell; while it is hidden, a double click on a row shows it. A
+  foreign key field opens the row it refers to. Drag the edge of the form to widen it.
+- **Add record** opens a dialog with a field for each column, the primary key among them. The fields
+  left empty are left out of the row, and the whole row is checked as it is filled in.
+- The header also switches the colors between those of the system, light and dark.
 - **Schema** shows the table's schema file (`<table>.schema.ts` and the like) as it is on disk, highlighted.
 - A table needs a primary key (an `id` column, or `primaryKey` in its schema file) with a value on every row to be edited; one
   without is shown read-only.
