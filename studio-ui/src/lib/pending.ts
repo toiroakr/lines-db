@@ -82,8 +82,8 @@ export function cellChange(pending: Pending, key: JsonValue, field: string): Cel
   return Object.hasOwn(edit.changes, field) ? { kind: 'set', value: edit.changes[field] } : undefined;
 }
 
-export function addInsert(pending: Pending, id: string): Pending {
-  return { ...pending, inserts: [...pending.inserts, { id, row: {} }] };
+export function addInsert(pending: Pending, id: string, row: JsonObject = {}): Pending {
+  return { ...pending, inserts: [...pending.inserts, { id, row }] };
 }
 
 export function setInsertCell(pending: Pending, id: string, field: string, value: JsonValue | undefined): Pending {

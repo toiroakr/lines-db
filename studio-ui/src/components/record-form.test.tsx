@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, fireEvent, render as renderPlain, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { FormField, MIN_FORM_WIDTH, RecordDrawer, type FieldModel } from './record-form';
+import { FormField, MIN_FORM_WIDTH, NewRecordDialog, RecordDrawer, type FieldModel } from './record-form';
 import type { Column, JsonValue } from '@/lib/types';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { ReactElement } from 'react';
@@ -299,5 +299,64 @@ describe('RecordDrawer', () => {
 
       expect(width()).toBe(given);
     });
+  });
+});
+
+describe('NewRecordDialog', () => {
+  const users = {
+    name: 'users',
+    columns: [
+      { name: 'id', type: 'INTEGER', primaryKey: true },
+      { name: 'name', type: 'TEXT' },
+      { name: 'nick', type: 'TEXT' },
+    ],
+    primaryKey: 'id',
+    rowCount: 0,
+    invalidRows: 0,
+    readOnlyReason: null,
+    schemaFile: null,
+    references: [],
+  };
+  let check: unknown;
+  beforeEach(() => {
+    check = { ok: true };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify(check)));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('adds a row holding the fields filled in, its key among them, and none it was not given', async () => {
+    const onAdd = vi.fn();
+    render(<NewRecordDialog table={users} open onClose={vi.fn()} onAdd={onAdd} />);
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'id' }), { target: { value: '3' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'name' }), { target: { value: 'Ada' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    expect(onAdd).toHaveBeenCalledWith({ id: 3, name: 'Ada' });
+  });
+
+  it('leaves a field out of the row again on request', async () => {
+    const onAdd = vi.fn();
+    render(<NewRecordDialog table={users} open onClose={vi.fn()} onAdd={onAdd} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'nick' }), { target: { value: 'A' } });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove nick' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    expect(onAdd).toHaveBeenCalledWith({});
+  });
+
+  it('says what makes the row fail validation, such as a field it needs and lacks', async () => {
+    check = {
+      ok: false,
+      issues: [{ message: 'Required', path: ['name'] }, { message: 'Too few fields' }],
+    };
+    render(<NewRecordDialog table={users} open onClose={vi.fn()} onAdd={vi.fn()} />);
+
+    expect(await screen.findByText(/name: Required/)).toBeTruthy();
+    expect(screen.getByText(/row: Too few fields/)).toBeTruthy();
   });
 });

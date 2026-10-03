@@ -143,4 +143,20 @@ describe('App', () => {
 
     await waitFor(() => expect(form()?.getAttribute('aria-label')).toBe('users · id 2'));
   });
+
+  it('adds a row filled in a dialog to the unsaved changes, at the head of the grid and in the form', async () => {
+    render(<App />);
+    await showForm();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Add record' }));
+    const dialog = screen.getByRole('dialog', { name: 'New row in users' });
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'id' }), '3');
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'name' }), 'Linus');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add' }));
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByText(/Unsaved change to users/)).toBeTruthy();
+    expect(screen.getAllByRole('row')[1].textContent).toContain('Linus');
+    expect(form()?.getAttribute('aria-label')).toBe('users · new row');
+  });
 });

@@ -33,7 +33,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CellEditor } from '@/components/cell-editor';
 import { SchemaDialog } from '@/components/schema-viewer';
 import { CopyPath } from '@/components/copy-path';
-import { RecordDrawer, type FieldModel } from '@/components/record-form';
+import { NewRecordDialog, RecordDrawer, type FieldModel } from '@/components/record-form';
 import { tableNameOf } from '@/lib/hash';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -93,6 +93,7 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [openRow, setOpenRow] = useState<OpenRow>();
+  const [adding, setAdding] = useState(false);
   const [formShown, setFormShown] = useState(readFormShown);
   const showForm = (shown: boolean) => {
     setFormShown(shown);
@@ -511,7 +512,7 @@ export function App() {
                 size="sm"
                 variant="outline"
                 disabled={!table || Boolean(table.readOnlyReason) || table.invalidRows > 0 || saving}
-                onClick={() => setPending(addInsert(pending, `new-${Date.now()}`))}
+                onClick={() => setAdding(true)}
                 aria-label="Add record"
               >
                 <Plus /> <span className="hidden sm:inline">Add record</span>
@@ -549,6 +550,19 @@ export function App() {
               </Tooltip>
             </div>
           </header>
+          {table && (
+            <NewRecordDialog
+              table={table}
+              open={adding}
+              onClose={() => setAdding(false)}
+              onAdd={(row) => {
+                const id = `new-${Date.now()}`;
+                setPending((now) => addInsert(now, id, row));
+                setOpenRow({ row: 'new', id });
+                setAdding(false);
+              }}
+            />
+          )}
           {schemaShown && table?.schemaFile && (
             <SchemaDialog table={table.name} file={table.schemaFile} onClose={() => setSchemaShown(false)} />
           )}

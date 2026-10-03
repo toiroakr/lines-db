@@ -250,3 +250,31 @@ test('edits a JSON cell as fields of its own', async ({ app, screen }) => {
   await editor.getByRole('button', 'Edit items as JSON', { exact: true }).tap();
   await expect(editor.getByRole('textbox', 'items', { exact: true })).toBeVisible();
 });
+
+test('adds a row filled in the new row dialog, and saves it to the JSONL file', async ({ app, screen, browser }) => {
+  await app.open('/');
+  await screen
+    .getByRole('navigation')
+    .getByRole('button', /^users/)
+    .tap();
+  const file = join(await dataDirOf(browser), 'users.jsonl');
+  const original = await readFile(file, 'utf8');
+  const expected = [...(await linesOf(file)), { id: 3, name: 'Linus', email: 'linus@example.test' }];
+
+  try {
+    await screen.getByRole('button', 'Add record', { exact: true }).tap();
+    const dialog = screen.getByRole('dialog', 'New row in users', { exact: true });
+    await dialog.getByRole('textbox', 'id', { exact: true }).fill('3');
+    await dialog.getByRole('textbox', 'name', { exact: true }).fill('Linus');
+    await expect(dialog).toContainText('email:');
+    await dialog.getByRole('textbox', 'email', { exact: true }).fill('linus@example.test');
+    await dialog.getByRole('button', 'Add', { exact: true }).tap();
+    await expect(dialog).toBeHidden();
+
+    await screen.getByRole('button', 'Save 1 change', { exact: true }).tap();
+    await expect(screen.getByRole('alert')).toContainText('Saved 1 change(s) to users.jsonl');
+    await expect.poll(() => linesOf(file)).toEqual(expected);
+  } finally {
+    await writeFile(file, original);
+  }
+});

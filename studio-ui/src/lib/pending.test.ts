@@ -140,3 +140,11 @@ describe('markDeleted', () => {
     expect(cellChange(pending, 1, 'age')).toEqual({ kind: 'set', value: 20 });
   });
 });
+
+describe('addInsert', () => {
+  it('adds a new row holding the fields it is given', () => {
+    const pending = addInsert(emptyPending(), 'new-1', { name: 'Ada' });
+
+    expect(pending.inserts).toEqual([{ id: 'new-1', row: { name: 'Ada' } }]);
+  });
+});

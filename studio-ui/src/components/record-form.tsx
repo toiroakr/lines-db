@@ -4,8 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input, TextLines } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip } from '@/components/ui/tooltip';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { ValueField } from '@/components/value-field';
-import type { Column, Issue, JsonValue, Reference } from '@/lib/types';
+import type { Column, Issue, JsonObject, JsonValue, Reference, TableInfo } from '@/lib/types';
 import type { Batch } from '@/lib/pending';
 import { issuePath, issuesFor, segmentKey, useLiveCheck } from '@/lib/check';
 import { editableText, formatValue, isBoolean, isNumber, parseInput, type Parsed } from '@/lib/values';
@@ -339,5 +340,95 @@ function ResizeHandle({ width, onResize }: { width: number; onResize: (width: nu
         onResize(width + step);
       }}
     />
+  );
+}
+
+/** A new row filled in field by field before it joins the unsaved changes; the fields left empty are left to the schema */
+export function NewRecordDialog({
+  table,
+  open,
+  onClose,
+  onAdd,
+}: {
+  table: TableInfo;
+  open: boolean;
+  onClose: () => void;
+  onAdd: (row: JsonObject) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogTitle className="text-sm">New row in {table.name}</DialogTitle>
+        <DialogDescription className="text-xs">
+          Fields left empty are left out of the row, for the schema to fill in. Adding the row joins it to the unsaved
+          changes.
+        </DialogDescription>
+        {/* Not kept from one opening to the next: each opening is a new row */}
+        {open && <NewRecordFields table={table} onAdd={onAdd} />}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NewRecordFields({ table, onAdd }: { table: TableInfo; onAdd: (row: JsonObject) => void }) {
+  const [draft, setDraft] = useState<JsonObject>({});
+  const preview = (row: JsonObject) => ({ inserts: [row], updates: [], deletes: [] });
+  const { result } = useLiveCheck(table.name, preview(draft));
+  // Not those of a field filled in: that field shows them itself
+  const all =
+    result && !result.ok && 'issues' in result
+      ? result.issues.length > 0 || !result.message
+        ? result.issues
+        : [{ message: result.message }]
+      : [];
+  const rowIssues = all.filter((issue) => !issue.path?.length || !Object.hasOwn(draft, segmentKey(issue.path[0])));
+  const fields = table.columns
+    .filter((column) => !column.unknown)
+    .map((column): FieldModel => {
+      const set = Object.hasOwn(draft, column.name);
+      return {
+        column,
+        value: draft[column.name],
+        state: set ? 'set' : 'unset',
+        readOnly: false,
+        issues: [],
+        preview: (value) => preview({ ...draft, [column.name]: value }),
+        canUseDefault: set,
+        canRevert: false,
+        onChange: (value) => setDraft((now) => ({ ...now, [column.name]: value })),
+        onUseDefault: () =>
+          setDraft((now) => {
+            const { [column.name]: _removed, ...rest } = now;
+            return rest;
+          }),
+        onRevert: () => undefined,
+      };
+    });
+  return (
+    <form
+      className="grid gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onAdd(draft);
+      }}
+    >
+      {fields.map((model) => (
+        <FormField key={model.column.name} table={table.name} model={model} />
+      ))}
+      {rowIssues.length > 0 && (
+        <ul className="grid gap-0.5 rounded-md border border-destructive/30 bg-destructive/5 p-2 font-mono text-xs text-destructive">
+          {rowIssues.map((issue, index) => (
+            <li key={index}>
+              {issuePath(issue)}: {issue.message}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex justify-end">
+        <Button type="submit" size="sm">
+          Add
+        </Button>
+      </div>
+    </form>
   );
 }
