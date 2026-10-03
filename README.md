@@ -111,7 +111,7 @@ pnpm run build
 pnpm test
 ```
 
-The studio has end-to-end tests in `e2e/`, run with [TesterArmy e2e](https://e2e.tester.army). They are run locally, not in CI: the agent tests drive the browser through a ChatGPT subscription.
+The studio has end-to-end tests in `e2e/`, run with [TesterArmy e2e](https://e2e.tester.army). CI runs the scripted ones (`pnpm e2e:deterministic`) on each pull request, uploads the report as the `studio-e2e-report` artifact and comments it on the pull request. The agent tests are run locally only, as they drive the browser through a ChatGPT subscription.
 
 ```bash
 # Once: install Chromium for the tests and sign in to ChatGPT
