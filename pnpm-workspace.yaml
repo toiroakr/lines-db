@@ -4,6 +4,7 @@ packages:
   - 'tests/*'
   - 'extension'
   - 'studio-ui'
+  - 'e2e'
 
 allowBuilds:
   '@vscode/vsce-sign': true
@@ -12,6 +13,10 @@ allowBuilds:
   lefthook: true
 
 minimumReleaseAge: 4320
+minimumReleaseAgeExclude:
+  # Not held back: every release of these is younger than the cutoff, so no mature one exists to pin
+  - e2e
+  - '@e2e-dev/web'
 
 enableGlobalVirtualStore: true
 
