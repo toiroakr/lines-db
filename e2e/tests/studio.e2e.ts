@@ -58,7 +58,7 @@ test('saves an edited cell to the JSONL file', async ({ app, screen, browser }) 
     await expect(save).toBeVisible();
     expect(await readFile(file, 'utf8')).toBe(original);
     await save.tap();
-    await expect(screen.getByRole('alert').filter({ hasText: 'Saved' })).toContainText(
+    await expect(screen.getByRole('alert').filter({ hasText: 'Saved 1 change(s)' })).toContainText(
       'Saved 1 change(s) to users.jsonl',
     );
     await expect(save).toBeHidden();
@@ -91,7 +91,7 @@ test('deletes a selected row from the JSONL file', async ({ app, screen, browser
     await expect(row.getByRole('button', 'Undo delete', { exact: true })).toBeVisible();
     await app.screenshot('The row marked for deletion');
     await screen.getByRole('button', 'Save 1 change', { exact: true }).tap();
-    await expect(screen.getByRole('alert').filter({ hasText: 'Saved' })).toContainText(
+    await expect(screen.getByRole('alert').filter({ hasText: 'Saved 1 change(s)' })).toContainText(
       'Saved 1 change(s) to users.jsonl',
     );
     await expect.poll(() => linesOf(file)).toEqual(expected);
@@ -126,7 +126,7 @@ test('rewrites a failing row once it is fixed, removing the field outside the sc
     await expect(screen.getByRole('cell').filter({ hasText: 'removed' })).toBeVisible();
     await app.screenshot('The fixed price and legacy marked for removal');
     await screen.getByRole('button', 'Save 1 change', { exact: true }).tap();
-    await expect(screen.getByRole('alert').filter({ hasText: 'Saved' })).toContainText(
+    await expect(screen.getByRole('alert').filter({ hasText: 'Saved 1 change(s)' })).toContainText(
       'Saved 1 change(s) to products.jsonl',
     );
     await expect.poll(() => linesOf(file)).toEqual([{ id: 1, name: 'Broken widget', price: 5 }]);
@@ -212,7 +212,7 @@ test('saves changes begun before the file changed on disk onto its current rows'
     await expect(screen.getByRole('alert').filter({ hasText: 'The files changed on disk' })).toBeVisible();
     await app.screenshot('The notice that the files changed on disk');
     await screen.getByRole('button', 'Save 1 change', { exact: true }).tap();
-    await expect(screen.getByRole('alert').filter({ hasText: 'Saved' })).toContainText(
+    await expect(screen.getByRole('alert').filter({ hasText: 'Saved 1 change(s)' })).toContainText(
       'Saved 1 change(s) to users.jsonl',
     );
     await expect.poll(() => readFile(file, 'utf8')).toBe(changed.replace('Ada Lovelace', 'Ada Byron'));
@@ -290,7 +290,7 @@ test('removes a field from a row, leaving its value to the schema', async ({ app
     await screen.getByRole('button', 'Remove field', { exact: true }).tap();
     await expect(row.getByRole('button', 'Edit done', { exact: true })).toHaveText('removed');
     await screen.getByRole('button', 'Save 1 change', { exact: true }).tap();
-    await expect(screen.getByRole('alert').filter({ hasText: 'Saved' })).toContainText(
+    await expect(screen.getByRole('alert').filter({ hasText: 'Saved 1 change(s)' })).toContainText(
       'Saved 1 change(s) to tasks.jsonl',
     );
     await expect.poll(() => linesOf(file)).toEqual(expected);
@@ -405,7 +405,7 @@ test('saves a change made in the row form to the JSONL file', async ({ app, scre
     await form.getByRole('textbox', 'name', { exact: true }).fill('Grace Brewster Hopper');
     await app.screenshot('A name changed in the row form');
     await screen.getByRole('button', 'Save 1 change', { exact: true }).tap();
-    await expect(screen.getByRole('alert').filter({ hasText: 'Saved' })).toContainText(
+    await expect(screen.getByRole('alert').filter({ hasText: 'Saved 1 change(s)' })).toContainText(
       'Saved 1 change(s) to users.jsonl',
     );
     await expect.poll(() => linesOf(file)).toEqual(expected);
@@ -440,7 +440,7 @@ test('edits a key inside a JSON value as a field of the row form, offering keys 
 
     await form.getByRole('textbox', 'items.0.quantity', { exact: true }).fill('3');
     await screen.getByRole('button', 'Save 1 change', { exact: true }).tap();
-    await expect(screen.getByRole('alert').filter({ hasText: 'Saved' })).toContainText(
+    await expect(screen.getByRole('alert').filter({ hasText: 'Saved 1 change(s)' })).toContainText(
       'Saved 1 change(s) to orders.jsonl',
     );
     await expect.poll(() => linesOf(file)).toEqual(expected);
@@ -562,7 +562,7 @@ test('adds a row filled in the new row dialog, and saves it to the JSONL file', 
     await expect(dialog).toBeHidden();
 
     await screen.getByRole('button', 'Save 1 change', { exact: true }).tap();
-    await expect(screen.getByRole('alert').filter({ hasText: 'Saved' })).toContainText(
+    await expect(screen.getByRole('alert').filter({ hasText: 'Saved 1 change(s)' })).toContainText(
       'Saved 1 change(s) to users.jsonl',
     );
     await expect.poll(() => linesOf(file)).toEqual(expected);
