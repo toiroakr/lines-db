@@ -111,7 +111,7 @@ pnpm run build
 pnpm test
 ```
 
-studio の E2E テストは `e2e/` にあり、[TesterArmy e2e](https://e2e.tester.army) で実行します。AI エージェントのテストは ChatGPT サブスクリプション経由でブラウザを操作するため、CI では実行せずローカルで実行します。
+studio の E2E テストは `e2e/` にあり、[TesterArmy e2e](https://e2e.tester.army) で実行します。手順を書いたテスト（`pnpm e2e:deterministic`）は、プルリクエストごとに CI で実行し、レポートを、そのままブラウザで開ける HTML 1枚（`studio-e2e-report.html`）の artifact としてアップロードして、プルリクエストにコメントします。手元では `pnpm e2e:report:html` で同じファイルを `e2e/.e2e/report.html` に書き出せます。AI エージェントのテストは ChatGPT サブスクリプション経由でブラウザを操作するため、CI では実行せずローカルで実行します。
 
 ```bash
 # 初回のみ: テスト用の Chromium をインストールし、ChatGPT にログイン

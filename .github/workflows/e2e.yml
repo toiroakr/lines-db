@@ -1,0 +1,89 @@
+name: E2E
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  studio:
+    # Not the agent tests: they drive the browser through a ChatGPT subscription, which CI does not have
+    name: Studio (scripted tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install deps
+        uses: ./.github/actions/install-deps
+
+      - name: Install Chromium
+        run: pnpm --filter @toiroakr/lines-db-e2e exec playwright install --with-deps chromium
+
+      - name: Run the scripted e2e tests
+        id: e2e
+        run: pnpm e2e:deterministic
+
+      - name: Write the report as one HTML file
+        id: html
+        if: always() && hashFiles('e2e/.e2e/report.json') != ''
+        run: pnpm --filter @toiroakr/lines-db-e2e e2e:report:html "$RUNNER_TEMP/studio-e2e-report.html"
+
+      - name: Upload the report
+        id: upload
+        if: always() && steps.html.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ runner.temp }}/studio-e2e-report.html
+          # Not zipped: a single HTML file uploaded as it is opens in the browser
+          archive: false
+          retention-days: 14
+
+      - name: Comment the report on the pull request
+        # Not on a pull request from a fork: its token can read only, so the comment would fail
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          OUTCOME: ${{ steps.e2e.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          marker='<!-- studio-e2e-report -->'
+          summary=e2e/.e2e/summary.md
+          {
+            echo "$marker"
+            if [ -s "$summary" ]; then
+              cat "$summary"
+            else
+              echo "### e2e: no report"
+              echo
+              echo "The run ended (\`$OUTCOME\`) before the tests wrote a report."
+            fi
+            echo
+            echo "[Run](${RUN_URL}) · [Report with screenshots](${ARTIFACT_URL:-$RUN_URL})"
+          } > "$RUNNER_TEMP/comment.md"
+          # Not a new comment on each push: the one this workflow left is updated
+          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n 1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
+          fi
