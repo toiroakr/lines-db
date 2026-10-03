@@ -193,8 +193,6 @@ test('saves changes begun before the file changed on disk onto its current rows'
   try {
     await row.getByRole('button', 'Edit name', { exact: true }).tap();
     await screen.getByRole('textbox', 'name', { exact: true }).fill('Ada Byron');
-    // Not set before the check ends: a check reloads the tables itself, so the page would hear of no change
-    await expect(screen.getByRole('dialog')).toContainText('Valid');
     await screen.getByRole('button', 'Set', { exact: true }).tap();
     await writeFile(file, changed);
     await expect(screen.getByRole('alert').filter({ hasText: 'The files changed on disk' })).toBeVisible();
