@@ -186,8 +186,9 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
     await writeFile(join(dataDir, 'people.schema.ts'), DEFAULTS_SCHEMA);
     db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
     unwrap(await db.initialize({ tableName: 'people', transform: (row) => ({ ...row, nickname: 'Ali' }) }));
-    const exec = db.getDb().exec.bind(db.getDb());
-    const spy = vi.spyOn(db.getDb(), 'exec').mockImplementation((sql: string) => {
+    const connection = (db as unknown as { db: ReturnType<typeof db.getDb> }).db;
+    const exec = connection.exec.bind(connection);
+    const spy = vi.spyOn(connection, 'exec').mockImplementation((sql: string) => {
       if (sql === 'COMMIT') throw new Error('COMMIT failed');
       return exec(sql);
     });

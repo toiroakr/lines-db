@@ -379,6 +379,49 @@ describe('LinesDB.transaction write-back', () => {
     expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
   });
 
+  it('refuses SQL run through a getDb() taken before the transaction began, which the write-back would miss', async () => {
+    const early = db.getDb();
+    let threw = false;
+    const result = await db.transaction(async (tx) => {
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      await Promise.resolve();
+      try {
+        early.exec("INSERT INTO tags (id, label) VALUES (7, 'u')");
+      } catch {
+        threw = true;
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    expect(threw).toBe(true);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('refuses a statement prepared before the transaction began when it runs while the callback awaits', async () => {
+    const insert = db.getDb().prepare("INSERT INTO tags (id, label) VALUES (8, 't')");
+    let threw = false;
+    await db.transaction(async () => {
+      await Promise.resolve();
+      try {
+        insert.run();
+      } catch {
+        threw = true;
+      }
+    });
+
+    expect(threw).toBe(true);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('still runs SQL through getDb() outside a transaction', () => {
+    db.getDb().exec("INSERT INTO tags (id, label) VALUES (9, 's')");
+
+    expect(unwrap(db.find('tags'))).toEqual([
+      { id: 1, label: 'x' },
+      { id: 9, label: 's' },
+    ]);
+  });
+
   it('still answers reads made through the database while the callback awaits', async () => {
     let queried: unknown;
     let prepared: unknown;

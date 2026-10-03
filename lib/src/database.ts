@@ -2825,32 +2825,29 @@ export class LinesDB<Tables extends TableDefs> {
    * Get the underlying SQLite database instance
    */
   getDb(): SQLiteDatabase {
-    if (!this.inTransaction && !this.transactionStarting) return this.db;
-    // Not handed out as is inside a transaction: SQL run on it would go unseen by the write-back, and
-    // a COMMIT could end the transaction before the files are written
+    // Handed out as a wrapper even outside a transaction: a handle kept from before one would otherwise
+    // write while its callback awaits, unseen by the write-back, and be committed or rolled back with it
     const token = this.viaTransactionObject ? this.transactionToken : undefined;
     // Not captured as a boolean: a handle kept from an earlier transaction must not count as the running one's
     const viaTransaction = () => token !== undefined && token === this.transactionToken;
-    const guard = (sql: string) => {
+    const idle = () => !this.inTransaction && !this.transactionStarting && !this.transactionClosing;
+    // Checked each time SQL runs, not when the handle is taken: SQL that would end a transaction must be
+    // refused, and one that changes rows tracked, whichever transaction is open by then
+    const guarded = <T>(sql: string, run: () => T): T => {
+      if (idle()) return run();
       for (const statement of sql.split(';')) this.refuseTransactionControl(statement);
+      return this.readOnlyWhileTransactionSettles(() => this.trackRawSql(run), viaTransaction());
     };
     return {
       prepare: (sql: string) => {
-        guard(sql);
         const statement = this.db.prepare(sql);
-        // Not checked only when prepared: a statement kept by the callback can run after it returned
-        const settled = <T>(run: () => T): T =>
-          this.readOnlyWhileTransactionSettles(() => this.trackRawSql(run), viaTransaction());
         return {
-          run: (...params: unknown[]) => settled(() => statement.run(...params)),
-          get: (...params: unknown[]) => settled(() => statement.get(...params)),
-          all: (...params: unknown[]) => settled(() => statement.all(...params)),
+          run: (...params: unknown[]) => guarded(sql, () => statement.run(...params)),
+          get: (...params: unknown[]) => guarded(sql, () => statement.get(...params)),
+          all: (...params: unknown[]) => guarded(sql, () => statement.all(...params)),
         };
       },
-      exec: (sql: string) => {
-        guard(sql);
-        this.readOnlyWhileTransactionSettles(() => this.trackRawSql(() => this.db.exec(sql)), viaTransaction());
-      },
+      exec: (sql: string) => guarded(sql, () => this.db.exec(sql)),
       close: () => this.db.close(),
     };
   }
