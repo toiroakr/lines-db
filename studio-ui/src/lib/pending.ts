@@ -140,6 +140,18 @@ export function toBatch(pending: Pending): Batch {
   };
 }
 
+/** The change saving would send for a row, or nothing when it has no pending change */
+export function previewRow(pending: Pending, key: JsonValue): Batch | undefined {
+  const edit = pending.edits[keyOf(key)];
+  if (!edit) return undefined;
+  const { key: rowKey, changes, reset } = edit;
+  return {
+    inserts: [],
+    updates: [{ key: rowKey, changes, ...(reset.length > 0 ? { resetToDefault: reset } : {}) }],
+    deletes: [],
+  };
+}
+
 /** The change saving would send for a row if one of its cells took a value, with the row's other pending changes */
 export function previewCell(pending: Pending, key: JsonValue, field: string, value: JsonValue): Batch {
   const { key: rowKey, changes, reset } = editOf(setCell(pending, key, field, value), key);

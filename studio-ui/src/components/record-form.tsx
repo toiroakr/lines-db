@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { ValueField } from '@/components/value-field';
 import type { Column, Issue, JsonObject, JsonValue, Reference, TableInfo } from '@/lib/types';
 import type { Batch } from '@/lib/pending';
-import { issuePath, issuesFor, segmentKey, useLiveCheck } from '@/lib/check';
+import { fieldIssues, issuePath, issuesOf, segmentKey, useLiveCheck, type CheckResult } from '@/lib/check';
 import { absentText, editableText, formatValue, isBoolean, isNumber, parseInput, type Parsed } from '@/lib/values';
 import { cn } from '@/lib/utils';
 
@@ -23,7 +23,6 @@ export interface FieldModel {
   readOnly: boolean;
   /** What makes the value fail validation, shown until the field is edited */
   issues: Issue[];
-  preview: (value: JsonValue) => Batch;
   /** Whether the field can be removed from the row, leaving its value to the schema */
   canUseDefault: boolean;
   canRevert: boolean;
@@ -67,7 +66,14 @@ function FieldAction({
 }
 
 /** One field of a row as a form edits it: changes are handed on as soon as they read as the column's type */
-export function FormField({ table, model }: { table: string; model: FieldModel }) {
+export function FormField({
+  model,
+  checked,
+}: {
+  model: FieldModel;
+  /** What the check of the row as it now is found, which the field shows its own issues of once edited */
+  checked?: CheckResult;
+}) {
   const { column, value, state, readOnly } = model;
   const json = column.type === 'JSON' && !column.unknown;
   const [text, setText] = useState(() => textOf(column, value));
@@ -85,8 +91,8 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
   const parsed: Parsed = json ? { value: value ?? null } : parseInput(column, text);
   // Not only a change to a row of the file: a value filled in a new row is checked as it is given
   const edited = state === 'changed' || state === 'set' || (!json && text !== textOf(column, value));
-  const { result } = useLiveCheck(table, edited && 'value' in parsed ? model.preview(parsed.value) : undefined);
-  const issues = edited ? issuesFor(column.name, result) : model.issues;
+  // Not those of another field: the form shows each under its own field, and those of no field changed above
+  const issues = edited ? fieldIssues(column.name, issuesOf(checked)) : model.issues;
   // Not listed under a JSON value: its blocks show those about what they hold
   const listed = json
     ? issues.filter((issue) => !issue.path?.length || segmentKey(issue.path[0]) !== column.name)
@@ -239,18 +245,40 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
   );
 }
 
+/** The issues of a row's check that no field it shows has: those about the row, or about a field left as it was */
+function RowIssues({ checked, fields }: { checked?: CheckResult; fields: FieldModel[] }) {
+  const changed = new Set(
+    fields.filter((model) => model.state === 'changed' || model.state === 'set').map((model) => model.column.name),
+  );
+  const issues = issuesOf(checked).filter((issue) => !issue.path?.length || !changed.has(segmentKey(issue.path[0])));
+  if (issues.length === 0) return null;
+  return (
+    <ul className="grid gap-0.5 rounded-md border border-destructive/30 bg-destructive/5 p-2 font-mono text-xs text-destructive">
+      {issues.map((issue, index) => (
+        <li key={index}>
+          {issuePath(issue)}: {issue.message}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** A row as the form shows it */
 export interface FormRow {
   /** What tells the row from the others, as the title of every new row is the same */
   id: string;
   title: string;
   fields: FieldModel[];
+  /** The change saving would send for the row, checked once for all its fields; none while it has no change */
+  preview?: Batch;
   /** Why the row cannot be changed, when it cannot */
   readOnlyReason?: string;
 }
 
 /** One row as a form: its fields edited side by side with the grid, which stays usable to pick another row */
 export function RecordDrawer({ table, row, onClose }: { table: string; row?: FormRow; onClose: () => void }) {
+  // Not checked by each field: every field changed would send the same row
+  const { result } = useLiveCheck(table, row?.preview);
   const [width, setWidth] = useState(readFormWidth);
   const resize = (next: number) => {
     const clamped = clampWidth(next);
@@ -284,8 +312,9 @@ export function RecordDrawer({ table, row, onClose }: { table: string; row?: For
       )}
       {row ? (
         <div key={row.id} className="grid flex-1 content-start gap-4 overflow-y-auto overscroll-none p-4">
+          <RowIssues checked={result} fields={row.fields} />
           {row.fields.map((model) => (
-            <FormField key={model.column.name} table={table} model={model} />
+            <FormField key={model.column.name} model={model} checked={result} />
           ))}
         </div>
       ) : (
@@ -395,14 +424,6 @@ function NewRecordFields({ table, onAdd }: { table: TableInfo; onAdd: (row: Json
   const [unreadable, setUnreadable] = useState<ReadonlySet<string>>(new Set());
   const preview = (row: JsonObject) => ({ inserts: [row], updates: [], deletes: [] });
   const { result } = useLiveCheck(table.name, preview(draft));
-  // Not those of a field filled in: that field shows them itself
-  const all =
-    result && !result.ok && 'issues' in result
-      ? result.issues.length > 0 || !result.message
-        ? result.issues
-        : [{ message: result.message }]
-      : [];
-  const rowIssues = all.filter((issue) => !issue.path?.length || !Object.hasOwn(draft, segmentKey(issue.path[0])));
   const fields = table.columns
     .filter((column) => !column.unknown)
     .map((column): FieldModel => {
@@ -413,7 +434,6 @@ function NewRecordFields({ table, onAdd }: { table: TableInfo; onAdd: (row: Json
         state: set ? 'set' : 'unset',
         readOnly: false,
         issues: [],
-        preview: (value) => preview({ ...draft, [column.name]: value }),
         canUseDefault: set,
         canRevert: false,
         onChange: (value) => setDraft((now) => ({ ...now, [column.name]: value })),
@@ -442,17 +462,9 @@ function NewRecordFields({ table, onAdd }: { table: TableInfo; onAdd: (row: Json
       }}
     >
       {fields.map((model) => (
-        <FormField key={model.column.name} table={table.name} model={model} />
+        <FormField key={model.column.name} model={model} checked={result} />
       ))}
-      {rowIssues.length > 0 && (
-        <ul className="grid gap-0.5 rounded-md border border-destructive/30 bg-destructive/5 p-2 font-mono text-xs text-destructive">
-          {rowIssues.map((issue, index) => (
-            <li key={index}>
-              {issuePath(issue)}: {issue.message}
-            </li>
-          ))}
-        </ul>
-      )}
+      <RowIssues checked={result} fields={fields} />
       <div className="flex justify-end">
         <Button type="submit" size="sm" disabled={unreadable.size > 0}>
           Add

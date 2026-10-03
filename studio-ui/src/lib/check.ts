@@ -22,11 +22,15 @@ export function fieldIssues(field: string, issues: Issue[]): Issue[] {
   return issues.filter((issue) => issue.path?.length && segmentKey(issue.path[0]) === field);
 }
 
+/** The issues a check found, a refusal SQLite gives, such as a unique constraint, being one with a message alone */
+export function issuesOf(result: CheckResult | undefined): Issue[] {
+  if (!result || result.ok || !('issues' in result)) return [];
+  return result.issues.length > 0 || !result.message ? result.issues : [{ message: result.message }];
+}
+
 /** The issues about a field, nested values included, and those about no field in particular */
 export function issuesFor(field: string, result: CheckResult | undefined): Issue[] {
-  if (!result || result.ok || !('issues' in result)) return [];
-  // A refusal SQLite gives, such as a unique constraint, has a message and no issues
-  const issues = result.issues.length > 0 || !result.message ? result.issues : [{ message: result.message }];
+  const issues = issuesOf(result);
   const scoped = issues.filter((issue) => !issue.path?.length || segmentKey(issue.path[0]) === field);
   // Not only the edited field's: the value can be refused through a check on another field
   return scoped.length > 0 ? scoped : issues;

@@ -61,6 +61,7 @@ import {
   toBatch,
   toggleDelete,
   previewCell,
+  previewRow,
   markDeleted,
   type Batch,
   type Pending,
@@ -327,7 +328,6 @@ export function App() {
           state: set ? 'set' : 'unset',
           readOnly: false,
           issues: [],
-          preview: (value) => ({ inserts: [{ ...insert.row, [column.name]: value }], updates: [], deletes: [] }),
           canUseDefault: set,
           canRevert: false,
           ...referenceOf(column, insert.row[column.name]),
@@ -337,7 +337,13 @@ export function App() {
           onValidity: tellValidity(column.name),
         };
       });
-      return { id: JSON.stringify(open), title: `${table.name} · new row`, fields, readOnlyReason: undefined };
+      return {
+        id: JSON.stringify(open),
+        title: `${table.name} · new row`,
+        fields,
+        preview: { inserts: [insert.row], updates: [], deletes: [] },
+        readOnlyReason: undefined,
+      };
     }
     const index = data.rows.findIndex(
       (row, at) => JSON.stringify(rowIdOf(table, row, at)) === JSON.stringify(open.key),
@@ -360,7 +366,6 @@ export function App() {
         state: change?.kind === 'set' ? 'changed' : change?.kind === 'reset' ? 'reset' : isDefault ? 'default' : 'file',
         readOnly: !writable || deleted || Boolean(column.primaryKey),
         issues: change ? [] : fieldIssues(column.name, issues),
-        preview: (next) => ({ ...previewCell(pending, key, column.name, next), revision: data.revision }),
         canUseDefault: byIndex ? Object.hasOwn(row, column.name) : !isDefault || change !== undefined,
         canRevert: change !== undefined,
         ...referenceOf(column, value),
@@ -378,7 +383,9 @@ export function App() {
         : `${table.name} · ${table.primaryKey} ${formatValue(key)}`;
     const readOnlyReason =
       table.readOnlyReason ?? (deleted ? 'Marked to be deleted: undo the delete to change it' : undefined);
-    return { id: JSON.stringify(open), title, fields, readOnlyReason };
+    const changes = writable ? previewRow(pending, key) : undefined;
+    const preview = changes && { ...changes, revision: data.revision };
+    return { id: JSON.stringify(open), title, fields, preview, readOnlyReason };
   }
 
   const tables = (meta?.tables ?? []).filter((candidate) =>

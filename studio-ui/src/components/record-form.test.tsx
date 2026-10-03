@@ -14,7 +14,6 @@ const field = (column: Column, value: JsonValue | undefined, overrides: Partial<
   state: 'file',
   readOnly: false,
   issues: [],
-  preview: () => ({ inserts: [], updates: [], deletes: [] }),
   canUseDefault: true,
   canRevert: false,
   onChange: vi.fn(),
@@ -35,11 +34,11 @@ describe('FormField', () => {
   it('tells the text it cannot read no longer stands once the field is removed from the row', () => {
     const onValidity = vi.fn();
     const model = field({ name: 'age', type: 'INTEGER' }, 30, { onValidity });
-    const { rerender } = render(<FormField table="users" model={model} />);
+    const { rerender } = render(<FormField model={model} />);
     fireEvent.change(screen.getByRole('textbox', { name: 'age' }), { target: { value: '3a' } });
     expect(onValidity).toHaveBeenLastCalledWith(false);
 
-    rerender(<FormField table="users" model={{ ...model, state: 'reset' }} />);
+    rerender(<FormField model={{ ...model, state: 'reset' }} />);
 
     expect(onValidity).toHaveBeenLastCalledWith(true);
   });
@@ -47,17 +46,17 @@ describe('FormField', () => {
   it('tells the text it cannot read no longer stands once the field cannot be edited, as for a row marked deleted', () => {
     const onValidity = vi.fn();
     const model = field({ name: 'age', type: 'INTEGER' }, 30, { onValidity });
-    const { rerender } = render(<FormField table="users" model={model} />);
+    const { rerender } = render(<FormField model={model} />);
     fireEvent.change(screen.getByRole('textbox', { name: 'age' }), { target: { value: '3a' } });
 
-    rerender(<FormField table="users" model={{ ...model, readOnly: true }} />);
+    rerender(<FormField model={{ ...model, readOnly: true }} />);
 
     expect(onValidity).toHaveBeenLastCalledWith(true);
   });
 
   it('hands each text it is given to the form as the value of the field', () => {
     const model = field({ name: 'name', type: 'TEXT' }, 'Alice');
-    render(<FormField table="users" model={model} />);
+    render(<FormField model={model} />);
 
     fireEvent.change(screen.getByRole('textbox', { name: 'name' }), { target: { value: 'Alicia' } });
 
@@ -66,7 +65,7 @@ describe('FormField', () => {
 
   it('breaks a line of text on Shift+Enter only, not on Enter alone', async () => {
     const model = field({ name: 'bio', type: 'TEXT' }, '');
-    render(<FormField table="users" model={model} />);
+    render(<FormField model={model} />);
     const bio = screen.getByRole('textbox', { name: 'bio' });
 
     await userEvent.type(bio, 'a{Enter}b{Shift>}{Enter}{/Shift}c');
@@ -77,10 +76,10 @@ describe('FormField', () => {
   it('shows null and a missing value in an empty field, apart from an empty text', () => {
     render(
       <>
-        <FormField table="users" model={field({ name: 'nick', type: 'TEXT' }, null)} />
-        <FormField table="users" model={field({ name: 'bio', type: 'TEXT' }, undefined, { state: 'unset' })} />
-        <FormField table="users" model={field({ name: 'age', type: 'INTEGER' }, null)} />
-        <FormField table="users" model={field({ name: 'note', type: 'TEXT' }, '')} />
+        <FormField model={field({ name: 'nick', type: 'TEXT' }, null)} />
+        <FormField model={field({ name: 'bio', type: 'TEXT' }, undefined, { state: 'unset' })} />
+        <FormField model={field({ name: 'age', type: 'INTEGER' }, null)} />
+        <FormField model={field({ name: 'note', type: 'TEXT' }, '')} />
       </>,
     );
 
@@ -90,18 +89,20 @@ describe('FormField', () => {
     expect(screen.getByRole('textbox', { name: 'note' }).getAttribute('placeholder')).toBeNull();
   });
 
-  it('checks a value filled in a new row, saying what the schema refuses', async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify({ ok: false, issues: [{ message: 'Too small', path: ['age'] }] })),
+  it('says what the check of its row finds the schema refuses in a value filled in', () => {
+    render(
+      <FormField
+        model={field({ name: 'age', type: 'INTEGER' }, -1, { state: 'set' })}
+        checked={{ ok: false, issues: [{ message: 'Too small', path: ['age'] }] }}
+      />,
     );
-    render(<FormField table="users" model={field({ name: 'age', type: 'INTEGER' }, -1, { state: 'set' })} />);
 
-    expect(await screen.findByText(/Too small/)).toBeTruthy();
+    expect(screen.getByText(/Too small/)).toBeTruthy();
   });
 
   it('holds back a number it cannot read, and says why', () => {
     const model = field({ name: 'age', type: 'INTEGER' }, 30);
-    render(<FormField table="users" model={model} />);
+    render(<FormField model={model} />);
 
     fireEvent.change(screen.getByRole('textbox', { name: 'age' }), { target: { value: '3a' } });
 
@@ -111,7 +112,7 @@ describe('FormField', () => {
 
   it('reads a number it is given as a number', () => {
     const model = field({ name: 'age', type: 'INTEGER' }, 30);
-    render(<FormField table="users" model={model} />);
+    render(<FormField model={model} />);
 
     fireEvent.change(screen.getByRole('textbox', { name: 'age' }), { target: { value: '31' } });
 
@@ -119,14 +120,14 @@ describe('FormField', () => {
   });
 
   it('names the options of a boolean after its field, telling one boolean field from another', () => {
-    render(<FormField table="users" model={field({ name: 'active', type: 'INTEGER', valueType: 'boolean' }, true)} />);
+    render(<FormField model={field({ name: 'active', type: 'INTEGER', valueType: 'boolean' }, true)} />);
 
     expect(within(screen.getByRole('group', { name: 'active' })).getByRole('button', { name: 'true' })).toBeTruthy();
   });
 
   it('sets a boolean from the option pressed, showing which one holds', async () => {
     const model = field({ name: 'active', type: 'INTEGER', valueType: 'boolean' }, true);
-    render(<FormField table="users" model={model} />);
+    render(<FormField model={model} />);
 
     expect(screen.getByRole('button', { name: 'true' }).getAttribute('aria-pressed')).toBe('true');
     await userEvent.click(screen.getByRole('button', { name: 'false' }));
@@ -139,8 +140,8 @@ describe('FormField', () => {
     const held = field({ name: 'nick', type: 'TEXT' }, 'Al');
     render(
       <>
-        <FormField table="users" model={defaulted} />
-        <FormField table="users" model={held} />
+        <FormField model={defaulted} />
+        <FormField model={held} />
       </>,
     );
 
@@ -156,7 +157,7 @@ describe('FormField', () => {
       reference: { column: 'owner', table: 'owners', referencedColumn: 'id' },
       onOpenReference,
     });
-    render(<FormField table="pets" model={model} />);
+    render(<FormField model={model} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Open owners where id is 1' }));
 
@@ -165,7 +166,7 @@ describe('FormField', () => {
 
   it('offers only to remove a field the schema refuses as a key', () => {
     const model = field({ name: 'note', type: 'TEXT', unknown: true }, 'x');
-    render(<FormField table="orders" model={model} />);
+    render(<FormField model={model} />);
 
     expect(screen.queryByRole('textbox', { name: 'note' })).toBeNull();
     expect(screen.getByRole('button', { name: /Remove note/ })).toBeTruthy();
@@ -173,16 +174,16 @@ describe('FormField', () => {
 
   it('shows a value it cannot change without a way to change it', () => {
     const model = field({ name: 'id', type: 'INTEGER', primaryKey: true }, 1, { readOnly: true });
-    render(<FormField table="users" model={model} />);
+    render(<FormField model={model} />);
 
     expect((screen.getByRole('textbox', { name: 'id' }) as HTMLInputElement).readOnly).toBe(true);
   });
 
   it('shows a value changed elsewhere, such as a change reverted in the grid', () => {
     const model = field({ name: 'name', type: 'TEXT' }, 'Alicia');
-    const { rerender } = render(<FormField table="users" model={model} />);
+    const { rerender } = render(<FormField model={model} />);
 
-    rerender(<FormField table="users" model={{ ...model, value: 'Alice' }} />);
+    rerender(<FormField model={{ ...model, value: 'Alice' }} />);
 
     expect((screen.getByRole('textbox', { name: 'name' }) as HTMLInputElement).value).toBe('Alice');
   });
@@ -199,7 +200,7 @@ describe('FormField of a JSON column', () => {
 
   it('edits a key inside the value as a field, handing on the whole value', () => {
     const model = field({ name: 'metadata', type: 'JSON' }, { source: 'web', device: 'iOS' });
-    render(<FormField table="orders" model={model} />);
+    render(<FormField model={model} />);
 
     fireEvent.change(screen.getByRole('textbox', { name: 'metadata.source' }), { target: { value: 'mobile' } });
 
@@ -214,7 +215,7 @@ describe('FormField of a JSON column', () => {
         issues: [{ message: 'Too short', path: ['metadata', 'source'] }],
       },
     );
-    render(<FormField table="orders" model={model} />);
+    render(<FormField model={model} />);
 
     const source = screen.getByRole('textbox', { name: 'metadata.source' }).closest('[data-path]') as HTMLElement;
     expect(within(source).getByText('Too short')).toBeTruthy();
@@ -232,7 +233,7 @@ describe('FormField actions', () => {
 
   it('sets the field to null on request', async () => {
     const model = field({ name: 'name', type: 'TEXT' }, 'Alice');
-    render(<FormField table="users" model={model} />);
+    render(<FormField model={model} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Set name to null' }));
 
@@ -241,7 +242,7 @@ describe('FormField actions', () => {
 
   it('offers null and removing the field only as far as the schema lets the field be null or left out', () => {
     const model = field({ name: 'name', type: 'TEXT', nullable: false, optional: false }, 'Alice');
-    render(<FormField table="users" model={model} />);
+    render(<FormField model={model} />);
 
     expect(screen.queryByRole('button', { name: 'Set name to null' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Remove name' })).toBeNull();
@@ -249,7 +250,7 @@ describe('FormField actions', () => {
 
   it('reverts a changed field on request', async () => {
     const model = field({ name: 'name', type: 'TEXT' }, 'Alicia', { state: 'changed', canRevert: true });
-    render(<FormField table="users" model={model} />);
+    render(<FormField model={model} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Revert name' }));
 
@@ -276,6 +277,39 @@ describe('RecordDrawer', () => {
 
     const drawer = screen.getByRole('complementary', { name: 'users id 1' });
     expect(drawer.querySelectorAll('[data-field]')).toHaveLength(2);
+  });
+
+  it('checks the row once however many of its fields are changed, showing each issue under its field', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, issues: [{ message: 'Too short', path: ['name'] }] })),
+    );
+    const changed = [
+      field({ name: 'name', type: 'TEXT' }, 'A', { state: 'changed' }),
+      field({ name: 'nick', type: 'TEXT' }, 'B', { state: 'changed' }),
+    ];
+    const preview = { inserts: [], updates: [{ key: 1, changes: { name: 'A', nick: 'B' } }], deletes: [] };
+    render(
+      <RecordDrawer table="users" row={{ id: '1', title: 'users id 1', fields: changed, preview }} onClose={vi.fn()} />,
+    );
+
+    const name = (await screen.findByText(/Too short/)).closest('[data-field]');
+    expect(name?.getAttribute('data-field')).toBe('name');
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/check'))).toHaveLength(1);
+  });
+
+  it('shows above its fields an issue of the row about no field it changed', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, issues: [{ message: 'Too few fields' }] })),
+    );
+    const changed = [field({ name: 'name', type: 'TEXT' }, 'A', { state: 'changed' })];
+    const preview = { inserts: [], updates: [{ key: 1, changes: { name: 'A' } }], deletes: [] };
+    render(
+      <RecordDrawer table="users" row={{ id: '1', title: 'users id 1', fields: changed, preview }} onClose={vi.fn()} />,
+    );
+
+    const issue = await screen.findByText(/row: Too few fields/);
+    expect(screen.getAllByText(/Too few fields/)).toHaveLength(1);
+    expect(issue.closest('[data-field]')).toBeNull();
   });
 
   it('says how to show a row in it, before one is picked', () => {
@@ -437,6 +471,16 @@ describe('NewRecordDialog', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add' }));
 
     expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it('checks the new row once however many of its fields are filled in', async () => {
+    render(<NewRecordDialog table={users} open onClose={vi.fn()} onAdd={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'id' }), { target: { value: '3' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'name' }), { target: { value: 'Ada' } });
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/check'))).toHaveLength(1);
   });
 
   it('leaves a field out of the row again on request', async () => {

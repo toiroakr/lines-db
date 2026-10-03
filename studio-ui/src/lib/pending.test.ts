@@ -13,6 +13,7 @@ import {
   toBatch,
   cellChange,
   previewCell,
+  previewRow,
   markDeleted,
 } from './pending';
 
@@ -76,6 +77,24 @@ describe('pending changes', () => {
     pending = setCell(pending, '1', 'name', 'string one');
 
     expect(toBatch(pending).updates.map(({ key }) => key)).toEqual([1, '1']);
+  });
+});
+
+describe('previewRow', () => {
+  it('checks the pending changes and resets of one row together, leaving the other rows out', () => {
+    let pending = setCell(emptyPending(), 1, 'name', 'Alicia');
+    pending = resetCell(pending, 1, 'age');
+    pending = setCell(pending, 2, 'name', 'Bobby');
+
+    expect(previewRow(pending, 1)).toEqual({
+      inserts: [],
+      updates: [{ key: 1, changes: { name: 'Alicia' }, resetToDefault: ['age'] }],
+      deletes: [],
+    });
+  });
+
+  it('gives nothing to check for a row with no pending change', () => {
+    expect(previewRow(setCell(emptyPending(), 2, 'name', 'Bobby'), 1)).toBeUndefined();
   });
 });
 
