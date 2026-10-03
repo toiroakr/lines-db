@@ -98,6 +98,8 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
   const report = useRef(model.onValidity);
   report.current = model.onValidity;
   useEffect(() => report.current?.(valid), [valid]);
+  // Not left as unreadable once gone: a field closed with the form, or with another row opened, holds no text
+  useEffect(() => () => report.current?.(true), []);
 
   const handValue = (next: JsonValue) => {
     handed.current = JSON.stringify(next);

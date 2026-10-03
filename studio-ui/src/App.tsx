@@ -108,6 +108,16 @@ export function App() {
   const [notice, setNotice] = useState<Notice>();
   const [filesChanged, setFilesChanged] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The fields of the row form holding text they cannot read, whose last value read is what a save would write
+  const [unreadable, setUnreadable] = useState<ReadonlySet<string>>(new Set());
+  const tellValidity = (column: string) => (valid: boolean) =>
+    setUnreadable((now) => {
+      if (valid !== now.has(column)) return now;
+      const next = new Set(now);
+      if (valid) next.delete(column);
+      else next.add(column);
+      return next;
+    });
   const generation = useRef(0);
 
   const table = meta?.tables.find((candidate) => candidate.name === current) ?? meta?.tables[0];
@@ -324,6 +334,7 @@ export function App() {
           onChange: (value) => setPending((now) => setInsertCell(now, insert.id, column.name, value)),
           onUseDefault: () => setPending((now) => setInsertCell(now, insert.id, column.name, undefined)),
           onRevert: () => undefined,
+          onValidity: tellValidity(column.name),
         };
       });
       return { id: JSON.stringify(open), title: `${table.name} · new row`, fields, readOnlyReason: undefined };
@@ -358,6 +369,7 @@ export function App() {
           setPending((now) => setOrRevertCell(now, key, column.name, next, isDefault ? undefined : row[column.name])),
         onUseDefault: () => setPending((now) => resetCell(now, key, column.name)),
         onRevert: () => setPending((now) => revertCell(now, key, column.name)),
+        onValidity: tellValidity(column.name),
       };
     });
     const title =
@@ -592,7 +604,7 @@ export function App() {
                   size="sm"
                   className="bg-success text-success-foreground hover:bg-success/90"
                   onClick={() => void save()}
-                  disabled={saving}
+                  disabled={saving || unreadable.size > 0}
                 >
                   <Save /> Save {changeCount} change{changeCount === 1 ? '' : 's'}
                 </Button>

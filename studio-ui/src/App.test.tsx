@@ -144,6 +144,19 @@ describe('App', () => {
     expect(screen.queryByText(/Unsaved change/)).toBeNull();
   });
 
+  it('saves no change while a field of the form holds text it cannot read', async () => {
+    showTable('orders');
+    render(<App />);
+    await showForm();
+    await userEvent.click((await screen.findAllByRole('button', { name: 'Edit customerId' }))[0]);
+    const customerId = within(form()!).getByRole('textbox', { name: 'customerId' });
+
+    await userEvent.clear(customerId);
+    await userEvent.type(customerId, '3a');
+
+    expect(screen.getByRole('button', { name: 'Save 1 change' })).toHaveProperty('disabled', true);
+  });
+
   it('opens the row a foreign key refers to, in the table it is in', async () => {
     showTable('orders');
     render(<App />);
