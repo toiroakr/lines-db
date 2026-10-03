@@ -453,7 +453,16 @@ describe('studio server', () => {
     const response = await fetch(`${studio.url}/api/tables/users/schema`);
 
     expect(response.status).toBe(200);
-    expect(await bodyOf(response)).toEqual({ file: 'users.schema.ts', source: NAME_REQUIRED_SCHEMA });
+    expect(await bodyOf(response)).toMatchObject({ file: 'users.schema.ts', source: NAME_REQUIRED_SCHEMA });
+  });
+
+  it('gives the columns of a table next to its schema source, for the page to show without reading the code', async () => {
+    const body = await bodyOf(await fetch(`${studio.url}/api/tables/users/schema`));
+
+    expect(body.definition.columns.map((column: { name: string }) => column.name)).toEqual(
+      expect.arrayContaining(['id', 'name']),
+    );
+    expect(body.definition.foreignKeys).toEqual([]);
   });
 
   it('answers 404 for the schema of a table without a schema file, or of a table that does not exist', async () => {
@@ -556,7 +565,7 @@ describe('studio server', () => {
       const schema = await bodyOf(await fetch(`${studio.url}/api/tables/notes/schema`));
 
       expect(notes.schemaFile).toBe('notes.schema.ts');
-      expect(schema).toEqual({ file: 'notes.schema.ts', source: NAME_REQUIRED_SCHEMA });
+      expect(schema).toEqual({ file: 'notes.schema.ts', source: NAME_REQUIRED_SCHEMA, definition: null });
     });
 
     it('gives its rows as the file holds them, with the issues of each failing row by its index', async () => {

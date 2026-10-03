@@ -28,7 +28,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CellEditor } from '@/components/cell-editor';
 import { SchemaDialog } from '@/components/schema-viewer';
 import { CopyPath } from '@/components/copy-path';
-import { tableNameOf } from '@/lib/hash';
+import { formatHash, parseHash } from '@/lib/hash';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import {
   fetchRows,
@@ -67,7 +67,7 @@ import { eventsUrl } from '@/lib/session';
 type Notice = { kind: 'error'; title: string; issues?: Issue[] } | { kind: 'success'; title: string };
 type Editing = { row: 'existing'; key: JsonValue; column: string } | { row: 'new'; id: string; column: string };
 
-const tableFromHash = () => tableNameOf(location.hash);
+const tableFromHash = () => parseHash(location.hash).table;
 
 export function App() {
   const [meta, setMeta] = useState<TablesResponse>();
@@ -77,7 +77,9 @@ export function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Editing>();
   const [filter, setFilter] = useState('');
-  const [schemaShown, setSchemaShown] = useState(false);
+  const [schemaTable, setSchemaTable] = useState(() => parseHash(location.hash).schema);
+  // The schemas opened before the one shown, by following a foreign key, nearest last
+  const [schemaTrail, setSchemaTrail] = useState<string[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const toggleSidebar = () => {
@@ -91,11 +93,12 @@ export function App() {
   const generation = useRef(0);
 
   const table = meta?.tables.find((candidate) => candidate.name === current) ?? meta?.tables[0];
+  const schemaDialog = meta?.tables.find((candidate) => candidate.name === schemaTable && candidate.schemaFile);
   const changeCount = countChanges(pending);
   const dirty = changeCount > 0;
 
-  const stateRef = useRef({ dirty, editing, current, tableName: table?.name });
-  stateRef.current = { dirty, editing, current, tableName: table?.name };
+  const stateRef = useRef({ dirty, editing, current, tableName: table?.name, schemaTable });
+  stateRef.current = { dirty, editing, current, tableName: table?.name, schemaTable };
 
   const load = useCallback(async (name?: string) => {
     // Not trusting the order responses arrive in: a slower, older load must not overwrite a newer one
@@ -133,8 +136,17 @@ export function App() {
   const selectRef = useRef<(name: string) => boolean>(() => false);
   useEffect(() => {
     const onHash = () => {
-      if (!selectRef.current(tableFromHash())) {
-        history.replaceState(null, '', `#${encodeURIComponent(stateRef.current.tableName ?? '')}`);
+      const { table: shown, schema } = parseHash(location.hash);
+      // Following a link adds the schema left to the trail; going back, by this page or the browser, drops it
+      setSchemaTrail((trail) => {
+        if (schema === null) return [];
+        if (trail.at(-1) === schema) return trail.slice(0, -1);
+        const left = stateRef.current.schemaTable;
+        return left !== null && left !== schema ? [...trail, left] : trail;
+      });
+      setSchemaTable(schema);
+      if (!selectRef.current(shown)) {
+        history.replaceState(null, '', formatHash(stateRef.current.tableName ?? '', schema));
       }
     };
     window.addEventListener('hashchange', onHash);
@@ -173,7 +185,9 @@ export function App() {
     setEditing(undefined);
     setFilter('');
     setNotice(undefined);
-    location.hash = encodeURIComponent(name);
+    location.hash = formatHash(name);
+    setSchemaTable(null);
+    setSchemaTrail([]);
     setCurrent(name);
     return true;
   };
@@ -378,7 +392,12 @@ export function App() {
             </div>
             <div className="ml-auto flex items-center gap-2">
               {table?.schemaFile && (
-                <Button size="sm" variant="outline" aria-label="Schema" onClick={() => setSchemaShown(true)}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  aria-label="Schema"
+                  onClick={() => (location.hash = formatHash(table.name, table.name))}
+                >
                   <FileCode /> <span className="hidden sm:inline">Schema</span>
                 </Button>
               )}
@@ -422,8 +441,23 @@ export function App() {
               </Tooltip>
             </div>
           </header>
-          {schemaShown && table?.schemaFile && (
-            <SchemaDialog table={table.name} file={table.schemaFile} onClose={() => setSchemaShown(false)} />
+          {schemaDialog && (
+            <SchemaDialog
+              table={schemaDialog.name}
+              file={schemaDialog.schemaFile!}
+              backTo={schemaTrail.at(-1)}
+              hrefOf={(name) =>
+                meta?.tables.find((candidate) => candidate.name === name)?.schemaFile
+                  ? formatHash(table?.name ?? '', name)
+                  : undefined
+              }
+              onClose={() => {
+                // Replaced rather than pushed: going back from the page then leaves it, not reopens the schema
+                history.replaceState(null, '', formatHash(table?.name ?? ''));
+                setSchemaTable(null);
+                setSchemaTrail([]);
+              }}
+            />
           )}
 
           {dirty && (

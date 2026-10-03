@@ -213,7 +213,15 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         sendJson(res, 404, { message: `Table '${tableName}' has no schema file` });
         return;
       }
-      sendJson(res, 200, { file: basename(schemaPath), source: await readFile(schemaPath, 'utf-8') });
+      // Null for a table with failing rows: it is not loaded, so there is no declared definition to read
+      const loaded = snapshot.db.getSchema(tableName);
+      sendJson(res, 200, {
+        file: basename(schemaPath),
+        source: await readFile(schemaPath, 'utf-8'),
+        definition: loaded
+          ? { columns: loaded.columns, foreignKeys: loaded.foreignKeys ?? [], indexes: loaded.indexes ?? [] }
+          : null,
+      });
       return;
     }
     const isRows = segments[0] === 'api' && segments[1] === 'tables' && resource === 'rows' && segments.length <= 5;

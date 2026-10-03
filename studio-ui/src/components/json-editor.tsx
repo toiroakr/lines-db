@@ -74,5 +74,5 @@ export function JsonEditor({ label, initial, issues, onChange, onSubmit }: JsonE
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [issueKey]);
 
-  return <div ref={host} className="h-80 overflow-auto rounded-md border bg-muted/30" />;
+  return <div ref={host} className="h-80 overflow-auto rounded-md border bg-background" />;
 }

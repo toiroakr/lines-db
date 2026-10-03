@@ -6,6 +6,7 @@ export interface Column {
   type: 'TEXT' | 'INTEGER' | 'REAL' | 'BLOB' | 'NULL' | 'JSON' | string;
   primaryKey?: boolean;
   notNull?: boolean;
+  unique?: boolean;
   valueType?: 'boolean';
   /** A field the schema refuses as a key, in a table with failing rows: a fix can only remove it */
   unknown?: boolean;

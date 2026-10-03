@@ -1,4 +1,4 @@
-import type { Issue, JsonObject, JsonValue, TableInfo, WriteError } from './types';
+import type { Column, Issue, JsonObject, JsonValue, TableInfo, WriteError } from './types';
 import type { toBatch } from './pending';
 import { authorized } from './session';
 
@@ -34,9 +34,31 @@ export async function fetchTables(): Promise<TablesResponse> {
   return readJson(await fetch('/api/tables', authorized()));
 }
 
+export interface ForeignKeyDefinition {
+  column: string;
+  references: { table: string; column: string };
+  onDelete?: string;
+  onUpdate?: string;
+}
+
+export interface IndexDefinition {
+  name?: string;
+  columns: string[];
+  unique?: boolean;
+}
+
+/** What the schema file declares, as the server read it from the loaded table */
+export interface SchemaDefinition {
+  columns: Column[];
+  foreignKeys: ForeignKeyDefinition[];
+  indexes: IndexDefinition[];
+}
+
 export interface SchemaResponse {
   file: string;
   source: string;
+  /** Null for a table with failing rows, which is not loaded */
+  definition: SchemaDefinition | null;
 }
 
 export async function fetchSchema(table: string): Promise<SchemaResponse> {

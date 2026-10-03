@@ -27,8 +27,10 @@ export const theme = EditorView.theme({
     textDecorationSkipInk: 'none',
     textUnderlineOffset: '3px',
   },
-  '.cm-gutters': { backgroundColor: 'transparent', color: 'var(--muted-foreground)', border: 'none' },
-  '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: 'color-mix(in oklch, var(--accent) 60%, transparent)' },
+  // The gutters stick to the left while the code scrolls under them, so a transparent one lets the code show through
+  '.cm-gutters': { backgroundColor: 'var(--background)', color: 'var(--muted-foreground)', border: 'none' },
+  '.cm-activeLine': { backgroundColor: 'color-mix(in oklch, var(--accent) 60%, transparent)' },
+  '.cm-activeLineGutter': { backgroundColor: 'color-mix(in oklch, var(--accent) 60%, var(--background))' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
     backgroundColor: 'color-mix(in oklch, var(--ring) 35%, transparent)',
   },
