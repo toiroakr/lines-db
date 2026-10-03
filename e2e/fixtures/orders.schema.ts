@@ -7,4 +7,5 @@ export default z.strictObject({
   customerId: z.number().int().positive(),
   items: z.array(z.strictObject({ name: z.string().min(1), quantity: z.number().int().nonnegative() })),
   meta: z.record(z.string(), z.string()).nullable(),
+  note: z.string().nullish(),
 });
