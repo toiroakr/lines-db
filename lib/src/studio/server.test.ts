@@ -505,6 +505,34 @@ describe('studio server', () => {
     });
   });
 
+  it('takes a key inside the items of a list only as far as every item takes it', async () => {
+    await studio.close();
+    await writeFile(
+      join(dataDir, 'boxes.jsonl'),
+      '{"id":1,"items":[{"kind":"loose","name":"a"},{"kind":"strict","name":"b"}]}\n',
+    );
+    await writeFile(
+      join(dataDir, 'boxes.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        const issues = [];
+        for (const [index, item] of data.items.entries()) {
+          if (item.kind !== 'strict') continue;
+          for (const key of Object.keys(item)) if (key !== 'kind' && key !== 'name') issues.push({ message: 'unknown', path: ['items', index, key] });
+          if (!('name' in item)) issues.push({ message: 'required', path: ['items', index, 'name'] });
+        }
+        return issues.length ? { issues } : { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const boxes = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'boxes',
+    );
+    const nested = boxes.columns.find((column: { name: string }) => column.name === 'items').nested;
+
+    expect(nested).toMatchObject({ '*': { open: false }, '*.name': { optional: false } });
+  });
+
   it('lists the schema file of each table, or null for a table without one', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'notes.jsonl'), '{"title":"first"}\n');

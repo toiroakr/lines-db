@@ -555,8 +555,8 @@ const PROBE_KEY = '__lines_db_studio_probe__';
  * What the schema takes of each object inside the sample's value of a JSON column, by its path there
  * with list indexes as `*` (`''` for the value itself, `items.*.name` for a key of each item). Found as
  * for a column, from the issues a change brings that the sample did not have: a key added to an object
- * tells whether it takes keys it does not name, and a key removed whether it can be left out. A list
- * is read from its first item, as the items of a list are one shape
+ * tells whether it takes keys it does not name, and a key removed whether it can be left out. The
+ * items of a list are read one by one, and what one of them refuses counts as refused for all
  */
 function nestedLeeway(
   db: LinesDB<TableDefs>,
@@ -575,25 +575,32 @@ function nestedLeeway(
     ({ ...sample, [column]: changeAt(sample[column], path, change) }) as JsonObject;
 
   const leeway: Record<string, NestedLeeway> = {};
+  // Not the first item's alone: the items of a list share a pattern, and one an item refuses is refused for all
+  const both = (before: boolean | undefined, found: boolean | undefined) =>
+    before === undefined ? found : found === undefined ? before : before && found;
+  const record = (pattern: string, found: NestedLeeway) => {
+    const before = leeway[pattern] ?? {};
+    leeway[pattern] = { open: both(before.open, found.open), optional: both(before.optional, found.optional) };
+  };
   const walk = (value: JsonValue | undefined, path: Array<string | number>, pattern: string[]) => {
     if (Array.isArray(value)) {
-      if (value.length > 0) walk(value[0], [...path, 0], [...pattern, '*']);
+      value.forEach((item, index) => walk(item, [...path, index], [...pattern, '*']));
       return;
     }
     if (value === null || typeof value !== 'object') return;
     const entries = Object.entries(value);
-    leeway[pattern.join('.')] = {
+    record(pattern.join('.'), {
       open: takes(at(path, (object) => ({ ...object, [PROBE_KEY]: entries[0]?.[1] ?? null }))),
-    };
+    });
     for (const [key, item] of entries) {
-      leeway[[...pattern, key].join('.')] = {
+      record([...pattern, key].join('.'), {
         optional: takes(
           at(path, (object) => {
             const { [key]: _removed, ...rest } = object;
             return rest;
           }),
         ),
-      };
+      });
       walk(item, [...path, key], [...pattern, key]);
     }
   };
