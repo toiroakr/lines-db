@@ -28,6 +28,15 @@ describe('CellEditor', () => {
     return { onApply, onClose };
   };
 
+  it('shows null and a missing value in an empty field, apart from an empty text', () => {
+    renderEditor(null, true);
+    expect(screen.getByRole('textbox', { name: 'name' }).getAttribute('placeholder')).toBe('null');
+    cleanup();
+
+    renderEditor(undefined, true);
+    expect(screen.getByRole('textbox', { name: 'name' }).getAttribute('placeholder')).toBe('undefined');
+  });
+
   it('offers null only for a field the schema lets be null', () => {
     renderEditor('Alice', true, { nullable: false });
 

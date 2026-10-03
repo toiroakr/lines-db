@@ -7,7 +7,7 @@ import { ValueField } from '@/components/value-field';
 import type { Column, Issue, JsonValue } from '@/lib/types';
 import type { Batch } from '@/lib/pending';
 import { issuePath, issuesFor, useLiveCheck } from '@/lib/check';
-import { editableText, isBoolean, isNumber, parseInput } from '@/lib/values';
+import { absentText, editableText, isBoolean, isNumber, parseInput } from '@/lib/values';
 import { cn } from '@/lib/utils';
 
 export interface CellEditorProps {
@@ -155,6 +155,7 @@ export function CellEditor({
           aria-label={column.name}
           inputMode="decimal"
           aria-invalid={'error' in parsed || issues.length > 0}
+          placeholder={edited ? undefined : absentText(value)}
           value={text}
           onChange={(event) => setText(event.target.value)}
         />
@@ -164,6 +165,7 @@ export function CellEditor({
           className="font-mono"
           aria-label={column.name}
           aria-invalid={'error' in parsed || issues.length > 0}
+          placeholder={edited ? undefined : absentText(value)}
           value={text}
           onChange={(event) => setText(event.target.value)}
         />

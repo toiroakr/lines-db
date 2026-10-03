@@ -51,6 +51,22 @@ describe('FormField', () => {
     expect(model.onChange).toHaveBeenLastCalledWith('ab\nc');
   });
 
+  it('shows null and a missing value in an empty field, apart from an empty text', () => {
+    render(
+      <>
+        <FormField table="users" model={field({ name: 'nick', type: 'TEXT' }, null)} />
+        <FormField table="users" model={field({ name: 'bio', type: 'TEXT' }, undefined, { state: 'unset' })} />
+        <FormField table="users" model={field({ name: 'age', type: 'INTEGER' }, null)} />
+        <FormField table="users" model={field({ name: 'note', type: 'TEXT' }, '')} />
+      </>,
+    );
+
+    expect(screen.getByRole('textbox', { name: 'nick' }).getAttribute('placeholder')).toBe('null');
+    expect(screen.getByRole('textbox', { name: 'bio' }).getAttribute('placeholder')).toBe('undefined');
+    expect(screen.getByRole('textbox', { name: 'age' }).getAttribute('placeholder')).toBe('null');
+    expect(screen.getByRole('textbox', { name: 'note' }).getAttribute('placeholder')).toBeNull();
+  });
+
   it('holds back a number it cannot read, and says why', () => {
     const model = field({ name: 'age', type: 'INTEGER' }, 30);
     render(<FormField table="users" model={model} />);

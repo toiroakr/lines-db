@@ -37,6 +37,10 @@ export function formatValue(value: JsonValue | undefined): string {
 /** A value as a cell of one line shows it, with each line break of a string as a mark */
 export const cellText = (value: JsonValue | undefined): string => formatValue(value).replaceAll('\n', '↵');
 
+/** What an empty field shows of a value that is not text: null, or no value at all as the row lacks the key */
+export const absentText = (value: JsonValue | undefined): string | undefined =>
+  value === null ? 'null' : value === undefined ? 'undefined' : undefined;
+
 /** A value as its editor starts with it */
 export function editableText(column: Pick<Column, 'type'>, value: JsonValue | undefined): string {
   if (value === undefined || value === null) return '';

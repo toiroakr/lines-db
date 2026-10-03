@@ -9,7 +9,7 @@ import { ValueField } from '@/components/value-field';
 import type { Column, Issue, JsonObject, JsonValue, Reference, TableInfo } from '@/lib/types';
 import type { Batch } from '@/lib/pending';
 import { issuePath, issuesFor, segmentKey, useLiveCheck } from '@/lib/check';
-import { editableText, formatValue, isBoolean, isNumber, parseInput, type Parsed } from '@/lib/values';
+import { absentText, editableText, formatValue, isBoolean, isNumber, parseInput, type Parsed } from '@/lib/values';
 import { cn } from '@/lib/utils';
 
 export type FieldState = 'file' | 'default' | 'changed' | 'reset' | 'set' | 'unset';
@@ -195,6 +195,7 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
           aria-invalid={'error' in parsed || issues.length > 0}
           inputMode="decimal"
           readOnly={readOnly}
+          placeholder={absentText(value)}
           value={text}
           onChange={(event) => hand(event.target.value)}
         />
@@ -204,6 +205,7 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
           aria-label={column.name}
           aria-invalid={'error' in parsed || issues.length > 0}
           readOnly={readOnly}
+          placeholder={absentText(value)}
           value={text}
           onChange={(event) => hand(event.target.value)}
         />
