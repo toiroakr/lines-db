@@ -3,6 +3,27 @@ import { join } from 'node:path';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 
+/** As much of the test's browser as reading the studio's metadata needs */
+type Browser = { evaluate<T>(run: () => Promise<T>): Promise<T> };
+
+/** The directory the studio reads the tables from, a copy of the fixtures made for the run */
+async function dataDirOf(browser: Browser): Promise<string> {
+  return browser.evaluate(async () => {
+    const response = await fetch('/api/tables', {
+      headers: { Authorization: `Bearer ${sessionStorage.getItem('lines-db-studio:token')}` },
+    });
+    if (!response.ok) throw new Error(`Could not read studio metadata: ${response.status}`);
+    const metadata = await response.json();
+    return metadata.dataDir as string;
+  });
+}
+
+const linesOf = async (file: string) =>
+  (await readFile(file, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+
 test('lists the fixture tables and filters the sidebar', async ({ app, screen }) => {
   await app.open('/');
   const tables = screen.getByRole('navigation').getByRole('button');
@@ -22,20 +43,9 @@ test('saves an edited cell to the JSONL file', async ({ app, screen, browser }) 
   const row = screen.getByRole('row').filter({ hasText: 'ada@example.test' });
   await expect(row.getByRole('button', 'Edit name', { exact: true })).toHaveText('Ada Lovelace');
 
-  const dataDir = await browser.evaluate(async () => {
-    const response = await fetch('/api/tables', {
-      headers: { Authorization: `Bearer ${sessionStorage.getItem('lines-db-studio:token')}` },
-    });
-    if (!response.ok) throw new Error(`Could not read studio metadata: ${response.status}`);
-    const metadata = await response.json();
-    return metadata.dataDir as string;
-  });
-  const file = join(dataDir, 'users.jsonl');
+  const file = join(await dataDirOf(browser), 'users.jsonl');
   const original = await readFile(file, 'utf8');
-  const expected = original
-    .trim()
-    .split('\n')
-    .map((line) => JSON.parse(line));
+  const expected = await linesOf(file);
   expected[0].name = 'Ada Byron';
 
   try {
@@ -48,14 +58,7 @@ test('saves an edited cell to the JSONL file', async ({ app, screen, browser }) 
     await save.tap();
     await expect(screen.getByRole('alert')).toContainText('Saved 1 change(s) to users.jsonl');
     await expect(save).toBeHidden();
-    await expect
-      .poll(async () =>
-        (await readFile(file, 'utf8'))
-          .trim()
-          .split('\n')
-          .map((line) => JSON.parse(line)),
-      )
-      .toEqual(expected);
+    await expect.poll(() => linesOf(file)).toEqual(expected);
     await screen.getByRole('button', 'Reload from the files').tap();
     await expect(row.getByRole('button', 'Edit name', { exact: true })).toHaveText('Ada Byron');
     await app.screenshot('The saved name, read again from the file');
