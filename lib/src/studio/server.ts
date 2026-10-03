@@ -4,7 +4,7 @@ import { chmod, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, extname, join, relative, resolve as resolvePath } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { LinesDB } from '../database.js';
 import { ErrorFormatter } from '../error-formatter.js';
 import { unwrap } from '../result.js';
@@ -12,6 +12,8 @@ import { JsonlReader, hashJsonlContent } from '../jsonl-reader.js';
 import { findSchemaFile } from '../schema-extensions.js';
 import { replaceRows } from './file-rows.js';
 import type {
+  ColumnDefinition,
+  ForeignKeyDefinition,
   JsonlConflictError,
   JsonlParseError,
   JsonObject,
@@ -86,6 +88,54 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     return true;
   };
 
+  // Not found again on each listing: what the schema takes is the same until the files are read again,
+  // and finding it reads the table's file for a sample row
+  type Columns = ReturnType<typeof withLeeway<ColumnDefinition>>;
+  const leeway = new WeakMap<Snapshot, Map<string, Columns>>();
+  const loadedColumnsOf = async (current: Snapshot, name: string): Promise<Columns> => {
+    const byTable = leeway.get(current) ?? new Map<string, Columns>();
+    leeway.set(current, byTable);
+    if (!byTable.has(name)) {
+      const [sample] = unwrap(await current.db.findWithDefaults(name));
+      const columns = current.db.getSchema(name)?.columns ?? [];
+      byTable.set(name, withLeeway(current.db, name, sample?.row as JsonObject | undefined, columns));
+    }
+    return byTable.get(name)!;
+  };
+  // Not read on each listing: a table with no foreign keys in the database has them read from its schema
+  // file, imported anew each time, and they stay the same until the files are read again
+  type References = Awaited<ReturnType<typeof referencesOf>>;
+  const references = new WeakMap<Snapshot, Map<string, References>>();
+  const referencesFor = async (current: Snapshot, name: string): Promise<References> => {
+    const byTable = references.get(current) ?? new Map<string, References>();
+    references.set(current, byTable);
+    if (!byTable.has(name)) byTable.set(name, await referencesOf(current.db, dataDir, name));
+    return byTable.get(name)!;
+  };
+  // Not found on each listing either for a table whose rows fail validation: finding it validates rows
+  const invalidColumns = new WeakMap<Snapshot, Map<string, { columns: Columns; rowCount: number }>>();
+  const invalidColumnsOf = async (current: Snapshot, name: string): Promise<{ columns: Columns; rowCount: number }> => {
+    const byTable = invalidColumns.get(current) ?? new Map<string, { columns: Columns; rowCount: number }>();
+    invalidColumns.set(current, byTable);
+    if (!byTable.has(name)) {
+      const { file, issues } = current.invalid.get(name)!;
+      const rows = unwrap(await JsonlReader.read(file));
+      const unknown = unknownFields(current.db, name, rows, issues);
+      const inferred = unwrap(JsonlReader.inferSchema(name, rows)).columns;
+      // A field no row holds - a required one every row lacks - has no column to fill it in otherwise;
+      // its type is unknown, so it is edited as JSON, which takes any value
+      const missing = [...new Set([...issues.values()].flat().map(fieldOf))].filter(
+        (field): field is string => field !== undefined && !inferred.some((column) => column.name === field),
+      );
+      const columns = withLeeway(current.db, name, rows.find((_, index) => !issues.has(index)) ?? rows[0], [
+        ...inferred,
+        ...missing.map((field) => ({ name: field, type: 'JSON' as const, notNull: false, primaryKey: false })),
+      ]).map((column) => ({ ...column, primaryKey: false, ...(unknown.has(column.name) ? { unknown: true } : {}) }));
+      byTable.set(name, { columns, rowCount: rows.length });
+    }
+    return byTable.get(name)!;
+  };
+
   const eventClients = new Set<ServerResponse>();
   const notifyChanged = (): void => {
     for (const client of eventClients) client.write('event: changed\ndata: {}\n\n');
@@ -148,55 +198,52 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     }
 
     if (req.method === 'GET' && url.pathname === '/api/tables') {
-      await reloadIfChanged();
-      // Not listed as loaded when rows failed a constraint on load: its passing rows are in the database,
-      // but its rows are fixed in the file, by index
-      const loadedTables = snapshot.db.getTableNames().filter((name) => !snapshot.invalid.has(name));
-      const tables = loadedTables.map((name) => {
-        const columns = snapshot.db.getSchema(name)?.columns ?? [];
-        const primaryKey = columns.find((column) => column.primaryKey)?.name ?? null;
-        const rowCount =
-          unwrap(snapshot.db.queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM "${name.replaceAll('"', '""')}"`))?.n ??
-          0;
-        return {
-          name,
-          columns,
-          primaryKey,
-          rowCount,
-          invalidRows: 0,
-          readOnlyReason: whyReadOnly(snapshot.db, name),
-          schemaFile: null as string | null,
-        };
+      // Not left open to a reload between its awaits: one would close the database the listing reads
+      const listing = await serialize(async () => {
+        await reloadIfChangedUnlocked();
+        const current = snapshot;
+        // Not listed as loaded when rows failed a constraint on load: its passing rows are in the database,
+        // but its rows are fixed in the file, by index
+        const loadedTables = current.db.getTableNames().filter((name) => !current.invalid.has(name));
+        const tables = [];
+        for (const name of loadedTables) {
+          const columns = await loadedColumnsOf(current, name);
+          const primaryKey = columns.find((column) => column.primaryKey)?.name ?? null;
+          const rowCount =
+            unwrap(current.db.queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM "${name.replaceAll('"', '""')}"`))
+              ?.n ?? 0;
+          tables.push({
+            name,
+            columns,
+            primaryKey,
+            rowCount,
+            invalidRows: 0,
+            readOnlyReason: whyReadOnly(current.db, name),
+            schemaFile: null as string | null,
+            references: await referencesFor(current, name),
+          });
+        }
+        for (const [name, { issues }] of current.invalid) {
+          const { columns, rowCount } = await invalidColumnsOf(current, name);
+          tables.push({
+            name,
+            columns,
+            primaryKey: null,
+            rowCount,
+            invalidRows: issues.size,
+            readOnlyReason: null,
+            schemaFile: null,
+            references: await referencesFor(current, name),
+          });
+        }
+        for (const table of tables) {
+          const schemaPath = await findSchemaFile(dataDir, table.name);
+          table.schemaFile = schemaPath ? basename(schemaPath) : null;
+        }
+        tables.sort((a, b) => a.name.localeCompare(b.name));
+        return { dataDir: resolvePath(dataDir), tables, problems: current.problems };
       });
-      for (const [name, { file, issues }] of snapshot.invalid) {
-        const rows = unwrap(await JsonlReader.read(file));
-        const unknown = unknownFields(snapshot.db, name, rows, issues);
-        const inferred = unwrap(JsonlReader.inferSchema(name, rows)).columns;
-        // A field no row holds - a required one every row lacks - has no column to fill it in otherwise;
-        // its type is unknown, so it is edited as JSON, which takes any value
-        const missing = [...new Set([...issues.values()].flat().map(fieldOf))].filter(
-          (field): field is string => field !== undefined && !inferred.some((column) => column.name === field),
-        );
-        const columns = [
-          ...inferred,
-          ...missing.map((field) => ({ name: field, type: 'JSON' as const, notNull: false, primaryKey: false })),
-        ].map((column) => ({ ...column, primaryKey: false, ...(unknown.has(column.name) ? { unknown: true } : {}) }));
-        tables.push({
-          name,
-          columns,
-          primaryKey: null,
-          rowCount: rows.length,
-          invalidRows: issues.size,
-          readOnlyReason: null,
-          schemaFile: null,
-        });
-      }
-      for (const table of tables) {
-        const schemaPath = await findSchemaFile(dataDir, table.name);
-        table.schemaFile = schemaPath ? basename(schemaPath) : null;
-      }
-      tables.sort((a, b) => a.name.localeCompare(b.name));
-      sendJson(res, 200, { dataDir: resolvePath(dataDir), tables, problems: snapshot.problems });
+      sendJson(res, 200, listing);
       return;
     }
 
@@ -478,17 +525,214 @@ async function loadSnapshot(dataDir: string, writeFilledValues: WriteFilledValue
 }
 
 /**
+ * Each column with whether the schema lets it be null and lets the key be left out. A schema does not
+ * list what it takes, so a row is validated with the field set to null and with the key removed, and
+ * the column counts as taking it when no issue is about that field; an issue about another field is
+ * the row's own and says nothing of this one
+ */
+function withLeeway<Column extends { name: string; type?: string; notNull?: boolean }>(
+  db: LinesDB<TableDefs>,
+  tableName: string,
+  sample: JsonObject | undefined,
+  columns: Column[],
+): Array<Column & { nullable: boolean; optional: boolean; nested?: Record<string, NestedLeeway> }> {
+  const probe = prober(db, tableName, sample ?? {});
+  return columns.map((column) => {
+    const { [column.name]: _removed, ...without } = sample ?? {};
+    const value = sample?.[column.name];
+    // Not taken on the schema's word alone for a NOT NULL column: the row is written as the schema leaves it
+    // Not taken while the field still fails: a sample failing for it already, as with no row that passes,
+    // has its issue among the sample's, so the change brings no new one
+    const takes = (row: JsonObject) => {
+      const { taken, value: validated, failsAt } = probe(row);
+      return taken && !failsAt([column.name]) && (!column.notNull || (validated?.[column.name] ?? null) !== null);
+    };
+    return {
+      ...column,
+      nullable: takes({ ...without, [column.name]: null }),
+      optional: takes(without),
+      ...(sample && value !== null && typeof value === 'object'
+        ? { nested: nestedLeeway(db, tableName, sample, column.name) }
+        : {}),
+    };
+  });
+}
+
+/**
+ * Whether the schema takes a change of the sample row: it does when the change brings no issue the
+ * sample did not have. Not only an issue about the field changed counts, as a check across fields
+ * reports on another field, or on the row as a whole
+ */
+function prober(db: LinesDB<TableDefs>, tableName: string, sample: JsonObject) {
+  const issuesOf = (result: ReturnType<typeof tryValidate>) =>
+    !result ? undefined : result.ok ? [] : perKey(result.error.issues).map((issue) => JSON.stringify(issue));
+  const before = new Set(issuesOf(tryValidate(db, tableName, sample)));
+  return (
+    row: JsonObject,
+  ): { taken: boolean; value?: JsonObject; failsAt: (path: Array<string | number>) => boolean } => {
+    const result = tryValidate(db, tableName, row);
+    const taken = issuesOf(result)?.every((issue) => before.has(issue)) ?? false;
+    const paths = result && !result.ok ? perKey(result.error.issues).map((issue) => (issue.path ?? []).map(keyOf)) : [];
+    // Whether an issue is about the value at the path or one inside it
+    const failsAt = (path: Array<string | number>) =>
+      paths.some((at) => path.every((segment, index) => at[index] === String(segment)));
+    return { taken, value: result?.ok ? result.value : undefined, failsAt };
+  };
+}
+
+/**
+ * The foreign keys of a table, as the row form opens the row a key refers to by them. Read from its
+ * schema file first: the database leaves out a key to a table whose rows failed on load, and has no
+ * schema at all for a table whose own rows failed, though the studio lists those tables and their rows
+ */
+async function referencesOf(db: LinesDB<TableDefs>, dataDir: string, tableName: string) {
+  const declared = await foreignKeysInFile(dataDir, tableName);
+  const foreignKeys = declared.length > 0 ? declared : (db.getSchema(tableName)?.foreignKeys ?? []);
+  return foreignKeys.map((fk) => ({
+    column: fk.column,
+    table: fk.references.table,
+    referencedColumn: fk.references.column,
+  }));
+}
+
+/** The foreign keys a table's schema file exports, as the database reads them on load */
+async function foreignKeysInFile(dataDir: string, tableName: string): Promise<ForeignKeyDefinition[]> {
+  const schemaPath = await findSchemaFile(dataDir, tableName);
+  if (!schemaPath) return [];
+  try {
+    const module = await import(`${pathToFileURL(schemaPath).href}?t=${Date.now()}`);
+    const exported = module.schema ?? module.default;
+    return exported?.foreignKeys ?? module.foreignKeys ?? [];
+  } catch {
+    // Not failing the listing: the file failed to load on start too, and its problem is listed there
+    return [];
+  }
+}
+
+/**
+ * The row validated, or undefined when the schema threw: a schema can assume a value the change took
+ * away, such as reading the keys of an object removed, and that says it does not take the change
+ */
+function tryValidate(db: LinesDB<TableDefs>, tableName: string, row: JsonObject) {
+  try {
+    return db.validateRow(tableName, row);
+  } catch {
+    return undefined;
+  }
+}
+
+/** What the schema takes of an object inside a JSON value: keys it does not name, and leaving a key out */
+interface NestedLeeway {
+  open?: boolean;
+  optional?: boolean;
+}
+
+/** A key no schema names, added to an object to see whether the schema takes keys it does not name */
+const PROBE_KEY = '__lines_db_studio_probe__';
+
+/**
+ * What the schema takes of each object inside the sample's value of a JSON column, by its path there
+ * with list indexes as `*` (`''` for the value itself, `items.*.name` for a key of each item, and
+ * `%`, `.` and `*` in a key as `%25`, `%2E` and `%2A`). Found as
+ * for a column, from the issues a change brings that the sample did not have: a key added to an object
+ * tells whether it takes keys it does not name, and a key removed whether it can be left out. The
+ * items of a list are changed together in one check, so what one of them refuses counts as refused for all
+ */
+function nestedLeeway(
+  db: LinesDB<TableDefs>,
+  tableName: string,
+  sample: JsonObject,
+  column: string,
+): Record<string, NestedLeeway> {
+  const probe = prober(db, tableName, sample);
+  // Not one object at a time: the items of a list share a pattern, so all of them are changed in one check,
+  // and one an item refuses is refused for all
+  const atAll = (paths: Array<Array<string | number>>, change: (object: JsonObject) => JsonObject) =>
+    ({
+      ...sample,
+      [column]: paths.reduce((value, path) => changeAt(value, path, change), sample[column]),
+    }) as JsonObject;
+
+  const objects = new Map<string, Array<{ path: Array<string | number>; object: JsonObject }>>();
+  const walk = (value: JsonValue | undefined, path: Array<string | number>, pattern: string[]) => {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => walk(item, [...path, index], [...pattern, '*']));
+      return;
+    }
+    if (value === null || typeof value !== 'object') return;
+    const key = pattern.join('.');
+    objects.set(key, [...(objects.get(key) ?? []), { path, object: value }]);
+    for (const [name, item] of Object.entries(value)) walk(item, [...path, name], [...pattern, segmentOf(name)]);
+  };
+  walk(sample[column], [], []);
+
+  const leeway: Record<string, NestedLeeway> = {};
+  for (const [pattern, found] of objects) {
+    const prefix = pattern === '' ? '' : `${pattern}.`;
+    // Not tried on an empty object: with no value of its own to give a new key, any value tried may be refused
+    const filled = found.filter(({ object }) => Object.keys(object).length > 0);
+    if (filled.length > 0) {
+      // Not the probe key alone: an object may hold it already, and then it is changed rather than added
+      let added = PROBE_KEY;
+      while (filled.some(({ object }) => Object.hasOwn(object, added))) added += '_';
+      const open = probe(
+        atAll(
+          filled.map(({ path }) => path),
+          (object) => ({ ...object, [added]: Object.values(object)[0] }),
+        ),
+      ).taken;
+      leeway[pattern] = { open };
+    }
+    const keys = new Set(found.flatMap(({ object }) => Object.keys(object)));
+    for (const name of keys) {
+      const holding = found.filter(({ object }) => Object.hasOwn(object, name)).map(({ path }) => path);
+      const { taken, failsAt } = probe(
+        atAll(holding, (object) => {
+          const { [name]: _removed, ...rest } = object;
+          return rest;
+        }),
+      );
+      // Not taken while the key still fails: a sample failing for it already has its issue among the sample's
+      const optional = taken && !holding.some((path) => failsAt([column, ...path, name]));
+      leeway[`${prefix}${segmentOf(name)}`] = { ...leeway[`${prefix}${segmentOf(name)}`], optional };
+    }
+  }
+  return leeway;
+}
+
+/** A key as a segment of a pattern, apart from the dots between segments and the `*` of a list index */
+const segmentOf = (key: string) => key.replace(/[%.*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+
+/** The value with the object at the path inside it changed */
+function changeAt(
+  value: JsonValue | undefined,
+  path: Array<string | number>,
+  change: (object: JsonObject) => JsonObject,
+): JsonValue {
+  if (path.length === 0) return change(value as JsonObject);
+  const [head, ...rest] = path;
+  if (Array.isArray(value)) return value.map((item, index) => (index === head ? changeAt(item, rest, change) : item));
+  const object = value as JsonObject;
+  return { ...object, [head]: changeAt(object[head], rest, change) };
+}
+
+/**
  * The issues with one about several refused keys split per key. Zod reports the keys a strict object
- * refuses in one issue with an empty path and the keys beside it, which no field would be found by
+ * refuses in one issue at the path of the object and the keys beside it, which no field would be found
+ * by, nor a key inside a JSON value
  */
 function perKey(issues: readonly StandardSchemaIssue[]): StandardSchemaIssue[] {
   return issues.flatMap((issue) => {
     const { code, keys } = issue as { code?: unknown; keys?: unknown };
-    if (code !== 'unrecognized_keys' || issue.path?.length || !Array.isArray(keys)) return [issue];
+    if (code !== 'unrecognized_keys' || !Array.isArray(keys)) return [issue];
     if (keys.length === 0 || !keys.every((key) => typeof key === 'string')) return [issue];
-    return keys.map((key) => ({ ...issue, keys: [key], path: [{ key }] }));
+    return keys.map((key) => ({ ...issue, keys: [key], path: [...(issue.path ?? []), { key }] }));
   });
 }
+
+/** A segment of an issue's path as the key it names */
+const keyOf = (segment: PropertyKey | { key: PropertyKey }) =>
+  typeof segment === 'object' && segment !== null && 'key' in segment ? String(segment.key) : String(segment);
 
 /** The field of the row an issue is about, if it is about one */
 function fieldOf(issue: StandardSchemaIssue): string | undefined {
@@ -520,16 +764,19 @@ function unknownFields(
   const kept = new Set<string>();
   rows.forEach((row, index) => {
     if (issues.has(index)) return;
-    const validated = db.validateRow(tableName, row);
-    if (validated.ok) for (const key of Object.keys(validated.value)) kept.add(key);
+    const validated = tryValidate(db, tableName, row);
+    if (validated?.ok) for (const key of Object.keys(validated.value)) kept.add(key);
   });
   const unknown = new Set<string>();
   for (const [key, indexes] of failingOn) {
     if (kept.has(key)) continue;
     const clears = indexes.every((index) => {
       const { [key]: _removed, ...rest } = rows[index];
-      const result = db.validateRow(tableName, rest);
-      return result.ok || !perKey(result.error.issues).some((issue) => fieldOf(issue) === key);
+      // Not counted as clearing it when the schema throws without the key: it relies on the key being there
+      const result = tryValidate(db, tableName, rest);
+      return (
+        result !== undefined && (result.ok || !perKey(result.error.issues).some((issue) => fieldOf(issue) === key))
+      );
     });
     if (clears) unknown.add(key);
   }

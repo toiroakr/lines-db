@@ -9,6 +9,7 @@ import type { Issue } from '@/lib/types';
 import { segmentKey } from '@/lib/check';
 import { rangeOfPath, syntaxErrors } from '@/lib/json-ranges';
 import { cspNonce, highlight, theme } from '@/components/code-style';
+import { cn } from '@/lib/utils';
 
 /** Read as JSON with comments and trailing commas, as saving reads it */
 function parseErrors(view: EditorView): Diagnostic[] {
@@ -22,11 +23,22 @@ export interface JsonEditorProps {
   /** Issues about the value, each underlined where its path points inside it */
   issues: Issue[];
   onChange: (text: string) => void;
-  onSubmit: () => void;
+  onSubmit?: () => void;
+  /** Whether it takes the focus once open, as when opened to edit the value; on by default */
+  autoFocus?: boolean;
+  className?: string;
 }
 
 /** A JSON editor with highlighting and syntax errors marked as you type */
-export function JsonEditor({ label, initial, issues, onChange, onSubmit }: JsonEditorProps) {
+export function JsonEditor({
+  label,
+  initial,
+  issues,
+  onChange,
+  onSubmit = () => undefined,
+  autoFocus = true,
+  className = 'h-80',
+}: JsonEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView>(undefined);
   const handlers = useRef({ onChange, onSubmit });
@@ -54,7 +66,7 @@ export function JsonEditor({ label, initial, issues, onChange, onSubmit }: JsonE
       }),
     });
     view.current = editor;
-    editor.focus();
+    if (autoFocus) editor.focus();
     return () => editor.destroy();
     // Not recreated on prop changes: the editor owns the text once it is open
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -74,5 +86,5 @@ export function JsonEditor({ label, initial, issues, onChange, onSubmit }: JsonE
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [issueKey]);
 
-  return <div ref={host} className="h-80 overflow-auto rounded-md border bg-muted/30" />;
+  return <div ref={host} className={cn('overflow-auto rounded-md border bg-muted/30', className)} />;
 }

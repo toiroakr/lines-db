@@ -47,6 +47,22 @@ export function resetCell(pending: Pending, key: JsonValue, field: string): Pend
   return withEdit(pending, { key, changes, reset: [...edit.reset.filter((name) => name !== field), field] });
 }
 
+/**
+ * Set a field a form edits, or drop its change once it holds the value the file does again. A field
+ * the file does not hold (undefined) keeps the change: setting it writes it to the file
+ */
+export function setOrRevertCell(
+  pending: Pending,
+  key: JsonValue,
+  field: string,
+  value: JsonValue,
+  fileValue: JsonValue | undefined,
+): Pending {
+  return fileValue !== undefined && JSON.stringify(value) === JSON.stringify(fileValue)
+    ? revertCell(pending, key, field)
+    : setCell(pending, key, field, value);
+}
+
 /** Remove a field from each of the rows named, leaving its value to the schema */
 export function resetField(pending: Pending, keys: readonly JsonValue[], field: string): Pending {
   return keys.reduce((next, key) => resetCell(next, key, field), pending);
@@ -66,8 +82,8 @@ export function cellChange(pending: Pending, key: JsonValue, field: string): Cel
   return Object.hasOwn(edit.changes, field) ? { kind: 'set', value: edit.changes[field] } : undefined;
 }
 
-export function addInsert(pending: Pending, id: string): Pending {
-  return { ...pending, inserts: [...pending.inserts, { id, row: {} }] };
+export function addInsert(pending: Pending, id: string, row: JsonObject = {}): Pending {
+  return { ...pending, inserts: [...pending.inserts, { id, row }] };
 }
 
 export function setInsertCell(pending: Pending, id: string, field: string, value: JsonValue | undefined): Pending {
@@ -121,6 +137,18 @@ export function toBatch(pending: Pending): Batch {
       .filter(([key]) => !Object.hasOwn(pending.deletes, key))
       .map(([, { key, changes, reset }]) => ({ key, changes, ...(reset.length > 0 ? { resetToDefault: reset } : {}) })),
     deletes: Object.values(pending.deletes),
+  };
+}
+
+/** The change saving would send for a row, or nothing when it has no pending change */
+export function previewRow(pending: Pending, key: JsonValue): Batch | undefined {
+  const edit = pending.edits[keyOf(key)];
+  if (!edit) return undefined;
+  const { key: rowKey, changes, reset } = edit;
+  return {
+    inserts: [],
+    updates: [{ key: rowKey, changes, ...(reset.length > 0 ? { resetToDefault: reset } : {}) }],
+    deletes: [],
   };
 }
 

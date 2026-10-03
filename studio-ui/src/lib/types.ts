@@ -9,6 +9,22 @@ export interface Column {
   valueType?: 'boolean';
   /** A field the schema refuses as a key, in a table with failing rows: a fix can only remove it */
   unknown?: boolean;
+  /** Whether the schema lets the field be null; unknown when not given */
+  nullable?: boolean;
+  /** Whether the schema lets the key be left out of a row, its value then left to the schema; unknown when not given */
+  optional?: boolean;
+  /**
+   * What the schema takes of each object inside a JSON value, by its path there with list indexes as
+   * `*`: `''` for the value itself, `items.*.name` for a key of each item, and `%`, `.` and `*` in a key
+   * as `%25`, `%2E` and `%2A`
+   */
+  nested?: Record<string, NestedLeeway>;
+}
+
+/** What the schema takes of an object inside a JSON value: keys it does not name, and leaving a key out */
+export interface NestedLeeway {
+  open?: boolean;
+  optional?: boolean;
 }
 
 export interface TableInfo {
@@ -24,6 +40,14 @@ export interface TableInfo {
   readOnlyReason: string | null;
   /** The name of the table's schema file in the data directory, or null when it has none */
   schemaFile: string | null;
+  /** The foreign keys of the table: which column refers to which column of which table */
+  references: Reference[];
+}
+
+export interface Reference {
+  column: string;
+  table: string;
+  referencedColumn: string;
 }
 
 export interface Issue {

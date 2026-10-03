@@ -1,13 +1,13 @@
 import { useMemo, useState, type KeyboardEvent } from 'react';
 import { Check, CircleAlert, Eraser, LoaderCircle, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Input, TextLines } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { JsonEditor } from '@/components/json-editor';
+import { ValueField } from '@/components/value-field';
 import type { Column, Issue, JsonValue } from '@/lib/types';
 import type { Batch } from '@/lib/pending';
-import { issuePath, issuesFor, segmentKey, useLiveCheck } from '@/lib/check';
-import { editableText, isBoolean, isNumber, parseInput } from '@/lib/values';
+import { issuePath, issuesFor, useLiveCheck } from '@/lib/check';
+import { absentText, editableText, isBoolean, isNumber, parseInput } from '@/lib/values';
 import { cn } from '@/lib/utils';
 
 export interface CellEditorProps {
@@ -48,6 +48,7 @@ export function CellEditor({
   );
   const [text, setText] = useState(initial);
   const [editAnyway, setEditAnyway] = useState(false);
+  const [fieldsValid, setFieldsValid] = useState(true);
   const parsed = useMemo(() => parseInput(column, text), [column, text]);
   const edited = text !== initial;
   const { result, checking } = useLiveCheck(table, edited && 'value' in parsed ? preview(parsed.value) : undefined);
@@ -90,16 +91,21 @@ export function CellEditor({
     );
   }
 
+  const canRemove = canUseDefault && column.optional !== false;
   // Not closed unchanged for a value the schema filled in: setting it as it is writes it to the file
   const unchanged = (next: JsonValue) =>
     canUseDefault && value !== undefined && JSON.stringify(next) === JSON.stringify(value);
   const set = (next: JsonValue) => (unchanged(next) ? onClose() : onApply(next));
   const apply = () => {
-    if ('value' in parsed) set(parsed.value);
+    if ('value' in parsed && fieldsValid) set(parsed.value);
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape') onClose();
-    if (!json && event.key === 'Enter' && !event.nativeEvent.isComposing) {
+    if (json && event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      apply();
+    }
+    if (!json && event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       apply();
     }
@@ -135,20 +141,33 @@ export function CellEditor({
           ))}
         </div>
       ) : json ? (
-        <JsonEditor
-          label={column.name}
-          initial={initial}
-          issues={issues.filter((issue) => !issue.path?.length || segmentKey(issue.path[0]) === column.name)}
-          onChange={setText}
-          onSubmit={apply}
+        // Not the JSON editor at first: the form shows what the value holds, and each block can switch to JSON
+        <ValueField
+          path={[column.name]}
+          value={'value' in parsed ? parsed.value : (value ?? null)}
+          issues={issues}
+          leeway={column.nested}
+          onChange={(next) => setText(JSON.stringify(next, null, 2))}
+          onValidity={setFieldsValid}
         />
-      ) : (
+      ) : isNumber(column) ? (
         <Input
           autoFocus
           className="font-mono"
           aria-label={column.name}
-          inputMode={isNumber(column) ? 'decimal' : undefined}
+          inputMode="decimal"
           aria-invalid={'error' in parsed || issues.length > 0}
+          placeholder={edited ? undefined : absentText(value)}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+        />
+      ) : (
+        <TextLines
+          autoFocus
+          className="font-mono"
+          aria-label={column.name}
+          aria-invalid={'error' in parsed || issues.length > 0}
+          placeholder={edited ? undefined : absentText(value)}
           value={text}
           onChange={(event) => setText(event.target.value)}
         />
@@ -164,10 +183,10 @@ export function CellEditor({
         </ul>
       )}
       <div className="flex flex-wrap items-center gap-1.5">
-        <Button size="sm" onClick={apply} disabled={'error' in parsed}>
+        <Button size="sm" onClick={apply} disabled={'error' in parsed || !fieldsValid}>
           <Check /> Set
         </Button>
-        {canUseDefault && (
+        {canRemove && (
           <Button size="sm" variant="outline" onClick={onUseDefault}>
             <Eraser /> Remove field
           </Button>
@@ -177,12 +196,15 @@ export function CellEditor({
             <RotateCcw /> Revert
           </Button>
         )}
-        <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => set(null)}>
-          <X /> Set null
-        </Button>
+        {column.nullable !== false && (
+          <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => set(null)}>
+            <X /> Set null
+          </Button>
+        )}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        {json ? '⌘↵' : '↵'} to set · Esc to close · nothing is written until you save
+        {json ? '⌘↵' : '↵'} to set{!json && !isNumber(column) && !isBoolean(column) ? ' · ⇧↵ for a new line' : ''} · Esc
+        to close · nothing is written until you save
       </p>
     </div>
   );
