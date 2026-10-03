@@ -1979,6 +1979,10 @@ export class LinesDB<Tables extends TableDefs> {
           `'${sql.trim()}' would end the transaction before its files are written back; return from the callback to commit, or throw to roll back`,
         );
       }
+      // Not once begun, when a SAVEPOINT is a transaction nested in it and does no harm
+      if (!this.inTransaction && /^SAVEPOINT\b/i.test(statement)) {
+        throw new Error(`'${sql.trim()}' would open a transaction of its own while the transaction starts`);
+      }
       // Only setting it: reading the pragma changes nothing, and reads through the database stay available
       if (
         /^PRAGMA\s+(?:(?:\w+|"[^"]*"|`[^`]*`|\[[^\]]*\])\s*\.\s*)?(?:query_only|"query_only"|'query_only'|`query_only`|\[query_only\])\s*[=(]/i.test(

@@ -608,6 +608,26 @@ describe('LinesDB.transaction write-back', () => {
     expect(unwrap(db.find('items'))).toEqual([{ id: 1, name: 'A' }]);
   });
 
+  it('refuses a SAVEPOINT while a transaction is starting, as it would open a transaction of its own', async () => {
+    const started = db.transaction((tx) => void unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+    const savepoint = () => db.getDb().exec('SAVEPOINT external');
+    expect(savepoint).toThrow();
+    const result = await started;
+
+    expect(result.ok).toBe(true);
+    expect(unwrap(db.find('items'))).toEqual([{ id: 1, name: 'A' }]);
+  });
+
+  it('still accepts a SAVEPOINT in the callback of a transaction, as one nested in it', async () => {
+    const result = await db.transaction((tx) => {
+      tx.getDb().exec('SAVEPOINT inner');
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      tx.getDb().exec('RELEASE inner');
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it('writes back the records a batchInsert() inserted before a later one failed', async () => {
     unwrap(
       await db.transaction((tx) => {
