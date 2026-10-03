@@ -12,6 +12,7 @@ import { JsonlReader, hashJsonlContent } from '../jsonl-reader.js';
 import { findSchemaFile } from '../schema-extensions.js';
 import { replaceRows } from './file-rows.js';
 import type {
+  ColumnDefinition,
   JsonlConflictError,
   JsonlParseError,
   JsonObject,
@@ -86,6 +87,22 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     return true;
   };
 
+  // Not found again on each listing: what the schema takes is the same until the files are read again,
+  // and finding it reads the table's file for a sample row
+  type Columns = ReturnType<typeof withLeeway<ColumnDefinition>>;
+  const leeway = new WeakMap<Snapshot, Map<string, Columns>>();
+  const loadedColumnsOf = async (name: string): Promise<Columns> => {
+    const current = snapshot;
+    const byTable = leeway.get(current) ?? new Map<string, Columns>();
+    leeway.set(current, byTable);
+    if (!byTable.has(name)) {
+      const [sample] = unwrap(await current.db.findWithDefaults(name));
+      const columns = current.db.getSchema(name)?.columns ?? [];
+      byTable.set(name, withLeeway(current.db, name, sample?.row as JsonObject | undefined, columns));
+    }
+    return byTable.get(name)!;
+  };
+
   const eventClients = new Set<ServerResponse>();
   const notifyChanged = (): void => {
     for (const client of eventClients) client.write('event: changed\ndata: {}\n\n');
@@ -154,13 +171,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       const loadedTables = snapshot.db.getTableNames().filter((name) => !snapshot.invalid.has(name));
       const tables = [];
       for (const name of loadedTables) {
-        const [sample] = unwrap(await snapshot.db.findWithDefaults(name));
-        const columns = withLeeway(
-          snapshot.db,
-          name,
-          sample?.row as JsonObject | undefined,
-          snapshot.db.getSchema(name)?.columns ?? [],
-        );
+        const columns = await loadedColumnsOf(name);
         const primaryKey = columns.find((column) => column.primaryKey)?.name ?? null;
         const rowCount =
           unwrap(snapshot.db.queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM "${name.replaceAll('"', '""')}"`))?.n ??
