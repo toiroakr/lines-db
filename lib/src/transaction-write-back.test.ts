@@ -630,6 +630,31 @@ describe('LinesDB.transaction write-back', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('refuses SAVEPOINT, RELEASE and ROLLBACK TO through the database while the callback awaits, as one could undo what tx wrote', async () => {
+    const refused: boolean[] = [];
+    const attempt = (sql: string) => {
+      try {
+        db.getDb().exec(sql);
+        refused.push(false);
+      } catch {
+        refused.push(true);
+      }
+    };
+    const result = await db.transaction(async (tx) => {
+      tx.getDb().exec('SAVEPOINT mine');
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      await Promise.resolve();
+      attempt('SAVEPOINT external');
+      attempt('ROLLBACK TO mine');
+      attempt('ROLLBACK TRANSACTION TO SAVEPOINT mine');
+      attempt('RELEASE mine');
+    });
+
+    expect(result.ok).toBe(true);
+    expect(refused).toEqual([true, true, true, true]);
+    expect(unwrap(db.find('items'))).toEqual([{ id: 1, name: 'A' }]);
+  });
+
   it('writes back the records a batchInsert() inserted before a later one failed', async () => {
     unwrap(
       await db.transaction((tx) => {

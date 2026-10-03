@@ -1969,7 +1969,7 @@ export class LinesDB<Tables extends TableDefs> {
    * through the database while it runs. Looked for in each statement as SQLite reads it, so a `;` or a
    * comment cannot hide one
    */
-  private refuseUnsafeSql(sql: string): void {
+  private refuseUnsafeSql(sql: string, viaTransaction = this.viaTransactionObject): void {
     // Not only once begun: the read-only mode is held from the moment a transaction starts until it closes,
     // and a BEGIN while it starts would make its own BEGIN fail with one left open that it never rolls back
     if (!this.inTransaction && !this.transactionStarting && !this.transactionClosing) return;
@@ -1982,6 +1982,16 @@ export class LinesDB<Tables extends TableDefs> {
       // Not once begun, when a SAVEPOINT is a transaction nested in it and does no harm
       if (!this.inTransaction && /^SAVEPOINT\b/i.test(statement)) {
         throw new Error(`'${sql.trim()}' would open a transaction of its own while the transaction starts`);
+      }
+      // Not left to the database itself: query_only does not stop a ROLLBACK TO from undoing what tx wrote
+      if (
+        this.inTransaction &&
+        !viaTransaction &&
+        /^(SAVEPOINT|RELEASE|ROLLBACK\s+(TRANSACTION\s+)?TO)\b/i.test(statement)
+      ) {
+        throw new Error(
+          `'${sql.trim()}' would change a savepoint of the running transaction; run it through the callback's tx`,
+        );
       }
       // Only setting it: reading the pragma changes nothing, and reads through the database stay available
       if (
@@ -2857,7 +2867,7 @@ export class LinesDB<Tables extends TableDefs> {
     // refused, and one that changes rows tracked, whichever transaction is open by then
     const guarded = <T>(sql: string, run: () => T): T => {
       if (idle()) return run();
-      this.refuseUnsafeSql(sql);
+      this.refuseUnsafeSql(sql, viaTransaction());
       return this.readOnlyWhileTransactionSettles(() => this.trackRawSql(run), viaTransaction());
     };
     return {
