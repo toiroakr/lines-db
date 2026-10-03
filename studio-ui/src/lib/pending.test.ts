@@ -4,6 +4,7 @@ import {
   setCell,
   resetCell,
   resetField,
+  setOrRevertCell,
   addInsert,
   setInsertCell,
   removeInsert,
@@ -12,6 +13,7 @@ import {
   toBatch,
   cellChange,
   previewCell,
+  previewRow,
   markDeleted,
 } from './pending';
 
@@ -78,6 +80,24 @@ describe('pending changes', () => {
   });
 });
 
+describe('previewRow', () => {
+  it('checks the pending changes and resets of one row together, leaving the other rows out', () => {
+    let pending = setCell(emptyPending(), 1, 'name', 'Alicia');
+    pending = resetCell(pending, 1, 'age');
+    pending = setCell(pending, 2, 'name', 'Bobby');
+
+    expect(previewRow(pending, 1)).toEqual({
+      inserts: [],
+      updates: [{ key: 1, changes: { name: 'Alicia' }, resetToDefault: ['age'] }],
+      deletes: [],
+    });
+  });
+
+  it('gives nothing to check for a row with no pending change', () => {
+    expect(previewRow(setCell(emptyPending(), 2, 'name', 'Bobby'), 1)).toBeUndefined();
+  });
+});
+
 describe('previewCell', () => {
   it('checks a cell value together with the other pending changes and resets of its row', () => {
     let pending = setCell(emptyPending(), 1, 'name', 'Alicia');
@@ -116,5 +136,34 @@ describe('markDeleted', () => {
         { key: 2, changes: {}, resetToDefault: ['note'] },
       ]),
     );
+  });
+
+  it('records a value a form sets that differs from the one the file holds', () => {
+    const pending = setOrRevertCell(emptyPending(), 1, 'name', 'Alicia', 'Alice');
+
+    expect(cellChange(pending, 1, 'name')).toEqual({ kind: 'set', value: 'Alicia' });
+  });
+
+  it('leaves no change when a form sets the value the file holds again', () => {
+    const edited = setOrRevertCell(emptyPending(), 1, 'tags', ['a', 'b'], ['a']);
+
+    const pending = setOrRevertCell(edited, 1, 'tags', ['a'], ['a']);
+
+    expect(cellChange(pending, 1, 'tags')).toBeUndefined();
+    expect(countChanges(pending)).toBe(0);
+  });
+
+  it('records a value a form sets on a field the file does not hold, though it equals the one the schema fills in', () => {
+    const pending = setOrRevertCell(emptyPending(), 1, 'age', 20, undefined);
+
+    expect(cellChange(pending, 1, 'age')).toEqual({ kind: 'set', value: 20 });
+  });
+});
+
+describe('addInsert', () => {
+  it('adds a new row holding the fields it is given', () => {
+    const pending = addInsert(emptyPending(), 'new-1', { name: 'Ada' });
+
+    expect(pending.inserts).toEqual([{ id: 'new-1', row: { name: 'Ada' } }]);
   });
 });

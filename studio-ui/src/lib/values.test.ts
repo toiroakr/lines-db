@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseInput, formatValue } from './values';
+import { cellText, parseInput, formatValue } from './values';
 
 const column = (type: string, valueType?: 'boolean') => ({ name: 'field', type, valueType });
 
@@ -27,6 +27,12 @@ describe('parseInput', () => {
 
   it('reads a boolean column from true or false', () => {
     expect(parseInput(column('INTEGER', 'boolean'), 'false')).toEqual({ value: false });
+  });
+});
+
+describe('cellText', () => {
+  it('shows each line break of a string as a mark, as a cell has one line', () => {
+    expect(cellText('line one\nline two')).toBe('line one↵line two');
   });
 });
 

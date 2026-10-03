@@ -435,6 +435,390 @@ describe('studio server', () => {
     expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toContain('"name":"Alice"');
   });
 
+  it('lists the foreign keys of each table, so the page can open the row a key refers to', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');
+    await writeFile(join(dataDir, 'pets.jsonl'), '{"id":1,"owner":1}\n');
+    await writeFile(
+      join(dataDir, 'pets.schema.ts'),
+      "export const foreignKeys = [{ column: 'owner', references: { table: 'owners', column: 'id' } }];\n" +
+        "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const tables = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables;
+
+    expect(tables.find((table: { name: string }) => table.name === 'pets').references).toEqual([
+      { column: 'owner', table: 'owners', referencedColumn: 'id' },
+    ]);
+    expect(tables.find((table: { name: string }) => table.name === 'owners').references).toEqual([]);
+  });
+
+  it('says of each column whether the schema lets it be null, and whether it lets the key be left out', async () => {
+    await studio.close();
+    // Not one row alone: a column every row holds a value in is NOT NULL, which would refuse null and a missing key
+    await writeFile(
+      join(dataDir, 'people.jsonl'),
+      '{"id":1,"name":"a","nick":"b","note":"c"}\n{"id":2,"name":"b","note":null}\n',
+    );
+    await writeFile(
+      join(dataDir, 'people.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        const issues = [];
+        if (typeof data.name !== 'string') issues.push({ message: 'name', path: ['name'] });
+        if (data.nick !== undefined && typeof data.nick !== 'string') issues.push({ message: 'nick', path: ['nick'] });
+        if (!('note' in data)) issues.push({ message: 'note', path: ['note'] });
+        return issues.length ? { issues } : { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const people = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'people',
+    );
+    const column = (name: string) => people.columns.find((candidate: { name: string }) => candidate.name === name);
+
+    expect(column('name')).toMatchObject({ nullable: false, optional: false });
+    expect(column('nick')).toMatchObject({ nullable: false, optional: true });
+    expect(column('note')).toMatchObject({ nullable: true, optional: false });
+  });
+
+  it('says of each object in a JSON column whether the schema takes keys it does not name, and which keys can be left out', async () => {
+    await studio.close();
+    await writeFile(
+      join(dataDir, 'orders.jsonl'),
+      '{"id":1,"meta":{"source":"web","note":"x"},"tags":{"a":"b"},"items":[{"name":"n","gift":true}]}\n',
+    );
+    await writeFile(
+      join(dataDir, 'orders.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        const issues = [];
+        for (const key of Object.keys(data.meta)) if (key !== 'source' && key !== 'note') issues.push({ message: 'unknown', path: ['meta', key] });
+        if (!('source' in data.meta)) issues.push({ message: 'required', path: ['meta', 'source'] });
+        for (const [index, item] of data.items.entries()) {
+          for (const key of Object.keys(item)) if (key !== 'name' && key !== 'gift') issues.push({ message: 'unknown', path: ['items', index, key] });
+          if (!('name' in item)) issues.push({ message: 'required', path: ['items', index, 'name'] });
+        }
+        return issues.length ? { issues } : { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const orders = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'orders',
+    );
+    const nested = (name: string) => orders.columns.find((column: { name: string }) => column.name === name).nested;
+
+    expect(nested('meta')).toMatchObject({
+      '': { open: false },
+      source: { optional: false },
+      note: { optional: true },
+    });
+    expect(nested('tags')).toMatchObject({ '': { open: true }, a: { optional: true } });
+    expect(nested('items')).toMatchObject({
+      '*': { open: false },
+      '*.name': { optional: false },
+      '*.gift': { optional: true },
+    });
+  });
+
+  it('tells a key holding a dot or a star apart from keys nested inside one another and from the items of a list', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'docs.jsonl'), '{"id":1,"tags":{"a.b":"x","a":{"b":"y"},"*":"z"}}\n');
+    await writeFile(
+      join(dataDir, 'docs.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+        'a.b' in data.tags ? { value: data } : { issues: [{ message: 'required', path: ['tags', 'a.b'] }] } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const docs = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'docs',
+    );
+    const nested = docs.columns.find((column: { name: string }) => column.name === 'tags').nested;
+
+    expect(nested).toMatchObject({
+      'a%2Eb': { optional: false },
+      'a.b': { optional: true },
+      '%2A': { optional: true },
+    });
+  });
+
+  it('takes a key inside the items of a list only as far as every item takes it', async () => {
+    await studio.close();
+    await writeFile(
+      join(dataDir, 'boxes.jsonl'),
+      '{"id":1,"items":[{"kind":"loose","name":"a"},{"kind":"strict","name":"b"}]}\n',
+    );
+    await writeFile(
+      join(dataDir, 'boxes.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        const issues = [];
+        for (const [index, item] of data.items.entries()) {
+          if (item.kind !== 'strict') continue;
+          for (const key of Object.keys(item)) if (key !== 'kind' && key !== 'name') issues.push({ message: 'unknown', path: ['items', index, key] });
+          if (!('name' in item)) issues.push({ message: 'required', path: ['items', index, 'name'] });
+        }
+        return issues.length ? { issues } : { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const boxes = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'boxes',
+    );
+    const nested = boxes.columns.find((column: { name: string }) => column.name === 'items').nested;
+
+    expect(nested).toMatchObject({ '*': { open: false }, '*.name': { optional: false } });
+  });
+
+  it('finds what the schema takes of a table with rows that fail validation once per load of the files', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'counted.jsonl'), '{"id":1,"name":"a"}\n{"id":2}\n');
+    await writeFile(
+      join(dataDir, 'counted.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        globalThis.countedValidations = (globalThis.countedValidations ?? 0) + 1;
+        return typeof data.name === 'string' ? { value: data } : { issues: [{ message: 'name', path: ['name'] }] };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+    const counted = () => (globalThis as { countedValidations?: number }).countedValidations ?? 0;
+    await fetch(`${studio.url}/api/tables`);
+    const first = counted();
+
+    await fetch(`${studio.url}/api/tables`);
+
+    expect(counted()).toBe(first);
+  });
+
+  it('tries a new key on an object with a key no other one has, even one holding the key it tries first', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'probed.jsonl'), '{"id":1,"meta":{"__lines_db_studio_probe__":"a"}}\n');
+    await writeFile(
+      join(dataDir, 'probed.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        const extra = Object.keys(data.meta).filter((key) => key !== '__lines_db_studio_probe__');
+        return extra.length ? { issues: [{ message: 'unknown', path: ['meta', extra[0]] }] } : { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const probed = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'probed',
+    );
+
+    expect(probed.columns.find((column: { name: string }) => column.name === 'meta').nested['']).toMatchObject({
+      open: false,
+    });
+  });
+
+  it('takes neither null nor leaving out a field every row fails for, having no row that passes to try it on', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'nameless.jsonl'), '{"id":1}\n{"id":2}\n');
+    await writeFile(
+      join(dataDir, 'nameless.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+        typeof data.name === 'string' ? { value: data } : { issues: [{ message: 'name is required', path: ['name'] }] } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const nameless = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'nameless',
+    );
+
+    expect(nameless.columns.find((column: { name: string }) => column.name === 'name')).toMatchObject({
+      nullable: false,
+      optional: false,
+    });
+  });
+
+  it('takes leaving out a field the schema lets be left out, though every row fails for the value it holds', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'priced.jsonl'), '{"id":1,"price":-5}\n{"id":2,"price":null}\n');
+    await writeFile(
+      join(dataDir, 'priced.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+        !('price' in data) || (typeof data.price === 'number' && data.price >= 0) ? { value: data } : { issues: [{ message: 'negative', path: ['price'] }] } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const priced = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'priced',
+    );
+
+    expect(priced.columns.find((column: { name: string }) => column.name === 'price')).toMatchObject({
+      optional: true,
+    });
+  });
+
+  it('lists a foreign key to a table with rows that fail validation, though the database leaves it out on load', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'keepers.jsonl'), '{"id":1,"name":"a"}\n{"id":2}\n');
+    await writeFile(
+      join(dataDir, 'keepers.schema.ts'),
+      "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => typeof data.name === 'string' ? { value: data } : { issues: [{ message: 'name', path: ['name'] }] } } };\n",
+    );
+    await writeFile(join(dataDir, 'animals.jsonl'), '{"id":1,"keeper":1}\n');
+    await writeFile(
+      join(dataDir, 'animals.schema.ts'),
+      "export const foreignKeys = [{ column: 'keeper', references: { table: 'keepers', column: 'id' } }];\n" +
+        "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const animals = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'animals',
+    );
+
+    expect(animals).toMatchObject({
+      invalidRows: 0,
+      references: [{ column: 'keeper', table: 'keepers', referencedColumn: 'id' }],
+    });
+  });
+
+  it('takes leaving out a key inside a value only once the key no longer fails, as for a field', async () => {
+    await studio.close();
+    await writeFile(
+      join(dataDir, 'memos.jsonl'),
+      '{"id":1,"meta":{"source":"","note":""}}\n{"id":2,"meta":{"source":"","note":""}}\n',
+    );
+    await writeFile(
+      join(dataDir, 'memos.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        const issues = [];
+        if (!data.meta.source) issues.push({ message: 'source is required', path: ['meta', 'source'] });
+        if ('note' in data.meta && !data.meta.note) issues.push({ message: 'note is empty', path: ['meta', 'note'] });
+        return issues.length ? { issues } : { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const memos = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'memos',
+    );
+
+    expect(memos.columns.find((column: { name: string }) => column.name === 'meta').nested).toMatchObject({
+      source: { optional: false },
+      note: { optional: true },
+    });
+  });
+
+  it('lists a table with rows that fail validation, though its schema throws on a row without a field', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'gauges.jsonl'), '{"id":1,"meta":{"level":1}}\n');
+    await writeFile(
+      join(dataDir, 'gauges.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+        data.meta.level > 5 ? { value: data } : { issues: [{ message: 'too low', path: ['meta', 'level'] }] } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const response = await fetch(`${studio.url}/api/tables`);
+
+    expect(response.status).toBe(200);
+    expect((await bodyOf(response)).tables.find((table: { name: string }) => table.name === 'gauges')).toMatchObject({
+      invalidRows: 1,
+    });
+  });
+
+  it('finds what the schema takes of the items of a list with a check per key, not one per item', async () => {
+    await studio.close();
+    const items = Array.from({ length: 20 }, (_, index) => ({ name: `item ${index}`, gift: false }));
+    await writeFile(
+      join(dataDir, 'carts.jsonl'),
+      `${JSON.stringify({ id: 1, items })}\n${JSON.stringify({ id: 2, items })}\n`,
+    );
+    await writeFile(
+      join(dataDir, 'carts.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        globalThis.cartValidations = (globalThis.cartValidations ?? 0) + 1;
+        return { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+    const validations = () => (globalThis as { cartValidations?: number }).cartValidations ?? 0;
+    const before = validations();
+
+    await fetch(`${studio.url}/api/tables`);
+
+    expect(validations() - before).toBeLessThan(20);
+  });
+
+  it('lists the foreign keys of a table with rows that fail validation, so a failing row can open the row it refers to', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');
+    await writeFile(join(dataDir, 'pets.jsonl'), '{"id":1,"owner":1,"name":"a"}\n{"id":2,"owner":1}\n');
+    await writeFile(
+      join(dataDir, 'pets.schema.ts'),
+      "export const foreignKeys = [{ column: 'owner', references: { table: 'owners', column: 'id' } }];\n" +
+        "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => typeof data.name === 'string' ? { value: data } : { issues: [{ message: 'name', path: ['name'] }] } } };\n",
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const pets = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'pets',
+    );
+
+    expect(pets).toMatchObject({
+      invalidRows: 1,
+      references: [{ column: 'owner', table: 'owners', referencedColumn: 'id' }],
+    });
+  });
+
+  it('does not take removing a field another field needs, though the issue is about that other field', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'ranges.jsonl'), '{"id":1,"from":1,"to":2}\n{"id":2,"from":1}\n{"id":3}\n');
+    await writeFile(
+      join(dataDir, 'ranges.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+        'to' in data && !('from' in data) ? { issues: [{ message: 'to needs from', path: ['to'] }] } : { value: data } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const ranges = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'ranges',
+    );
+    const column = (name: string) => ranges.columns.find((candidate: { name: string }) => candidate.name === name);
+
+    expect(column('from')).toMatchObject({ optional: false });
+    expect(column('to')).toMatchObject({ optional: true });
+  });
+
+  it('leaves unknown whether an empty object takes new keys, having no value to try one with', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'tagged.jsonl'), '{"id":1,"tags":{}}\n');
+    await writeFile(
+      join(dataDir, 'tagged.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        const issues = Object.entries(data.tags).filter(([, value]) => typeof value !== 'string').map(([key]) => ({ message: 'string', path: ['tags', key] }));
+        return issues.length ? { issues } : { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const tagged = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'tagged',
+    );
+    const tags = tagged.columns.find((column: { name: string }) => column.name === 'tags');
+
+    expect(tags.nested?.['']?.open).toBeUndefined();
+  });
+
+  it('takes null and leaving a key out only where the column is not NOT NULL, for a table without a schema', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'loose.jsonl'), '{"id":1,"name":"a","note":null}\n{"id":2,"name":"b","note":"x"}\n');
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const loose = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'loose',
+    );
+    const column = (name: string) => loose.columns.find((candidate: { name: string }) => candidate.name === name);
+
+    expect(column('name')).toMatchObject({ nullable: false, optional: false });
+    expect(column('note')).toMatchObject({ nullable: true, optional: true });
+  });
+
   it('lists the schema file of each table, or null for a table without one', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'notes.jsonl'), '{"title":"first"}\n');
@@ -794,6 +1178,31 @@ describe('studio server', () => {
       });
       expect(rows.issues).toEqual({
         1: [expect.objectContaining({ message: 'Unrecognized key', path: [{ key: 'extra' }] })],
+      });
+    });
+
+    it('places an unrecognized-keys issue inside a value under each key it names', async () => {
+      await studio.close();
+      await writeFile(
+        join(dataDir, 'labels.schema.ts'),
+        `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+  const keys = Object.keys(data.meta ?? {}).filter((key) => key !== 'source');
+  return keys.length > 0
+    ? { issues: [{ code: 'unrecognized_keys', keys, path: ['meta'], message: 'Unrecognized key' }] }
+    : { value: data };
+} } };
+`,
+      );
+      await writeFile(
+        join(dataDir, 'labels.jsonl'),
+        '{"id":1,"meta":{"source":"a"}}\n{"id":2,"meta":{"source":"b","extra":1}}\n',
+      );
+      studio = await startStudioServer({ dataDir, port: 0 });
+
+      const rows = await bodyOf(await fetch(`${studio.url}/api/tables/labels/rows`));
+
+      expect(rows.issues).toEqual({
+        1: [expect.objectContaining({ message: 'Unrecognized key', path: ['meta', { key: 'extra' }] })],
       });
     });
 
