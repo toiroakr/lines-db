@@ -2828,7 +2828,9 @@ export class LinesDB<Tables extends TableDefs> {
     if (!this.inTransaction && !this.transactionStarting) return this.db;
     // Not handed out as is inside a transaction: SQL run on it would go unseen by the write-back, and
     // a COMMIT could end the transaction before the files are written
-    const viaTransaction = this.viaTransactionObject;
+    const token = this.viaTransactionObject ? this.transactionToken : undefined;
+    // Not captured as a boolean: a handle kept from an earlier transaction must not count as the running one's
+    const viaTransaction = () => token !== undefined && token === this.transactionToken;
     const guard = (sql: string) => {
       for (const statement of sql.split(';')) this.refuseTransactionControl(statement);
     };
@@ -2838,7 +2840,7 @@ export class LinesDB<Tables extends TableDefs> {
         const statement = this.db.prepare(sql);
         // Not checked only when prepared: a statement kept by the callback can run after it returned
         const settled = <T>(run: () => T): T =>
-          this.readOnlyWhileTransactionSettles(() => this.trackRawSql(run), viaTransaction);
+          this.readOnlyWhileTransactionSettles(() => this.trackRawSql(run), viaTransaction());
         return {
           run: (...params: unknown[]) => settled(() => statement.run(...params)),
           get: (...params: unknown[]) => settled(() => statement.get(...params)),
@@ -2847,7 +2849,7 @@ export class LinesDB<Tables extends TableDefs> {
       },
       exec: (sql: string) => {
         guard(sql);
-        this.readOnlyWhileTransactionSettles(() => this.trackRawSql(() => this.db.exec(sql)), viaTransaction);
+        this.readOnlyWhileTransactionSettles(() => this.trackRawSql(() => this.db.exec(sql)), viaTransaction());
       },
       close: () => this.db.close(),
     };

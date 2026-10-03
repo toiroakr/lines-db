@@ -378,6 +378,10 @@ Write through `tx`, not `db`, inside the callback: while a transaction is open, 
 (for example from other code running while the callback awaits) is refused, since it would otherwise be committed or
 rolled back with the transaction.
 
+A handle from `getDb()` that was taken before the transaction began is the SQLite connection itself, so SQL run through
+it while the callback awaits is not refused, and a change it makes is not written back to the files. Take the handle
+from `tx.getDb()` inside the callback instead.
+
 ### Core API
 
 All operations below return `Result<T, Error>` unless noted otherwise; `getSchema`, `getTableNames`,

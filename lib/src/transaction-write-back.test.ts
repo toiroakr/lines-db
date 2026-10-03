@@ -357,6 +357,28 @@ describe('LinesDB.transaction write-back', () => {
     expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
   });
 
+  it('refuses SQL run through a getDb() kept from an earlier transaction while a later one runs', async () => {
+    let kept: ReturnType<typeof db.getDb> | undefined;
+    unwrap(
+      await db.transaction((tx) => {
+        kept = tx.getDb();
+      }),
+    );
+
+    let threw = false;
+    await db.transaction(async () => {
+      await Promise.resolve();
+      try {
+        kept!.exec("INSERT INTO tags (id, label) VALUES (6, 'v')");
+      } catch {
+        threw = true;
+      }
+    });
+
+    expect(threw).toBe(true);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
   it('still answers reads made through the database while the callback awaits', async () => {
     let queried: unknown;
     let prepared: unknown;
