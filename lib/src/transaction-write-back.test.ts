@@ -452,6 +452,11 @@ describe('LinesDB.transaction write-back', () => {
       "/* lift */ pragma main.query_only=0; INSERT INTO tags (id, label) VALUES (11, 'q')",
       "/* harmless ; comment */ PRAGMA query_only=OFF; INSERT INTO tags (id, label) VALUES (12, 'o')",
       "PRAGMA /* ; */ query_only = OFF; INSERT INTO tags (id, label) VALUES (13, 'n')",
+      `PRAGMA "query_only" = OFF; INSERT INTO tags (id, label) VALUES (15, 'l')`,
+      `PRAGMA 'query_only' = OFF; INSERT INTO tags (id, label) VALUES (16, 'k')`,
+      "PRAGMA `query_only` = OFF; INSERT INTO tags (id, label) VALUES (17, 'j')",
+      "PRAGMA [query_only] = OFF; INSERT INTO tags (id, label) VALUES (18, 'i')",
+      `PRAGMA main."query_only" = OFF; INSERT INTO tags (id, label) VALUES (19, 'h')`,
     ];
     const refused: boolean[] = [];
     await db.transaction(async () => {
@@ -466,7 +471,7 @@ describe('LinesDB.transaction write-back', () => {
       }
     });
 
-    expect(refused).toEqual([true, true, true, true]);
+    expect(refused).toEqual(attempts.map(() => true));
     expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
   });
 

@@ -1980,7 +1980,11 @@ export class LinesDB<Tables extends TableDefs> {
         );
       }
       // Only setting it: reading the pragma changes nothing, and reads through the database stay available
-      if (/^PRAGMA\s+(?:(?:\w+|"[^"]*"|`[^`]*`|\[[^\]]*\])\s*\.\s*)?query_only\s*[=(]/i.test(statement)) {
+      if (
+        /^PRAGMA\s+(?:(?:\w+|"[^"]*"|`[^`]*`|\[[^\]]*\])\s*\.\s*)?(?:query_only|"query_only"|'query_only'|`query_only`|\[query_only\])\s*[=(]/i.test(
+          statement,
+        )
+      ) {
         throw new Error(
           `'${sql.trim()}' would lift the read-only mode that refuses writes made while a transaction runs`,
         );
