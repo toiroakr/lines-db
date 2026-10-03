@@ -111,7 +111,7 @@ describe('App', () => {
     expect(screen.getAllByRole('textbox', { name: 'name' })).toHaveLength(2);
   });
 
-  it('edits a cell from the keyboard while the form is shown, as a key press makes no double click', async () => {
+  it('shows the row in the form from Enter on a cell while the form is shown, as a click does', async () => {
     render(<App />);
     await showForm();
     const bob = (await nameCells())[1];
@@ -119,7 +119,8 @@ describe('App', () => {
     bob.focus();
     await userEvent.keyboard('{Enter}');
 
-    expect(screen.getAllByRole('textbox', { name: 'name' })).toHaveLength(2);
+    expect(form()?.getAttribute('aria-label')).toBe('users · id 2');
+    expect(screen.getAllByRole('textbox', { name: 'name' })).toHaveLength(1);
   });
 
   it('hides the form from the header again', async () => {

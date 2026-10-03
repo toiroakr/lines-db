@@ -1099,8 +1099,7 @@ function Cell({
         <button
           type="button"
           className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-          // Not left to the double click alone while the form is shown: a key press makes a click of no count, and no double click
-          onClick={(event) => (!formOpen || event.detail === 0) && onOpen()}
+          onClick={formOpen ? undefined : onOpen}
           onDoubleClick={formOpen ? onOpen : undefined}
           aria-label={
             issues.length > 0
