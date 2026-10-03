@@ -28,19 +28,19 @@
   --secondary: #edf2f7;
   --secondary-foreground: #2d3748;
   --muted: #f7fafc;
-  --muted-foreground: #718096;
+  --muted-foreground: #4a5568;
   --accent: #ebf4ff;
   --accent-foreground: #3c366b;
-  --destructive: #e53e3e;
+  --destructive: #c53030;
   --border: #e2e8f0;
   --input: #cbd5e0;
   --ring: #667eea;
   --sidebar: #f7fafc;
   --header: #f7fafc;
-  --success: #38a169;
+  --success: #2f855a;
   --success-foreground: #ffffff;
   --changed: #fefcbf;
-  --changed-foreground: #b7791f;
+  --changed-foreground: #975a16;
   --added: #f0fff4;
   --removed: #fff5f5;
 }
