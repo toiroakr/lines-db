@@ -639,6 +639,31 @@ describe('studio server', () => {
     });
   });
 
+  it('lists a foreign key to a table with rows that fail validation, though the database leaves it out on load', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'keepers.jsonl'), '{"id":1,"name":"a"}\n{"id":2}\n');
+    await writeFile(
+      join(dataDir, 'keepers.schema.ts'),
+      "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => typeof data.name === 'string' ? { value: data } : { issues: [{ message: 'name', path: ['name'] }] } } };\n",
+    );
+    await writeFile(join(dataDir, 'animals.jsonl'), '{"id":1,"keeper":1}\n');
+    await writeFile(
+      join(dataDir, 'animals.schema.ts'),
+      "export const foreignKeys = [{ column: 'keeper', references: { table: 'keepers', column: 'id' } }];\n" +
+        "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const animals = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'animals',
+    );
+
+    expect(animals).toMatchObject({
+      invalidRows: 0,
+      references: [{ column: 'keeper', table: 'keepers', referencedColumn: 'id' }],
+    });
+  });
+
   it('lists the foreign keys of a table with rows that fail validation, so a failing row can open the row it refers to', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');

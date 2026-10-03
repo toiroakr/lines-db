@@ -571,11 +571,13 @@ function prober(db: LinesDB<TableDefs>, tableName: string, sample: JsonObject) {
 }
 
 /**
- * The foreign keys of a table, as the row form opens the row a key refers to by them. A table whose
- * rows failed its schema on load has no schema in the database, so they are read from its schema file
+ * The foreign keys of a table, as the row form opens the row a key refers to by them. Read from its
+ * schema file first: the database leaves out a key to a table whose rows failed on load, and has no
+ * schema at all for a table whose own rows failed, though the studio lists those tables and their rows
  */
 async function referencesOf(db: LinesDB<TableDefs>, dataDir: string, tableName: string) {
-  const foreignKeys = db.getSchema(tableName)?.foreignKeys ?? (await foreignKeysInFile(dataDir, tableName));
+  const declared = await foreignKeysInFile(dataDir, tableName);
+  const foreignKeys = declared.length > 0 ? declared : (db.getSchema(tableName)?.foreignKeys ?? []);
   return foreignKeys.map((fk) => ({
     column: fk.column,
     table: fk.references.table,
