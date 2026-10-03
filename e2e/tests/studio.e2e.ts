@@ -327,7 +327,10 @@ test('shows failing cells and fields outside the schema from the file', async ({
   await app.screenshot('The failing row and the field outside the schema');
 });
 
-test('shows the schema file source in the Schema dialog', async ({ app, screen }) => {
+test('shows the declared definition in the Schema dialog, and the schema file source in its Code tab', async ({
+  app,
+  screen,
+}) => {
   await app.open('/');
   await screen
     .getByRole('navigation')
@@ -336,9 +339,12 @@ test('shows the schema file source in the Schema dialog', async ({ app, screen }
   await screen.getByRole('button', 'Schema', { exact: true }).tap();
   const dialog = screen.getByRole('dialog', 'users.schema.ts');
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('cell').filter({ hasText: 'email' })).toBeVisible();
+  await app.screenshot('The Schema dialog on its definition');
+  await dialog.getByRole('tab', 'Code', { exact: true }).tap();
   const source = await readFile(new URL('../fixtures/users.schema.ts', import.meta.url), 'utf8');
   await expect(dialog.getByLabel('users.schema.ts', { exact: true })).toHaveText(source);
-  await app.screenshot('The Schema dialog');
+  await app.screenshot('The Schema dialog on its code');
   await dialog.getByRole('button', 'Close', { exact: true }).tap();
   await expect(dialog).toBeHidden();
 });
