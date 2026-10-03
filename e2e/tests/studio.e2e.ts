@@ -27,7 +27,7 @@ const linesOf = async (file: string) =>
 test('lists the fixture tables and filters the sidebar', async ({ app, screen }) => {
   await app.open('/');
   const tables = screen.getByRole('navigation').getByRole('button');
-  await expect(tables).toHaveText([/^notes\s*1$/, /^products\s*1$/, /^tasks\s*2$/, /^users\s*2$/]);
+  await expect(tables).toHaveText([/^notes\s*1$/, /^products\s*1$/, /^reviews\s*1$/, /^tasks\s*2$/, /^users\s*2$/]);
   await screen.getByRole('textbox', 'Search tables').fill('users');
   await expect(tables).toHaveCount(1);
   await expect(tables).toContainText('users');
@@ -349,6 +349,43 @@ test('shows the declared definition in the Schema dialog, and the schema file so
   await expect(dialog).toBeHidden();
 });
 
+test('follows a foreign key to the schema of the table it references, and back', async ({ app, screen, browser }) => {
+  await app.open('/');
+  await screen
+    .getByRole('navigation')
+    .getByRole('button', /^reviews/)
+    .tap();
+  await screen.getByRole('button', 'Schema', { exact: true }).tap();
+  const hash = () => browser.evaluate(async () => location.hash);
+  const reviews = screen.getByRole('dialog', 'reviews.schema.ts');
+  const users = screen.getByRole('dialog', 'users.schema.ts');
+  await expect(reviews).toBeVisible();
+  expect(await hash()).toBe('#reviews?schema=reviews');
+  await expect(reviews.getByRole('button', /^Back to the schema/)).toHaveCount(0);
+
+  await reviews.getByRole('link', 'users', { exact: true }).first().tap();
+  await expect(users).toBeVisible();
+  expect(await hash()).toBe('#reviews?schema=users');
+  await app.screenshot('The schema reached through a foreign key');
+
+  await users.getByRole('button', 'Back to the schema of reviews', { exact: true }).tap();
+  await expect(reviews).toBeVisible();
+  expect(await hash()).toBe('#reviews?schema=reviews');
+
+  await reviews.getByRole('link', 'users', { exact: true }).first().tap();
+  await expect(users).toBeVisible();
+  await browser.evaluate(async () => (history.back(), null));
+  await expect(reviews).toBeVisible();
+  await browser.evaluate(async () => (history.forward(), null));
+  await expect(users).toBeVisible();
+  await expect(users.getByRole('button', 'Back to the schema of reviews', { exact: true })).toBeVisible();
+
+  await browser.evaluate(async () => (setTimeout(() => location.reload(), 0), null));
+  await expect(users).toBeVisible();
+  await expect(users.getByRole('button', 'Back to the schema of reviews', { exact: true })).toBeVisible();
+  expect(await hash()).toBe('#reviews?schema=users');
+});
+
 test('opens and closes the table drawer at 390px', async ({ app, screen, browser }) => {
   await browser.setViewport({ width: 390, height: 844 });
   await app.open('/');
@@ -357,7 +394,7 @@ test('opens and closes the table drawer at 390px', async ({ app, screen, browser
   await expect(navigation).toBeHidden();
   await screen.getByRole('button', 'Open the table list').tap();
   await expect(navigation).toBeVisible();
-  await expect(navigation.getByRole('button')).toHaveCount(4);
+  await expect(navigation.getByRole('button')).toHaveCount(5);
   await app.screenshot('The table list open at 390px');
   await screen.getByRole('button', 'Close the table list').tap();
   await expect(navigation).toBeHidden();
