@@ -483,6 +483,25 @@ test('opens a row in the hidden row form with a double click', async ({ app, scr
   await app.screenshot('A row shown in the form from a double click');
 });
 
+test('opens a row in the hidden row form with a double click on a JSON cell, which edits in a dialog', async ({
+  app,
+  screen,
+}) => {
+  await app.open('/');
+  await screen
+    .getByRole('navigation')
+    .getByRole('button', /^orders/)
+    .tap();
+  await screen.getByRole('button', 'Hide the row form', { exact: true }).tap();
+  await expect(screen.getByRole('complementary', 'Row form', { exact: true })).toBeHidden();
+
+  await screen.getByRole('button', 'Edit meta', { exact: true }).doubleTap();
+
+  await expect(screen.getByRole('complementary', 'orders · id 1', { exact: true })).toBeVisible();
+  await expect(screen.getByRole('dialog')).toBeHidden();
+  await app.screenshot('A row shown in the form from a double click on a JSON cell');
+});
+
 test('breaks a line of text with Shift+Enter, and none with Enter alone', async ({ app, screen }) => {
   await app.open('/');
   await screen
