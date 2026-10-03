@@ -709,6 +709,29 @@ describe('studio server', () => {
     });
   });
 
+  it('finds what the schema takes of the items of a list with a check per key, not one per item', async () => {
+    await studio.close();
+    const items = Array.from({ length: 20 }, (_, index) => ({ name: `item ${index}`, gift: false }));
+    await writeFile(
+      join(dataDir, 'carts.jsonl'),
+      `${JSON.stringify({ id: 1, items })}\n${JSON.stringify({ id: 2, items })}\n`,
+    );
+    await writeFile(
+      join(dataDir, 'carts.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        globalThis.cartValidations = (globalThis.cartValidations ?? 0) + 1;
+        return { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+    const validations = () => (globalThis as { cartValidations?: number }).cartValidations ?? 0;
+    const before = validations();
+
+    await fetch(`${studio.url}/api/tables`);
+
+    expect(validations() - before).toBeLessThan(20);
+  });
+
   it('lists the foreign keys of a table with rows that fail validation, so a failing row can open the row it refers to', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');

@@ -633,7 +633,7 @@ const PROBE_KEY = '__lines_db_studio_probe__';
  * `%`, `.` and `*` in a key as `%25`, `%2E` and `%2A`). Found as
  * for a column, from the issues a change brings that the sample did not have: a key added to an object
  * tells whether it takes keys it does not name, and a key removed whether it can be left out. The
- * items of a list are read one by one, and what one of them refuses counts as refused for all
+ * items of a list are changed together in one check, so what one of them refuses counts as refused for all
  */
 function nestedLeeway(
   db: LinesDB<TableDefs>,
@@ -642,51 +642,58 @@ function nestedLeeway(
   column: string,
 ): Record<string, NestedLeeway> {
   const probe = prober(db, tableName, sample);
-  const takes = (row: JsonObject) => probe(row).taken;
-  // Not taken while the key still fails: a sample failing for it already has its issue among the sample's
-  const leaves = (row: JsonObject, path: Array<string | number>) => {
-    const { taken, failsAt } = probe(row);
-    return taken && !failsAt([column, ...path]);
-  };
-  const at = (path: Array<string | number>, change: (object: JsonObject) => JsonObject) =>
-    ({ ...sample, [column]: changeAt(sample[column], path, change) }) as JsonObject;
+  // Not one object at a time: the items of a list share a pattern, so all of them are changed in one check,
+  // and one an item refuses is refused for all
+  const atAll = (paths: Array<Array<string | number>>, change: (object: JsonObject) => JsonObject) =>
+    ({
+      ...sample,
+      [column]: paths.reduce((value, path) => changeAt(value, path, change), sample[column]),
+    }) as JsonObject;
 
-  const leeway: Record<string, NestedLeeway> = {};
-  // Not the first item's alone: the items of a list share a pattern, and one an item refuses is refused for all
-  const both = (before: boolean | undefined, found: boolean | undefined) =>
-    before === undefined ? found : found === undefined ? before : before && found;
-  const record = (pattern: string, found: NestedLeeway) => {
-    const before = leeway[pattern] ?? {};
-    leeway[pattern] = { open: both(before.open, found.open), optional: both(before.optional, found.optional) };
-  };
+  const objects = new Map<string, Array<{ path: Array<string | number>; object: JsonObject }>>();
   const walk = (value: JsonValue | undefined, path: Array<string | number>, pattern: string[]) => {
     if (Array.isArray(value)) {
       value.forEach((item, index) => walk(item, [...path, index], [...pattern, '*']));
       return;
     }
     if (value === null || typeof value !== 'object') return;
-    const entries = Object.entries(value);
-    // Not tried on an empty object: with no value of its own to give a new key, any value tried may be refused
-    if (entries.length > 0) {
-      // Not the probe key alone: an object may hold it already, and then it is changed rather than added
-      let probe = PROBE_KEY;
-      while (Object.hasOwn(value, probe)) probe += '_';
-      record(pattern.join('.'), { open: takes(at(path, (object) => ({ ...object, [probe]: entries[0][1] }))) });
-    }
-    for (const [key, item] of entries) {
-      record([...pattern, segmentOf(key)].join('.'), {
-        optional: leaves(
-          at(path, (object) => {
-            const { [key]: _removed, ...rest } = object;
-            return rest;
-          }),
-          [...path, key],
-        ),
-      });
-      walk(item, [...path, key], [...pattern, segmentOf(key)]);
-    }
+    const key = pattern.join('.');
+    objects.set(key, [...(objects.get(key) ?? []), { path, object: value }]);
+    for (const [name, item] of Object.entries(value)) walk(item, [...path, name], [...pattern, segmentOf(name)]);
   };
   walk(sample[column], [], []);
+
+  const leeway: Record<string, NestedLeeway> = {};
+  for (const [pattern, found] of objects) {
+    const prefix = pattern === '' ? '' : `${pattern}.`;
+    // Not tried on an empty object: with no value of its own to give a new key, any value tried may be refused
+    const filled = found.filter(({ object }) => Object.keys(object).length > 0);
+    if (filled.length > 0) {
+      // Not the probe key alone: an object may hold it already, and then it is changed rather than added
+      let added = PROBE_KEY;
+      while (filled.some(({ object }) => Object.hasOwn(object, added))) added += '_';
+      const open = probe(
+        atAll(
+          filled.map(({ path }) => path),
+          (object) => ({ ...object, [added]: Object.values(object)[0] }),
+        ),
+      ).taken;
+      leeway[pattern] = { open };
+    }
+    const keys = new Set(found.flatMap(({ object }) => Object.keys(object)));
+    for (const name of keys) {
+      const holding = found.filter(({ object }) => Object.hasOwn(object, name)).map(({ path }) => path);
+      const { taken, failsAt } = probe(
+        atAll(holding, (object) => {
+          const { [name]: _removed, ...rest } = object;
+          return rest;
+        }),
+      );
+      // Not taken while the key still fails: a sample failing for it already has its issue among the sample's
+      const optional = taken && !holding.some((path) => failsAt([column, ...path, name]));
+      leeway[`${prefix}${segmentOf(name)}`] = { ...leeway[`${prefix}${segmentOf(name)}`], optional };
+    }
+  }
   return leeway;
 }
 
