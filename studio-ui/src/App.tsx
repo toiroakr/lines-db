@@ -28,7 +28,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CellEditor } from '@/components/cell-editor';
 import { SchemaDialog } from '@/components/schema-viewer';
 import { CopyPath } from '@/components/copy-path';
-import { formatHash, parseHash, schemaTrailOf } from '@/lib/hash';
+import { formatHash, parseHash, schemaOpenedInApp, schemaTrailOf } from '@/lib/hash';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import {
   fetchRows,
@@ -392,7 +392,11 @@ export function App() {
                   size="sm"
                   variant="outline"
                   aria-label="Schema"
-                  onClick={() => (location.hash = formatHash(table.name, table.name))}
+                  onClick={() => {
+                    history.pushState({ schemaTrail: [], schemaInApp: true }, '', formatHash(table.name, table.name));
+                    setSchemaTable(table.name);
+                    setSchemaTrail([]);
+                  }}
                 >
                   <FileCode /> <span className="hidden sm:inline">Schema</span>
                 </Button>
@@ -444,7 +448,11 @@ export function App() {
               backTo={schemaTrail.at(-1)}
               onOpenSchema={(name) => {
                 const trail = [...schemaTrail, schemaDialog.name];
-                history.pushState({ schemaTrail: trail }, '', formatHash(table?.name ?? '', name));
+                history.pushState(
+                  { schemaTrail: trail, schemaInApp: schemaOpenedInApp(history.state) },
+                  '',
+                  formatHash(table?.name ?? '', name),
+                );
                 setSchemaTable(name);
                 setSchemaTrail(trail);
               }}
@@ -454,7 +462,12 @@ export function App() {
                   : undefined
               }
               onClose={() => {
-                // Replaced rather than pushed: going back from the page then leaves it, not reopens the schema
+                if (schemaOpenedInApp(history.state)) {
+                  // Back to the entry before the schema, which the hashchange then shows without it
+                  history.go(-(schemaTrail.length + 1));
+                  return;
+                }
+                // Not gone back from an address typed in: that entry may be the first, and going back leaves the page
                 history.replaceState(null, '', formatHash(table?.name ?? ''));
                 setSchemaTable(null);
                 setSchemaTrail([]);

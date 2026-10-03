@@ -30,3 +30,8 @@ export function schemaTrailOf(state: unknown): string[] {
   const trail = (state as { schemaTrail?: unknown } | null)?.schemaTrail;
   return Array.isArray(trail) && trail.every((name) => typeof name === 'string') ? trail : [];
 }
+
+/** Whether the page pushed the history entry to open a schema, so that closing it can go back to where it began */
+export function schemaOpenedInApp(state: unknown): boolean {
+  return (state as { schemaInApp?: unknown } | null)?.schemaInApp === true;
+}

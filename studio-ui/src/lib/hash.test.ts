@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatHash, parseHash, schemaTrailOf } from './hash';
+import { formatHash, parseHash, schemaOpenedInApp, schemaTrailOf } from './hash';
 
 describe('parseHash', () => {
   it('reads the table name the hash holds', () => {
@@ -49,6 +49,19 @@ describe('schemaTrailOf', () => {
     'reads %j, which is not a trail, as none',
     (state) => {
       expect(schemaTrailOf(state)).toEqual([]);
+    },
+  );
+});
+
+describe('schemaOpenedInApp', () => {
+  it('is true for an entry the page pushed to open a schema, as closing it can go back to where it began', () => {
+    expect(schemaOpenedInApp({ schemaInApp: true, schemaTrail: [] })).toBe(true);
+  });
+
+  it.each([null, undefined, {}, { schemaInApp: false }, { schemaInApp: 'yes' }, 'a'])(
+    'is false for %j, an entry the page did not push, as going back from a schema address typed in could leave the page',
+    (state) => {
+      expect(schemaOpenedInApp(state)).toBe(false);
     },
   );
 });

@@ -386,6 +386,30 @@ test('follows a foreign key to the schema of the table it references, and back',
   expect(await hash()).toBe('#reviews?schema=users');
 });
 
+test('leaves no schema entry in the history once the dialog is closed after following a foreign key', async ({
+  app,
+  screen,
+  browser,
+}) => {
+  await app.open('/');
+  await screen
+    .getByRole('navigation')
+    .getByRole('button', /^reviews/)
+    .tap();
+  await screen.getByRole('button', 'Schema', { exact: true }).tap();
+  await screen.getByRole('dialog', 'reviews.schema.ts').getByRole('link', 'users', { exact: true }).first().tap();
+  await expect(screen.getByRole('dialog', 'users.schema.ts')).toBeVisible();
+
+  await screen.getByRole('dialog').getByRole('button', 'Close', { exact: true }).tap();
+  await expect(screen.getByRole('dialog')).toBeHidden();
+  expect(await browser.evaluate(async () => location.hash)).toBe('#reviews');
+
+  await browser.evaluate(async () => (history.back(), null));
+  await expect(screen.getByRole('heading', 'notes', { exact: true })).toBeVisible();
+  await expect(screen.getByRole('dialog')).toBeHidden();
+  expect(await browser.evaluate(async () => location.hash)).not.toContain('schema');
+});
+
 test('opens the schema again when history returns to a table it was open on', async ({ app, screen, browser }) => {
   await app.open('/');
   await screen
