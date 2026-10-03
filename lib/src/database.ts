@@ -27,6 +27,7 @@ import type {
 } from './types.js';
 import type { BiDirectionalSchema } from './schema.js';
 import { type Result, ok, err, toError, unwrap } from './result.js';
+import { isReadOnlyStatement, splitStatements } from './sql-statements.js';
 
 /**
  * Options for {@link LinesDB.update}
@@ -155,6 +156,10 @@ export class LinesDB<Tables extends TableDefs> {
   private transactionClosing = false;
   /** Whether a transaction() call is past its guard but has not begun yet */
   private transactionStarting = false;
+  /** Whether the running call came in through the object the running transaction() callback receives */
+  private viaTransactionObject = false;
+  /** Identifies the running transaction, so an object kept from an earlier one is not taken for its own */
+  private transactionToken: object | undefined;
   /** The tables changed in the running transaction, or 'all' once raw SQL may have changed any */
   private transactionChanges: Set<string> | 'all' | undefined;
   /** Hash of each JSONL file's content as this database last read or wrote it */
@@ -1055,7 +1060,7 @@ export class LinesDB<Tables extends TableDefs> {
   query<T = unknown>(sql: string, params: (string | number | bigint | null | Uint8Array)[] = []): Result<T[], Error> {
     try {
       this.enforceReadOnlySql();
-      this.refuseTransactionControl(sql);
+      this.refuseUnsafeSql(sql);
       return ok(this.trackRawSql(() => this.readOnlyWhileTransactionSettles(() => this.queryInternal<T>(sql, params))));
     } catch (error) {
       return err(toError(error));
@@ -1076,7 +1081,7 @@ export class LinesDB<Tables extends TableDefs> {
   ): Result<T | null, Error> {
     try {
       this.enforceReadOnlySql();
-      this.refuseTransactionControl(sql);
+      this.refuseUnsafeSql(sql);
       return ok(
         this.trackRawSql(() => this.readOnlyWhileTransactionSettles(() => this.queryOneInternal<T>(sql, params))),
       );
@@ -1103,7 +1108,7 @@ export class LinesDB<Tables extends TableDefs> {
   ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
     try {
       this.enforceReadOnlySql();
-      this.refuseTransactionControl(sql);
+      this.refuseUnsafeSql(sql);
       this.refuseWhileTransactionSettles('run SQL');
       return ok(this.trackRawSql(() => this.executeInternal(sql, params)));
     } catch (error) {
@@ -1961,16 +1966,41 @@ export class LinesDB<Tables extends TableDefs> {
    * `PRAGMA query_only = OFF`
    */
   /**
-   * Refuse SQL that would end a transaction() before it writes the files back: committed early, the
-   * change could no longer be rolled back when the write-back fails
+   * Refuse SQL that would end a transaction() or lift the read-only mode that holds back writes made
+   * through the database while it runs. Looked for in each statement as SQLite reads it, so a `;` or a
+   * comment cannot hide one
    */
-  private refuseTransactionControl(sql: string): void {
-    if (!this.inTransaction) return;
-    const leadingComments = /^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?(?:\*\/|$))*/;
-    if (/^(BEGIN|COMMIT|END|ROLLBACK(?!\s+(TRANSACTION\s+)?TO\b))\b/i.test(sql.replace(leadingComments, ''))) {
-      throw new Error(
-        `'${sql.trim()}' would end the transaction before its files are written back; return from the callback to commit, or throw to roll back`,
-      );
+  private refuseUnsafeSql(sql: string, viaTransaction = this.viaTransactionObject): void {
+    // Not only once begun: the read-only mode is held from the moment a transaction starts until it closes,
+    // and a BEGIN while it starts would make its own BEGIN fail with one left open that it never rolls back
+    if (!this.inTransaction && !this.transactionStarting && !this.transactionClosing) return;
+    for (const statement of splitStatements(sql)) {
+      // Closed by default: SQL run through the database while a transaction runs may only read, as any
+      // other statement or pragma could change the transaction, and none can be listed one by one
+      if (this.inTransaction && !viaTransaction && !isReadOnlyStatement(statement)) {
+        throw new Error(
+          `'${sql.trim()}' is not a read: while a transaction runs, SQL that changes anything must go through the callback's tx`,
+        );
+      }
+      if (/^(BEGIN|COMMIT|END|ROLLBACK(?!\s+(TRANSACTION\s+)?TO\b))\b/i.test(statement)) {
+        throw new Error(
+          `'${sql.trim()}' would end the transaction before its files are written back; return from the callback to commit, or throw to roll back`,
+        );
+      }
+      // Not once begun, when a SAVEPOINT is a transaction nested in it and does no harm
+      if (!this.inTransaction && /^SAVEPOINT\b/i.test(statement)) {
+        throw new Error(`'${sql.trim()}' would open a transaction of its own while the transaction starts`);
+      }
+      // Only setting it: reading the pragma changes nothing, and reads through the database stay available
+      if (
+        /^PRAGMA\s+(?:(?:\w+|"[^"]*"|'[^']*'|`[^`]*`|\[[^\]]*\])\s*\.\s*)?(?:query_only|"query_only"|'query_only'|`query_only`|\[query_only\])\s*[=(]/i.test(
+          statement,
+        )
+      ) {
+        throw new Error(
+          `'${sql.trim()}' would lift the read-only mode that refuses writes made while a transaction runs`,
+        );
+      }
     }
   }
 
@@ -1989,9 +2019,15 @@ export class LinesDB<Tables extends TableDefs> {
   /**
    * Refuse a change while a transaction starts or writes its files back: one made while it starts would
    * be written back with rows the transaction may roll back, and one made while it closes would be
-   * committed without reaching the files
+   * committed without reaching the files. Also refuse one made through the database itself while the
+   * callback runs, which would be committed or rolled back with the transaction unnoticed by its caller
    */
-  private refuseWhileTransactionSettles(action: string): void {
+  private refuseWhileTransactionSettles(action: string, viaTransaction = this.viaTransactionObject): void {
+    if (this.inTransaction && !viaTransaction) {
+      throw new Error(
+        `Cannot ${action} through the database while a transaction is running: a change made now would be committed or rolled back with it; use the object the transaction callback receives, or wait until it has finished`,
+      );
+    }
     if (this.transactionStarting) {
       throw new Error(`Cannot ${action} while a transaction is starting; ${action.split(' ')[0]} once it has finished`);
     }
@@ -2006,13 +2042,15 @@ export class LinesDB<Tables extends TableDefs> {
    * Run a query() with the database read-only while a transaction starts or writes its files back.
    * Not refused outright as execute() is: a query that only reads changes nothing the files would miss
    */
-  private readOnlyWhileTransactionSettles<T>(run: () => T): T {
-    if (!this.transactionStarting && !this.transactionClosing) return run();
+  private readOnlyWhileTransactionSettles<T>(run: () => T, viaTransaction = this.viaTransactionObject): T {
+    if (!this.transactionStarting && !this.transactionClosing && !(this.inTransaction && !viaTransaction)) {
+      return run();
+    }
     this.db.exec('PRAGMA query_only = ON');
     try {
       return run();
     } catch (error) {
-      if (/readonly/i.test(toError(error).message)) this.refuseWhileTransactionSettles('change rows');
+      if (/readonly/i.test(toError(error).message)) this.refuseWhileTransactionSettles('change rows', viaTransaction);
       throw error;
     } finally {
       if (!this.hasSeveralDataDirs()) this.db.exec('PRAGMA query_only = OFF');
@@ -2694,6 +2732,7 @@ export class LinesDB<Tables extends TableDefs> {
     }
     // Not left to inTransaction: it is set only after the awaits below, which a second call could slip past
     this.transactionStarting = true;
+    const token = {};
 
     let fieldChangesBefore: Map<string, Map<string, FieldChanges>> | undefined;
     let rawSqlTablesBefore: Set<string> | undefined;
@@ -2709,13 +2748,19 @@ export class LinesDB<Tables extends TableDefs> {
       );
       this.db.exec('BEGIN TRANSACTION');
       this.inTransaction = true;
+      this.transactionToken = token;
       this.transactionStarting = false;
       this.transactionChanges = new Set();
 
-      const result = await fn(this);
-      // Not open to writes from here: the rows are read for the write-back, and a write made during its
-      // awaits would join the transaction without reaching the files
-      this.transactionClosing = true;
+      let result: T;
+      try {
+        result = await fn(this.scopedToTransaction(token));
+      } finally {
+        // Not open to writes from here, whether the callback returned or threw: the rows are read for the
+        // write-back and the files put back, and a write made during those awaits would join the
+        // transaction without reaching the files, or be rolled back after it reported success
+        this.transactionClosing = true;
+      }
 
       // Written back before COMMIT, so a failed write-back rolls the change back instead of leaving the
       // database holding rows its files do not; a read-only database has no changes to write back
@@ -2747,7 +2792,31 @@ export class LinesDB<Tables extends TableDefs> {
       return err(toError(failure));
     } finally {
       this.transactionClosing = false;
+      this.transactionToken = undefined;
     }
+  }
+
+  /**
+   * The object a transaction() callback receives. Calls on it are marked as the transaction's own for as
+   * long as they run; a write made through the database itself in the meantime is refused, since writes are
+   * synchronous and cannot be queued until the transaction ends
+   */
+  private scopedToTransaction(token: object): LinesDB<Tables> {
+    return new Proxy(this, {
+      get: (target, property) => {
+        const value: unknown = Reflect.get(target, property, target);
+        if (typeof value !== 'function') return value;
+        return (...args: unknown[]) => {
+          const before = target.viaTransactionObject;
+          target.viaTransactionObject = before || target.transactionToken === token;
+          try {
+            return value.apply(target, args);
+          } finally {
+            target.viaTransactionObject = before;
+          }
+        };
+      },
+    });
   }
 
   /**
@@ -2785,35 +2854,37 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
-   * Get the underlying SQLite database instance
+   * Get a handle for running SQL on the underlying SQLite database. It wraps the connection rather than
+   * being it, also outside a transaction: while a transaction() callback runs, SQL that changes rows is
+   * refused unless the handle came from the callback's `tx`, and SQL that would end the transaction is
+   * refused for every handle. Outside a transaction it runs SQL unchanged.
    */
   getDb(): SQLiteDatabase {
-    if (!this.inTransaction && !this.transactionStarting) return this.db;
-    // Not handed out as is inside a transaction: SQL run on it would go unseen by the write-back, and
-    // a COMMIT could end the transaction before the files are written
-    const guard = (sql: string) => {
-      for (const statement of sql.split(';')) this.refuseTransactionControl(statement);
+    // Handed out as a wrapper even outside a transaction: a handle kept from before one would otherwise
+    // write while its callback awaits, unseen by the write-back, and be committed or rolled back with it
+    const token = this.viaTransactionObject ? this.transactionToken : undefined;
+    // Not captured as a boolean: a handle kept from an earlier transaction must not count as the running one's
+    const viaTransaction = () => token !== undefined && token === this.transactionToken;
+    const idle = () => !this.inTransaction && !this.transactionStarting && !this.transactionClosing;
+    // Checked each time SQL runs, not when the handle is taken: SQL that would end a transaction must be
+    // refused, and one that changes rows tracked, whichever transaction is open by then
+    const guarded = <T>(sql: string, run: () => T): T => {
+      if (idle()) return run();
+      this.refuseUnsafeSql(sql, viaTransaction());
+      return this.readOnlyWhileTransactionSettles(() => this.trackRawSql(run), viaTransaction());
     };
     return {
       prepare: (sql: string) => {
-        guard(sql);
+        // Also when prepared: SQLite runs some pragmas then, not only when the statement is stepped
+        if (!idle()) this.refuseUnsafeSql(sql, viaTransaction());
         const statement = this.db.prepare(sql);
-        // Not checked only when prepared: a statement kept by the callback can run after it returned
-        const settled = <T>(run: () => T): T => {
-          this.refuseWhileTransactionSettles('run SQL');
-          return this.trackRawSql(run);
-        };
         return {
-          run: (...params: unknown[]) => settled(() => statement.run(...params)),
-          get: (...params: unknown[]) => settled(() => statement.get(...params)),
-          all: (...params: unknown[]) => settled(() => statement.all(...params)),
+          run: (...params: unknown[]) => guarded(sql, () => statement.run(...params)),
+          get: (...params: unknown[]) => guarded(sql, () => statement.get(...params)),
+          all: (...params: unknown[]) => guarded(sql, () => statement.all(...params)),
         };
       },
-      exec: (sql: string) => {
-        guard(sql);
-        this.refuseWhileTransactionSettles('run SQL');
-        this.trackRawSql(() => this.db.exec(sql));
-      },
+      exec: (sql: string) => guarded(sql, () => this.db.exec(sql)),
       close: () => this.db.close(),
     };
   }

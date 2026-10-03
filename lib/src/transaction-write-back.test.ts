@@ -291,6 +291,215 @@ describe('LinesDB.transaction write-back', () => {
     expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
   });
 
+  it('refuses a write made through the database while the callback awaits, and commits the tx writes', async () => {
+    let outside: { ok: boolean } | undefined;
+    let outsideQuery: { ok: boolean } | undefined;
+    const result = await db.transaction(async (tx) => {
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      await Promise.resolve();
+      outside = db.insert('tags', { id: 2, label: 'x' });
+      outsideQuery = db.query("INSERT INTO tags (id, label) VALUES (3, 'y')");
+      unwrap(tx.insert('tags', { id: 4, label: 'z' }));
+    });
+
+    expect(result.ok).toBe(true);
+    expect(outside?.ok).toBe(false);
+    expect(outsideQuery?.ok).toBe(false);
+    expect(unwrap(db.find('tags'))).toEqual([
+      { id: 1, label: 'x' },
+      { id: 4, label: 'z' },
+    ]);
+  });
+
+  it('refuses a write made through the database during a transaction that then rolls back, so none is reported ok and lost', async () => {
+    let outside: { ok: boolean } | undefined;
+    const result = await db.transaction(async (tx) => {
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      await Promise.resolve();
+      outside = db.insert('tags', { id: 2, label: 'x' });
+      throw new Error('changed my mind');
+    });
+
+    expect(result.ok).toBe(false);
+    expect(outside?.ok).toBe(false);
+  });
+
+  it('refuses SQL run through a getDb() taken from the database while the callback awaits', async () => {
+    let threw = false;
+    await db.transaction(async () => {
+      await Promise.resolve();
+      try {
+        db.getDb().exec("INSERT INTO tags (id, label) VALUES (5, 'w')");
+      } catch {
+        threw = true;
+      }
+    });
+
+    expect(threw).toBe(true);
+  });
+
+  it('refuses a write made through a tx kept from an earlier transaction while a later one runs', async () => {
+    let kept: typeof db | undefined;
+    unwrap(
+      await db.transaction((tx) => {
+        kept = tx;
+      }),
+    );
+
+    let stale: { ok: boolean } | undefined;
+    const result = await db.transaction(async () => {
+      await Promise.resolve();
+      stale = kept!.insert('tags', { id: 2, label: 'x' });
+    });
+
+    expect(result.ok).toBe(true);
+    expect(stale?.ok).toBe(false);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('refuses SQL run through a getDb() kept from an earlier transaction while a later one runs', async () => {
+    let kept: ReturnType<typeof db.getDb> | undefined;
+    unwrap(
+      await db.transaction((tx) => {
+        kept = tx.getDb();
+      }),
+    );
+
+    let threw = false;
+    await db.transaction(async () => {
+      await Promise.resolve();
+      try {
+        kept!.exec("INSERT INTO tags (id, label) VALUES (6, 'v')");
+      } catch {
+        threw = true;
+      }
+    });
+
+    expect(threw).toBe(true);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('refuses SQL run through a getDb() taken before the transaction began, which the write-back would miss', async () => {
+    const early = db.getDb();
+    let threw = false;
+    const result = await db.transaction(async (tx) => {
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      await Promise.resolve();
+      try {
+        early.exec("INSERT INTO tags (id, label) VALUES (7, 'u')");
+      } catch {
+        threw = true;
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    expect(threw).toBe(true);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('refuses a statement prepared before the transaction began when it runs while the callback awaits', async () => {
+    const insert = db.getDb().prepare("INSERT INTO tags (id, label) VALUES (8, 't')");
+    let threw = false;
+    await db.transaction(async () => {
+      await Promise.resolve();
+      try {
+        insert.run();
+      } catch {
+        threw = true;
+      }
+    });
+
+    expect(threw).toBe(true);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('still runs SQL through getDb() outside a transaction', () => {
+    db.getDb().exec("INSERT INTO tags (id, label) VALUES (9, 's')");
+
+    expect(unwrap(db.find('tags'))).toEqual([
+      { id: 1, label: 'x' },
+      { id: 9, label: 's' },
+    ]);
+  });
+
+  it('accepts SQL that defines a trigger through getDb(), whose END does not end the transaction', async () => {
+    const result = await db.transaction((tx) => {
+      tx.getDb().exec('CREATE TRIGGER items_touched AFTER UPDATE ON items BEGIN UPDATE tags SET label = label; END');
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('refuses a COMMIT that a semicolon in a comment would hide, as it would end the transaction early', async () => {
+    let refused = false;
+    const result = await db.transaction((tx) => {
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      try {
+        tx.getDb().exec('/* ; */ COMMIT');
+      } catch {
+        refused = true;
+      }
+    });
+
+    expect(refused).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(unwrap(db.find('items'))).toEqual([{ id: 1, name: 'A' }]);
+  });
+
+  it('refuses SQL that lifts query_only, which the guard relies on to refuse writes through the database', async () => {
+    const attempts = [
+      "PRAGMA query_only = OFF; INSERT INTO tags (id, label) VALUES (10, 'p')",
+      "/* lift */ pragma main.query_only=0; INSERT INTO tags (id, label) VALUES (11, 'q')",
+      "/* harmless ; comment */ PRAGMA query_only=OFF; INSERT INTO tags (id, label) VALUES (12, 'o')",
+      "PRAGMA /* ; */ query_only = OFF; INSERT INTO tags (id, label) VALUES (13, 'n')",
+      `PRAGMA "query_only" = OFF; INSERT INTO tags (id, label) VALUES (15, 'l')`,
+      `PRAGMA 'query_only' = OFF; INSERT INTO tags (id, label) VALUES (16, 'k')`,
+      "PRAGMA `query_only` = OFF; INSERT INTO tags (id, label) VALUES (17, 'j')",
+      "PRAGMA [query_only] = OFF; INSERT INTO tags (id, label) VALUES (18, 'i')",
+      `PRAGMA main."query_only" = OFF; INSERT INTO tags (id, label) VALUES (19, 'h')`,
+      `PRAGMA 'main'.query_only = OFF; INSERT INTO tags (id, label) VALUES (20, 'g')`,
+      `PRAGMA main . query_only\t=\n0; INSERT INTO tags (id, label) VALUES (21, 'f')`,
+    ];
+    const refused: boolean[] = [];
+    await db.transaction(async () => {
+      await Promise.resolve();
+      for (const sql of attempts) {
+        try {
+          db.getDb().exec(sql);
+          refused.push(false);
+        } catch {
+          refused.push(true);
+        }
+      }
+    });
+
+    expect(refused).toEqual(attempts.map(() => true));
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('still answers a read of the query_only pragma while the callback awaits, as only setting it is refused', async () => {
+    let read: unknown;
+    await db.transaction(async () => {
+      await Promise.resolve();
+      read = db.getDb().prepare('PRAGMA query_only').get();
+    });
+
+    expect(read).toHaveProperty('query_only');
+  });
+
+  it('still answers reads made through the database while the callback awaits', async () => {
+    let queried: unknown;
+    let prepared: unknown;
+    await db.transaction(async () => {
+      await Promise.resolve();
+      queried = db.query('SELECT label FROM tags');
+      prepared = db.getDb().prepare('SELECT label FROM tags').all();
+    });
+
+    expect(queried).toEqual({ ok: true, value: [{ label: 'x' }] });
+    expect(prepared).toEqual([{ label: 'x' }]);
+  });
+
   it('refuses a write made while a transaction is starting, as its write-back would read the transaction', async () => {
     const started = db.transaction((tx) => void unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
     const early = db.insert('tags', { id: 2, label: 'early' });
@@ -380,6 +589,162 @@ describe('LinesDB.transaction write-back', () => {
     unwrap(await started);
 
     expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('refuses SQL that lifts query_only while a transaction is starting, before it has begun', async () => {
+    const started = db.transaction((tx) => void unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+    const lift = () => db.getDb().exec("PRAGMA query_only = OFF; INSERT INTO tags (id, label) VALUES (14, 'm')");
+    expect(lift).toThrow();
+    unwrap(await started);
+
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('refuses a BEGIN while a transaction is starting, which would make its own BEGIN fail and leave one open', async () => {
+    const started = db.transaction((tx) => void unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+    const begin = () => db.getDb().exec('BEGIN');
+    expect(begin).toThrow();
+    const result = await started;
+
+    expect(result.ok).toBe(true);
+    expect(unwrap(db.find('items'))).toEqual([{ id: 1, name: 'A' }]);
+  });
+
+  it('refuses a SAVEPOINT while a transaction is starting, as it would open a transaction of its own', async () => {
+    const started = db.transaction((tx) => void unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+    const savepoint = () => db.getDb().exec('SAVEPOINT external');
+    expect(savepoint).toThrow();
+    const result = await started;
+
+    expect(result.ok).toBe(true);
+    expect(unwrap(db.find('items'))).toEqual([{ id: 1, name: 'A' }]);
+  });
+
+  it('still accepts a SAVEPOINT in the callback of a transaction, as one nested in it', async () => {
+    const result = await db.transaction((tx) => {
+      tx.getDb().exec('SAVEPOINT inner');
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      tx.getDb().exec('RELEASE inner');
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('refuses SAVEPOINT, RELEASE and ROLLBACK TO through the database while the callback awaits, as one could undo what tx wrote', async () => {
+    const refused: boolean[] = [];
+    const attempt = (sql: string) => {
+      try {
+        db.getDb().exec(sql);
+        refused.push(false);
+      } catch {
+        refused.push(true);
+      }
+    };
+    const result = await db.transaction(async (tx) => {
+      tx.getDb().exec('SAVEPOINT mine');
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      await Promise.resolve();
+      attempt('SAVEPOINT external');
+      attempt('ROLLBACK TO mine');
+      attempt('ROLLBACK TRANSACTION TO SAVEPOINT mine');
+      attempt('RELEASE mine');
+    });
+
+    expect(result.ok).toBe(true);
+    expect(refused).toEqual([true, true, true, true]);
+    expect(unwrap(db.find('items'))).toEqual([{ id: 1, name: 'A' }]);
+  });
+
+  it('refuses a write made through a kept tx while a transaction whose callback threw cleans up', async () => {
+    type Restore = (written: unknown, error: unknown) => Promise<unknown>;
+    const internals = db as unknown as { restoreAll: Restore };
+    const restore = internals.restoreAll.bind(db);
+    let kept: typeof db | undefined;
+    let late: { ok: boolean } | undefined;
+    const spy = vi.spyOn(internals, 'restoreAll').mockImplementation(async (written, error) => {
+      late = kept!.insert('tags', { id: 2, label: 'x' });
+      return restore(written, error);
+    });
+    let result;
+    try {
+      result = await db.transaction((tx) => {
+        kept = tx;
+        throw new Error('changed my mind');
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(result.ok).toBe(false);
+    expect(late?.ok).toBe(false);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('refuses to prepare a statement that lifts query_only, which SQLite runs when it prepares it', async () => {
+    let threw = false;
+    await db.transaction(async () => {
+      await Promise.resolve();
+      try {
+        db.getDb().prepare('PRAGMA query_only = OFF');
+      } catch {
+        threw = true;
+      }
+    });
+
+    expect(threw).toBe(true);
+  });
+
+  it('still prepares a statement outside a transaction without looking at it', () => {
+    const statement = db.getDb().prepare('PRAGMA query_only = OFF');
+
+    expect(statement).toBeDefined();
+  });
+
+  it('lets only reads through the database while the callback awaits, as anything else could change the transaction', async () => {
+    const statements = [
+      'PRAGMA ignore_check_constraints = ON',
+      'PRAGMA defer_foreign_keys = ON',
+      'PRAGMA journal_mode = OFF',
+      'PRAGMA writable_schema = 1',
+      "ATTACH DATABASE ':memory:' AS other",
+      'REINDEX',
+      'PRAGMA no_such_pragma',
+    ];
+    const reads = ['SELECT label FROM tags', 'PRAGMA table_info(tags)', 'PRAGMA query_only', 'EXPLAIN SELECT 1'];
+    const refused: boolean[] = [];
+    const answered: boolean[] = [];
+    await db.transaction(async () => {
+      await Promise.resolve();
+      for (const sql of statements) {
+        try {
+          db.getDb().exec(sql);
+          refused.push(false);
+        } catch {
+          refused.push(true);
+        }
+      }
+      for (const sql of reads) {
+        try {
+          db.getDb().prepare(sql).all();
+          answered.push(true);
+        } catch {
+          answered.push(false);
+        }
+      }
+    });
+
+    expect(refused).toEqual(statements.map(() => true));
+    expect(answered).toEqual(reads.map(() => true));
+  });
+
+  it('still lets the callback run any SQL through its own tx handle', async () => {
+    const result = await db.transaction((tx) => {
+      tx.getDb().exec('PRAGMA defer_foreign_keys = ON');
+      tx.getDb().exec("UPDATE tags SET label = 'y' WHERE id = 1");
+    });
+
+    expect(result.ok).toBe(true);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'y' }]);
   });
 
   it('writes back the records a batchInsert() inserted before a later one failed', async () => {

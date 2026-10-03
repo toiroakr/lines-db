@@ -548,9 +548,9 @@ async function migrateDirectory(
         const transformedRows = rowsToMigrate.map((row) => transform(row as JsonObject));
 
         unwrap(
-          await db.transaction(async () => {
+          await db.transaction(async (tx) => {
             unwrap(
-              db.batchUpdate(tableName, transformedRows as Parameters<typeof db.batchUpdate>[1], {
+              tx.batchUpdate(tableName, transformedRows as Parameters<typeof tx.batchUpdate>[1], {
                 validate: true,
               }),
             );
@@ -713,9 +713,9 @@ async function migrateFile(
 
       try {
         unwrap(
-          await db.transaction(async () => {
+          await db.transaction(async (tx) => {
             unwrap(
-              db.batchUpdate(tableName, transformedRows as Parameters<typeof db.batchUpdate>[1], {
+              tx.batchUpdate(tableName, transformedRows as Parameters<typeof tx.batchUpdate>[1], {
                 validate: true,
               }),
             );

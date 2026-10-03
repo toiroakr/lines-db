@@ -370,6 +370,12 @@ const users = unwrap(db.find('users')); // db.find() がエラーを返した場
 自動的にロールバックされません。ロールバックさせたい場合はResultを確認して `throw result.error`
 するか、`unwrap` を呼んでください。コールバック内で例外が投げられたときだけロールバックされます。
 
+コールバックの中では `db` ではなく `tx` で書き込んでください。トランザクションの実行中に `db` 自体を通した書き込み
+（コールバックが await している間に動く別のコードなど）は、トランザクションと一緒にコミットまたはロールバックされて
+しまうため、拒否されます。トランザクションの実行中に `db`（`getDb()`・`execute()`・`query()`）で実行できる SQL は
+読み取りだけです。`SELECT`・`VALUES`・`WITH`・`EXPLAIN`、`PRAGMA table_info(...)` のように読むだけの PRAGMA が通り、
+トランザクション制御や値を設定する `PRAGMA` を含む、それ以外は拒否されます。それらは `tx` を通して実行してください。
+
 ### コア API
 
 以下の操作は特に断りがない限り `Result<T, Error>` を返します。`getSchema`・`getTableNames`・`getDb`
