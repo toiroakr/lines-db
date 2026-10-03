@@ -340,6 +340,7 @@ test('shows the declared definition in the Schema dialog, and the schema file so
   const dialog = screen.getByRole('dialog', 'users.schema.ts');
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('cell').filter({ hasText: 'email' })).toBeVisible();
+  await expect(dialog.getByRole('heading', 'Columns', { exact: true })).toBeVisible();
   await app.screenshot('The Schema dialog on its definition');
   await dialog.getByRole('tab', 'Code', { exact: true }).tap();
   const source = await readFile(new URL('../fixtures/users.schema.ts', import.meta.url), 'utf8');

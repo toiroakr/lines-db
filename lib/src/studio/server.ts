@@ -10,6 +10,7 @@ import { ErrorFormatter } from '../error-formatter.js';
 import { unwrap } from '../result.js';
 import { JsonlReader, hashJsonlContent } from '../jsonl-reader.js';
 import { findSchemaFile } from '../schema-extensions.js';
+import { readDeclaredColumns } from './declared-columns.js';
 import { replaceRows } from './file-rows.js';
 import type {
   JsonlConflictError,
@@ -215,11 +216,30 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         return;
       }
       const loaded = snapshot.invalid.has(tableName) ? undefined : snapshot.db.getSchema(tableName);
+      const declared = loaded && (await readDeclaredColumns(schemaPath, dataDir));
+      const flagsOf = (name: string) => {
+        const column = loaded?.columns.find((candidate) => candidate.name === name);
+        return { ...(column?.primaryKey ? { primaryKey: true } : {}), ...(column?.unique ? { unique: true } : {}) };
+      };
       sendJson(res, 200, {
         file: basename(schemaPath),
         source: await readFile(schemaPath, 'utf-8'),
         definition: loaded
-          ? { columns: loaded.columns, foreignKeys: loaded.declaredForeignKeys ?? [], indexes: loaded.indexes ?? [] }
+          ? {
+              // Declared when the types of the schema can be read, as the columns the database holds are inferred
+              // from the values of the rows: a field left out of every row is missing, and one in every row is not null
+              columnsFrom: declared ? 'schema' : 'rows',
+              columns: declared
+                ? declared.map((column) => ({ ...column, ...flagsOf(column.name) }))
+                : loaded.columns.map((column) => ({
+                    name: column.name,
+                    type: column.valueType ?? column.type,
+                    ...(column.notNull ? { notNull: true } : {}),
+                    ...flagsOf(column.name),
+                  })),
+              foreignKeys: loaded.declaredForeignKeys ?? [],
+              indexes: loaded.indexes ?? [],
+            }
           : null,
       });
       return;

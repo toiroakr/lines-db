@@ -143,11 +143,17 @@ const heading = 'mb-1.5 text-xs font-medium text-muted-foreground';
 const cell = 'px-3 py-1.5 text-left font-mono text-xs';
 
 function SchemaDefinitionView({ definition, links }: { definition: SchemaDefinition; links: SchemaLinks }) {
-  const { columns, foreignKeys, indexes } = definition;
+  const { columns, columnsFrom, foreignKeys, indexes } = definition;
   return (
     <div className="grid gap-5">
       <section>
-        <h3 className={heading}>Columns</h3>
+        <h3 className={heading}>{columnsFrom === 'schema' ? 'Columns' : 'Columns (inferred from the rows)'}</h3>
+        {columnsFrom === 'rows' && (
+          <p className="mb-2 text-xs text-muted-foreground">
+            This schema does not declare its types in a way TypeScript can read, so the types and constraints below come
+            from the values in the rows, not from the schema.
+          </p>
+        )}
         <table className="w-full rounded-md border text-sm">
           <thead className="border-b bg-muted/40">
             <tr>
@@ -163,16 +169,15 @@ function SchemaDefinitionView({ definition, links }: { definition: SchemaDefinit
               const reference = foreignKeys.find((key) => key.column === column.name)?.references;
               const constraints = [
                 column.primaryKey && 'primary key',
-                column.notNull && 'not null',
                 column.unique && 'unique',
+                column.notNull && 'not null',
+                column.optional && 'optional',
+                column.nullable && 'nullable',
               ].filter(Boolean);
               return (
                 <tr key={column.name} className="border-b last:border-b-0">
                   <td className={cell}>{column.name}</td>
-                  <td className={cell}>
-                    {column.type}
-                    {column.valueType && <span className="text-muted-foreground"> ({column.valueType})</span>}
-                  </td>
+                  <td className={cell}>{column.type}</td>
                   <td className={cell}>{constraints.join(', ') || '—'}</td>
                   <td className={cell}>
                     {reference ? <TableLink table={reference.table} column={reference.column} links={links} /> : '—'}

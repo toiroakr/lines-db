@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { request } from 'node:http';
 import { startStudioServer, type StudioServer } from './server.js';
 
@@ -476,6 +477,44 @@ describe('studio server', () => {
       'id',
       'name',
     ]);
+  });
+
+  it('gives the columns the schema file declares, read from its types, with the primary key and unique flags of the table', async () => {
+    // Inside the package, so that the TypeScript it reads the types with is found
+    const dir = await mkdtemp(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'run-'));
+    try {
+      await writeFile(join(dir, 'members.jsonl'), '{"id":1,"name":"Alice"}\n');
+      await writeFile(
+        join(dir, 'members.schema.ts'),
+        `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data: unknown) => ({ value: data }),
+  types: undefined as unknown as { input: { id: number; name?: string; nickname: string | null }; output: unknown } } };\n`,
+      );
+      const other = await startStudioServer({ dataDir: dir, port: 0 });
+      try {
+        const body = await bodyOf(
+          await globalThis.fetch(`${other.url}/api/tables/members/schema`, {
+            headers: { Authorization: `Bearer ${other.token}` },
+          }),
+        );
+
+        expect(body.definition.columnsFrom).toBe('schema');
+        expect(body.definition.columns).toEqual([
+          { name: 'id', type: 'number', optional: false, nullable: false, primaryKey: true },
+          { name: 'name', type: 'string', optional: true, nullable: false },
+          { name: 'nickname', type: 'string', optional: false, nullable: true },
+        ]);
+      } finally {
+        await other.close();
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('gives the columns inferred from the rows, as such, for a schema that declares no types', async () => {
+    const body = await bodyOf(await fetch(`${studio.url}/api/tables/users/schema`));
+
+    expect(body.definition.columnsFrom).toBe('rows');
   });
 
   it('answers 404 for the schema of a table without a schema file, or of a table that does not exist', async () => {
