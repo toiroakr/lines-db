@@ -655,6 +655,31 @@ describe('LinesDB.transaction write-back', () => {
     expect(unwrap(db.find('items'))).toEqual([{ id: 1, name: 'A' }]);
   });
 
+  it('refuses a write made through a kept tx while a transaction whose callback threw cleans up', async () => {
+    type Restore = (written: unknown, error: unknown) => Promise<unknown>;
+    const internals = db as unknown as { restoreAll: Restore };
+    const restore = internals.restoreAll.bind(db);
+    let kept: typeof db | undefined;
+    let late: { ok: boolean } | undefined;
+    const spy = vi.spyOn(internals, 'restoreAll').mockImplementation(async (written, error) => {
+      late = kept!.insert('tags', { id: 2, label: 'x' });
+      return restore(written, error);
+    });
+    let result;
+    try {
+      result = await db.transaction((tx) => {
+        kept = tx;
+        throw new Error('changed my mind');
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(result.ok).toBe(false);
+    expect(late?.ok).toBe(false);
+    expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
   it('writes back the records a batchInsert() inserted before a later one failed', async () => {
     unwrap(
       await db.transaction((tx) => {

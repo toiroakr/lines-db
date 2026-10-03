@@ -2754,10 +2754,15 @@ export class LinesDB<Tables extends TableDefs> {
       this.transactionStarting = false;
       this.transactionChanges = new Set();
 
-      const result = await fn(this.scopedToTransaction(token));
-      // Not open to writes from here: the rows are read for the write-back, and a write made during its
-      // awaits would join the transaction without reaching the files
-      this.transactionClosing = true;
+      let result: T;
+      try {
+        result = await fn(this.scopedToTransaction(token));
+      } finally {
+        // Not open to writes from here, whether the callback returned or threw: the rows are read for the
+        // write-back and the files put back, and a write made during those awaits would join the
+        // transaction without reaching the files, or be rolled back after it reported success
+        this.transactionClosing = true;
+      }
 
       // Written back before COMMIT, so a failed write-back rolls the change back instead of leaving the
       // database holding rows its files do not; a read-only database has no changes to write back
