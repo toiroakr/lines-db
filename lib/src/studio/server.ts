@@ -651,7 +651,10 @@ function nestedLeeway(
     const entries = Object.entries(value);
     // Not tried on an empty object: with no value of its own to give a new key, any value tried may be refused
     if (entries.length > 0) {
-      record(pattern.join('.'), { open: takes(at(path, (object) => ({ ...object, [PROBE_KEY]: entries[0][1] }))) });
+      // Not the probe key alone: an object may hold it already, and then it is changed rather than added
+      let probe = PROBE_KEY;
+      while (Object.hasOwn(value, probe)) probe += '_';
+      record(pattern.join('.'), { open: takes(at(path, (object) => ({ ...object, [probe]: entries[0][1] }))) });
     }
     for (const [key, item] of entries) {
       record([...pattern, segmentOf(key)].join('.'), {

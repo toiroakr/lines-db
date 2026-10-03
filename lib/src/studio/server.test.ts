@@ -579,6 +579,27 @@ describe('studio server', () => {
     expect(counted()).toBe(first);
   });
 
+  it('tries a new key on an object with a key no other one has, even one holding the key it tries first', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'probed.jsonl'), '{"id":1,"meta":{"__lines_db_studio_probe__":"a"}}\n');
+    await writeFile(
+      join(dataDir, 'probed.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+        const extra = Object.keys(data.meta).filter((key) => key !== '__lines_db_studio_probe__');
+        return extra.length ? { issues: [{ message: 'unknown', path: ['meta', extra[0]] }] } : { value: data };
+      } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const probed = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'probed',
+    );
+
+    expect(probed.columns.find((column: { name: string }) => column.name === 'meta').nested['']).toMatchObject({
+      open: false,
+    });
+  });
+
   it('lists the foreign keys of a table with rows that fail validation, so a failing row can open the row it refers to', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');
