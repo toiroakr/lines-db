@@ -11,6 +11,7 @@
     "e2e:deterministic": "pnpm e2e tests/studio.e2e.ts",
     "e2e:agent": "pnpm e2e tests/agent.e2e.ts",
     "e2e:report": "node -e \"process.stdout.write(require('node:fs').readFileSync('.e2e/summary.md', 'utf8'))\"",
+    "e2e:report:html": "node html-report.mjs",
     "e2e:setup": "playwright install chromium && e2e login openai",
     "typecheck": "tsc --noEmit"
   },

@@ -40,16 +40,19 @@ jobs:
         id: e2e
         run: pnpm e2e:deterministic
 
+      - name: Write the report as one HTML file
+        id: html
+        if: always() && hashFiles('e2e/.e2e/report.json') != ''
+        run: pnpm --filter @toiroakr/lines-db-e2e e2e:report:html "$RUNNER_TEMP/studio-e2e-report.html"
+
       - name: Upload the report
         id: upload
-        if: always()
+        if: always() && steps.html.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: studio-e2e-report
-          path: e2e/.e2e/
-          # Not left to the default, which skips the hidden directory the runner writes the report to
-          include-hidden-files: true
-          if-no-files-found: ignore
+          path: ${{ runner.temp }}/studio-e2e-report.html
+          # Not zipped: a single HTML file uploaded as it is opens in the browser
+          archive: false
           retention-days: 14
 
       - name: Comment the report on the pull request
@@ -74,7 +77,7 @@ jobs:
               echo "The run ended (\`$OUTCOME\`) before the tests wrote a report."
             fi
             echo
-            echo "[Run](${RUN_URL}) · [Report, screenshots and traces](${ARTIFACT_URL:-$RUN_URL})"
+            echo "[Run](${RUN_URL}) · [Report with screenshots](${ARTIFACT_URL:-$RUN_URL})"
           } > "$RUNNER_TEMP/comment.md"
           # Not a new comment on each push: the one this workflow left is updated
           id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
