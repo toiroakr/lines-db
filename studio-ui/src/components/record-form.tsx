@@ -255,6 +255,10 @@ function RowIssues({ checked, fields }: { checked?: CheckResult; fields: FieldMo
   const changed = new Set(
     fields.filter((model) => model.state === 'changed' || model.state === 'set').map((model) => model.column.name),
   );
+  // Not shown as no issues: the row is neither valid nor invalid as far as is known
+  if (checked && !checked.ok && 'failed' in checked) {
+    return <p className="text-xs text-muted-foreground">Not checked: {checked.failed}</p>;
+  }
   const issues = issuesOf(checked).filter((issue) => !issue.path?.length || !changed.has(segmentKey(issue.path[0])));
   if (issues.length === 0) return null;
   return (

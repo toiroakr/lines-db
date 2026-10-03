@@ -324,6 +324,17 @@ describe('RecordDrawer', () => {
     expect(issue.closest('[data-field]')).toBeNull();
   });
 
+  it('says the row could not be checked when the check itself fails', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ message: 'Server stopped' }), { status: 500 }));
+    const changed = [field({ name: 'name', type: 'TEXT' }, 'A', { state: 'changed' })];
+    const preview = { inserts: [], updates: [{ key: 1, changes: { name: 'A' } }], deletes: [] };
+    render(
+      <RecordDrawer table="users" row={{ id: '1', title: 'users id 1', fields: changed, preview }} onClose={vi.fn()} />,
+    );
+
+    expect(await screen.findByText(/Not checked: Server stopped/)).toBeTruthy();
+  });
+
   it('says how to show a row in it, before one is picked', () => {
     render(<RecordDrawer table="users" onClose={vi.fn()} />);
 
