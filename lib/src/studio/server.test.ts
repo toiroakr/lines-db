@@ -465,6 +465,19 @@ describe('studio server', () => {
     expect(body.definition.foreignKeys).toEqual([]);
   });
 
+  it('reads the files again before answering, so a table added a moment ago has its schema served', async () => {
+    await writeFile(join(dataDir, 'late.jsonl'), '{"id":1,"name":"a"}\n');
+    await writeFile(join(dataDir, 'late.schema.ts'), NAME_REQUIRED_SCHEMA);
+
+    const response = await fetch(`${studio.url}/api/tables/late/schema`);
+
+    expect(response.status).toBe(200);
+    expect((await bodyOf(response)).definition.columns.map((column: { name: string }) => column.name)).toEqual([
+      'id',
+      'name',
+    ]);
+  });
+
   it('answers 404 for the schema of a table without a schema file, or of a table that does not exist', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'notes.jsonl'), '{"title":"first"}\n');

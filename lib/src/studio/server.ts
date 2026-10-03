@@ -206,6 +206,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         sendJson(res, 405, { message: 'Method not allowed' });
         return;
       }
+      await reloadIfChanged();
       // Not looked up for a name that is not a table: the name would otherwise reach the file system as is
       const known = Boolean(snapshot.db.getSchema(tableName)) || snapshot.invalid.has(tableName);
       const schemaPath = known ? await findSchemaFile(dataDir, tableName) : undefined;
