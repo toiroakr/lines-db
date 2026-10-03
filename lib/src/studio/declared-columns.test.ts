@@ -1,5 +1,5 @@
-import { cp, mkdtemp, rm } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readDeclaredColumns, type DeclaredColumn } from './declared-columns.js';
@@ -34,6 +34,53 @@ describe('readDeclaredColumns', () => {
     );
   });
 
+  it('reads the columns of every member of a union, a field a member lacks being optional', async () => {
+    expect(byName(await readDeclaredColumns(join(fixtures, 'union.schema.ts'), fixtures))).toEqual([
+      { name: 'a', type: 'string', optional: true, nullable: false },
+      { name: 'b', type: 'number', optional: true, nullable: false },
+      { name: 'kind', type: '"a" | "b"', optional: false, nullable: false },
+      { name: 'note', type: 'string', optional: true, nullable: false },
+    ]);
+  });
+
+  it('reads the schema a file exports again from another file', async () => {
+    expect(byName(await readDeclaredColumns(join(fixtures, 'reexport.schema.ts'), fixtures))).toEqual(
+      byName(VALIBOT_COLUMNS),
+    );
+  });
+
+  it('reads from paths relative to the working directory, as a directory given to the CLI is', async () => {
+    const relativeTo = (path: string) => relative(process.cwd(), path);
+
+    expect(
+      byName(await readDeclaredColumns(relativeTo(join(fixtures, 'zod.schema.ts')), relativeTo(fixtures))),
+    ).toEqual(byName(ZOD_COLUMNS));
+  });
+
+  it('reads the columns again once a file the schema imports its types from has changed', async () => {
+    const dir = await mkdtemp(join(fixtures, 'run-'));
+    try {
+      const schema = () =>
+        `import type { Row } from './row.js';\nexport const schema = { '~standard': { version: 1, vendor: 'test', validate: (data: unknown) => ({ value: data }), types: undefined as unknown as { input: Row; output: unknown } } };\n`;
+      await writeFile(join(dir, 'row.ts'), 'export interface Row { id: number }\n');
+      await writeFile(join(dir, 'app.schema.ts'), schema());
+
+      expect((await readDeclaredColumns(join(dir, 'app.schema.ts'), dir))?.map((column) => column.name)).toEqual([
+        'id',
+      ]);
+
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await writeFile(join(dir, 'row.ts'), 'export interface Row { id: number; title: string }\n');
+
+      expect((await readDeclaredColumns(join(dir, 'app.schema.ts'), dir))?.map((column) => column.name)).toEqual([
+        'id',
+        'title',
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('reads nothing from a schema that declares no types, so the columns can be inferred from the rows instead', async () => {
     expect(await readDeclaredColumns(join(fixtures, 'untyped.schema.ts'), fixtures)).toBeUndefined();
   });
@@ -51,6 +98,10 @@ describe.skipIf(!process.env.LINES_DB_CORSA_DIR)('readDeclaredColumns with the C
       await cp(fixtures, dir, { recursive: true });
       expect(byName(await readDeclaredColumns(join(dir, 'zod.schema.ts'), dir))).toEqual(byName(ZOD_COLUMNS));
       expect(byName(await readDeclaredColumns(join(dir, 'valibot.schema.ts'), dir))).toEqual(byName(VALIBOT_COLUMNS));
+      expect(
+        (await readDeclaredColumns(join(dir, 'union.schema.ts'), dir))?.map((column) => column.name).sort(),
+      ).toEqual(['a', 'b', 'kind', 'note']);
+      expect(byName(await readDeclaredColumns(join(dir, 'reexport.schema.ts'), dir))).toEqual(byName(VALIBOT_COLUMNS));
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

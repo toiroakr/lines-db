@@ -1,6 +1,6 @@
 import { stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type * as TS from 'typescript';
 
@@ -27,11 +27,19 @@ interface TypeReader<Type, Property> {
   property(type: Type, name: string): Property | undefined;
   typeOf(property: Property): Type;
   nonNullable(type: Type): Type;
+  /** The types a union is of, or the type itself: the properties of a union are only those its members share */
+  members(type: Type): readonly Type[];
   properties(type: Type): readonly Property[];
   nameOf(property: Property): string;
   isOptional(property: Property): boolean;
   isNullable(type: Type): boolean;
   text(type: Type): string;
+}
+
+/** What a reading found, and the files of the project it was read from, which a change to any of them makes stale */
+interface Reading {
+  columns: DeclaredColumn[] | undefined;
+  files: string[];
 }
 
 /**
@@ -45,20 +53,32 @@ function columnsOf<Type, Property>(reader: TypeReader<Type, Property>): Declared
     if (!property) return undefined;
     type = reader.nonNullable(reader.typeOf(property));
   }
-  const properties = type ? reader.properties(type) : [];
-  if (properties.length === 0) return undefined;
-  return properties.map((property) => {
-    const declared = reader.typeOf(property);
-    return {
-      name: reader.nameOf(property),
-      type: reader.text(reader.nonNullable(declared)),
-      optional: reader.isOptional(property),
-      nullable: reader.isNullable(declared),
-    };
-  });
+  const members = type ? reader.members(type) : [];
+  const merged = new Map<string, { types: string[]; seen: number; optional: boolean; nullable: boolean }>();
+  for (const member of members) {
+    for (const property of reader.properties(member)) {
+      const declared = reader.typeOf(property);
+      const name = reader.nameOf(property);
+      const column = merged.get(name) ?? { types: [], seen: 0, optional: false, nullable: false };
+      const text = reader.text(reader.nonNullable(declared));
+      if (!column.types.includes(text)) column.types.push(text);
+      column.seen += 1;
+      column.optional ||= reader.isOptional(property);
+      column.nullable ||= reader.isNullable(declared);
+      merged.set(name, column);
+    }
+  }
+  if (merged.size === 0) return undefined;
+  // A field a member of the union lacks may be left out of a row
+  return [...merged].map(([name, column]) => ({
+    name,
+    type: column.types.join(' | '),
+    optional: column.optional || column.seen < members.length,
+    nullable: column.nullable,
+  }));
 }
 
-function compilerApiReader(ts: typeof TS, schemaPath: string): TypeReader<TS.Type, TS.Symbol> | undefined {
+function readWithCompilerApi(ts: typeof TS, schemaPath: string): Reading {
   const configPath = ts.findConfigFile(dirname(schemaPath), ts.sys.fileExists);
   const configured = configPath
     ? ts.parseJsonConfigFileContent(ts.readConfigFile(configPath, ts.sys.readFile).config, ts.sys, dirname(configPath))
@@ -78,26 +98,35 @@ function compilerApiReader(ts: typeof TS, schemaPath: string): TypeReader<TS.Typ
   const checker = program.getTypeChecker();
   const file = program.getSourceFile(schemaPath);
   const module = file && checker.getSymbolAtLocation(file);
-  if (!file || !module) return undefined;
+  const files = program
+    .getSourceFiles()
+    .filter((source) => !program.isSourceFileFromExternalLibrary(source) && !program.isSourceFileDefaultLibrary(source))
+    .map((source) => source.fileName);
+  if (configPath) files.push(configPath);
+  if (!file || !module) return { columns: undefined, files };
   return {
-    entryType() {
-      const exports = checker.getExportsOfModule(module);
-      let entry =
-        exports.find((symbol) => symbol.name === 'schema') ?? exports.find((symbol) => symbol.name === 'default');
-      if (entry && entry.flags & ALIAS) entry = checker.getAliasedSymbol(entry);
-      return entry && checker.getTypeOfSymbolAtLocation(entry, file);
-    },
-    property: (type, name) => type.getProperty(name),
-    typeOf: (property) => checker.getTypeOfSymbol(property),
-    nonNullable: (type) => checker.getNonNullableType(type),
-    properties: (type) => checker.getPropertiesOfType(type),
-    nameOf: (property) => property.name,
-    isOptional: (property) => Boolean(property.flags & OPTIONAL),
-    isNullable: (type) =>
-      type.flags & UNION
-        ? (type as TS.UnionType).types.some((member) => member.flags & NULL)
-        : Boolean(type.flags & NULL),
-    text: (type) => checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation),
+    files,
+    columns: columnsOf<TS.Type, TS.Symbol>({
+      entryType() {
+        const exports = checker.getExportsOfModule(module);
+        let entry =
+          exports.find((symbol) => symbol.name === 'schema') ?? exports.find((symbol) => symbol.name === 'default');
+        if (entry && entry.flags & ALIAS) entry = checker.getAliasedSymbol(entry);
+        return entry && checker.getTypeOfSymbolAtLocation(entry, file);
+      },
+      property: (type, name) => type.getProperty(name),
+      typeOf: (property) => checker.getTypeOfSymbol(property),
+      nonNullable: (type) => checker.getNonNullableType(type),
+      members: (type) => (type.flags & UNION ? (type as TS.UnionType).types : [type]),
+      properties: (type) => checker.getPropertiesOfType(type),
+      nameOf: (property) => property.name,
+      isOptional: (property) => Boolean(property.flags & OPTIONAL),
+      isNullable: (type) =>
+        type.flags & UNION
+          ? (type as TS.UnionType).types.some((member) => member.flags & NULL)
+          : Boolean(type.flags & NULL),
+      text: (type) => checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation),
+    }),
   };
 }
 
@@ -120,33 +149,14 @@ interface CorsaChecker {
   typeToString(type: CorsaType): string;
 }
 interface CorsaApi {
-  createProgram(files: string[], options: Record<string, unknown>): { getProject(): { checker: CorsaChecker } };
+  createProgram(
+    files: string[],
+    options: Record<string, unknown>,
+  ): { getProject(): { checker: CorsaChecker }; getSourceFileNames(): readonly string[] };
   close(): void;
 }
 
-function corsaReader(checker: CorsaChecker, schemaPath: string): TypeReader<CorsaType, CorsaSymbol> | undefined {
-  const module = checker.getSymbolOfSourceFile(schemaPath);
-  if (!module) return undefined;
-  return {
-    entryType() {
-      const exports = checker.getExportsOfModule(module);
-      const entry =
-        exports.find((symbol) => symbol.name === 'schema') ?? exports.find((symbol) => symbol.name === 'default');
-      return entry && checker.getTypeOfSymbol(entry);
-    },
-    property: (type, name) => type.getProperty(name),
-    typeOf: (property) => checker.getTypeOfSymbol(property),
-    nonNullable: (type) => checker.getNonNullableType(type),
-    properties: (type) => checker.getPropertiesOfType(type),
-    nameOf: (property) => property.name,
-    isOptional: (property) => Boolean(property.flags & OPTIONAL),
-    isNullable: (type) =>
-      type.flags & UNION ? (type.getTypes() ?? []).some((member) => member.flags & NULL) : Boolean(type.flags & NULL),
-    text: (type) => checker.typeToString(type),
-  };
-}
-
-function readWithCorsa(api: CorsaApi, schemaPath: string): DeclaredColumn[] | undefined {
+function readWithCorsa(api: CorsaApi, schemaPath: string): Reading {
   try {
     // ESNext, Bundler and ESNext, as in the compiler API above
     const program = api.createProgram([schemaPath], {
@@ -159,14 +169,64 @@ function readWithCorsa(api: CorsaApi, schemaPath: string): DeclaredColumn[] | un
       allowImportingTsExtensions: true,
       types: [],
     });
-    const reader = corsaReader(program.getProject().checker, schemaPath);
-    return reader && columnsOf(reader);
+    const checker = program.getProject().checker;
+    // Not the libraries, which are in node_modules or not on the disk at all
+    const files = program.getSourceFileNames().filter((name) => isAbsolute(name) && !name.includes('/node_modules/'));
+    const module = checker.getSymbolOfSourceFile(schemaPath);
+    if (!module) return { columns: undefined, files };
+    return {
+      files,
+      columns: columnsOf<CorsaType, CorsaSymbol>({
+        entryType() {
+          const exports = checker.getExportsOfModule(module);
+          const entry =
+            exports.find((symbol) => symbol.name === 'schema') ?? exports.find((symbol) => symbol.name === 'default');
+          return entry && checker.getTypeOfSymbol(entry);
+        },
+        property: (type, name) => type.getProperty(name),
+        typeOf: (property) => checker.getTypeOfSymbol(property),
+        nonNullable: (type) => checker.getNonNullableType(type),
+        members: (type) => (type.flags & UNION ? (type.getTypes() ?? [type]) : [type]),
+        properties: (type) => checker.getPropertiesOfType(type),
+        nameOf: (property) => property.name,
+        isOptional: (property) => Boolean(property.flags & OPTIONAL),
+        isNullable: (type) =>
+          type.flags & UNION
+            ? (type.getTypes() ?? []).some((member) => member.flags & NULL)
+            : Boolean(type.flags & NULL),
+        text: (type) => checker.typeToString(type),
+      }),
+    };
   } finally {
     api.close();
   }
 }
 
-const cache = new Map<string, { mtimeMs: number; columns: DeclaredColumn[] | undefined }>();
+/** The modification time of each file that can be read, which a reading is as fresh as */
+async function stampsOf(files: string[]): Promise<Map<string, number>> {
+  const stamps = new Map<string, number>();
+  for (const file of new Set(files)) {
+    try {
+      stamps.set(file, (await stat(file)).mtimeMs);
+    } catch {
+      // Not on the disk: not something that can change it
+    }
+  }
+  return stamps;
+}
+
+async function isFresh(stamps: Map<string, number>): Promise<boolean> {
+  for (const [file, mtimeMs] of stamps) {
+    try {
+      if ((await stat(file)).mtimeMs !== mtimeMs) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+const cache = new Map<string, { columns: DeclaredColumn[] | undefined; stamps: Map<string, number> }>();
 
 /**
  * The columns a schema file declares, read from its types with the TypeScript installed from `searchFrom`:
@@ -178,25 +238,26 @@ export async function readDeclaredColumns(
   searchFrom: string,
 ): Promise<DeclaredColumn[] | undefined> {
   try {
-    const { mtimeMs } = await stat(schemaPath);
-    const key = `${searchFrom}\0${schemaPath}`;
+    // Not as given: the CLI passes the directory as it was typed, and createRequire takes only an absolute path
+    const schemaFile = resolve(schemaPath);
+    const from = resolve(searchFrom);
+    const key = `${from}\0${schemaFile}`;
     const cached = cache.get(key);
-    if (cached?.mtimeMs === mtimeMs) return cached.columns;
+    if (cached && (await isFresh(cached.stamps))) return cached.columns;
 
-    const require = createRequire(join(searchFrom, 'noop.js'));
+    const require = createRequire(join(from, 'noop.js'));
     const { version } = require('typescript/package.json') as { version: string };
-    let columns: DeclaredColumn[] | undefined;
+    let reading: Reading;
     if (Number.parseInt(version, 10) >= 7) {
       const { API } = (await import(pathToFileURL(require.resolve('typescript/unstable/sync')).href)) as {
         API: new (options: { cwd: string }) => CorsaApi;
       };
-      columns = readWithCorsa(new API({ cwd: dirname(schemaPath) }), schemaPath);
+      reading = readWithCorsa(new API({ cwd: dirname(schemaFile) }), schemaFile);
     } else {
-      const reader = compilerApiReader(require('typescript') as typeof TS, schemaPath);
-      columns = reader && columnsOf(reader);
+      reading = readWithCompilerApi(require('typescript') as typeof TS, schemaFile);
     }
-    cache.set(key, { mtimeMs, columns });
-    return columns;
+    cache.set(key, { columns: reading.columns, stamps: await stampsOf([schemaFile, ...reading.files]) });
+    return reading.columns;
   } catch {
     return undefined;
   }
