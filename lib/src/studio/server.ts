@@ -659,14 +659,15 @@ function changeAt(
 
 /**
  * The issues with one about several refused keys split per key. Zod reports the keys a strict object
- * refuses in one issue with an empty path and the keys beside it, which no field would be found by
+ * refuses in one issue at the path of the object and the keys beside it, which no field would be found
+ * by, nor a key inside a JSON value
  */
 function perKey(issues: readonly StandardSchemaIssue[]): StandardSchemaIssue[] {
   return issues.flatMap((issue) => {
     const { code, keys } = issue as { code?: unknown; keys?: unknown };
-    if (code !== 'unrecognized_keys' || issue.path?.length || !Array.isArray(keys)) return [issue];
+    if (code !== 'unrecognized_keys' || !Array.isArray(keys)) return [issue];
     if (keys.length === 0 || !keys.every((key) => typeof key === 'string')) return [issue];
-    return keys.map((key) => ({ ...issue, keys: [key], path: [{ key }] }));
+    return keys.map((key) => ({ ...issue, keys: [key], path: [...(issue.path ?? []), { key }] }));
   });
 }
 

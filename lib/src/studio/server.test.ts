@@ -913,6 +913,31 @@ describe('studio server', () => {
       });
     });
 
+    it('places an unrecognized-keys issue inside a value under each key it names', async () => {
+      await studio.close();
+      await writeFile(
+        join(dataDir, 'labels.schema.ts'),
+        `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => {
+  const keys = Object.keys(data.meta ?? {}).filter((key) => key !== 'source');
+  return keys.length > 0
+    ? { issues: [{ code: 'unrecognized_keys', keys, path: ['meta'], message: 'Unrecognized key' }] }
+    : { value: data };
+} } };
+`,
+      );
+      await writeFile(
+        join(dataDir, 'labels.jsonl'),
+        '{"id":1,"meta":{"source":"a"}}\n{"id":2,"meta":{"source":"b","extra":1}}\n',
+      );
+      studio = await startStudioServer({ dataDir, port: 0 });
+
+      const rows = await bodyOf(await fetch(`${studio.url}/api/tables/labels/rows`));
+
+      expect(rows.issues).toEqual({
+        1: [expect.objectContaining({ message: 'Unrecognized key', path: ['meta', { key: 'extra' }] })],
+      });
+    });
+
     it('keeps an unrecognized-keys issue naming no key as an issue about the row', async () => {
       await studio.close();
       await writeFile(
