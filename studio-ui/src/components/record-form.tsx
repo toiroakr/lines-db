@@ -157,7 +157,12 @@ export function FormField({
             <FieldAction
               label={`Remove ${column.name}`}
               className={cn(column.unknown && 'text-destructive')}
-              onClick={model.onUseDefault}
+              onClick={() => {
+                // Not kept for a revert: text it could not read was never handed on, so the row does not hold it
+                setText(textOf(column, value));
+                setVersion((now) => now + 1);
+                model.onUseDefault();
+              }}
             >
               {column.unknown ? <Trash2 /> : <Eraser />}
             </FieldAction>

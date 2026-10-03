@@ -54,6 +54,18 @@ describe('FormField', () => {
     expect(onValidity).toHaveBeenLastCalledWith(true);
   });
 
+  it('shows the value of the row again once a removal is reverted, not text it could not read before', async () => {
+    const model = field({ name: 'age', type: 'INTEGER' }, 30);
+    const { rerender } = render(<FormField model={model} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'age' }), { target: { value: '30a' } });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove age' }));
+    rerender(<FormField model={{ ...model, state: 'reset' }} />);
+    rerender(<FormField model={model} />);
+
+    expect(screen.getByRole('textbox', { name: 'age' })).toHaveProperty('value', '30');
+  });
+
   it('hands each text it is given to the form as the value of the field', () => {
     const model = field({ name: 'name', type: 'TEXT' }, 'Alice');
     render(<FormField model={model} />);
