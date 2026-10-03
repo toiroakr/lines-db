@@ -45,7 +45,7 @@ export function ValueField(props: ValueFieldProps) {
   switch (shape) {
     case 'map':
     case 'list':
-      return <Block {...props} shape={shape} />;
+      return <Block {...props} shape={shape} onReshape={() => setShape(shapeOf(props.value))} />;
     case 'json':
       return <RawJson {...props} />;
     case 'null':
@@ -223,7 +223,7 @@ function RawJson({ path, value, issues, readOnly, onChange }: ValueFieldProps) {
 }
 
 /** A map or a list as a block of fields, which can also be edited as JSON */
-function Block(props: ValueFieldProps & { shape: 'map' | 'list' }) {
+function Block(props: ValueFieldProps & { shape: 'map' | 'list'; onReshape: () => void }) {
   const { path, value, issues, readOnly, leeway, onChange, shape } = props;
   // Not offered where the schema refuses it; where it is not known, it is offered and checked on save
   const canAdd = shape === 'list' || leeway?.[patternOf(path)]?.open !== false;
@@ -254,7 +254,11 @@ function Block(props: ValueFieldProps & { shape: 'map' | 'list' }) {
         aria-label={asJson ? `Edit ${name} as a form` : `Edit ${name} as JSON`}
         className="rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
         onClick={() => {
-          if (asJson) setVersion(version + 1);
+          // Not the shape it was opened with: the JSON editor may have made a map a list, or a scalar
+          if (asJson) {
+            props.onReshape();
+            setVersion(version + 1);
+          }
           setAsJson(!asJson);
         }}
       >

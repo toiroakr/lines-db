@@ -159,4 +159,37 @@ describe('ValueField', () => {
 
     expect(onChange).toHaveBeenLastCalledWith({ note: 'ab\nc' });
   });
+
+  it('reads the shape again on returning from the JSON editor, so a map made a list there is edited as a list', async () => {
+    const onChange = vi.fn();
+    // Not typed into the editor, which jsdom cannot drive: a value handed on while the block is JSON is the same
+    function Holder() {
+      const [value, setValue] = useState<JsonValue>({ source: 'web' });
+      return (
+        <TooltipProvider>
+          <button type="button" onClick={() => setValue(['a'])}>
+            make it a list
+          </button>
+          <ValueField
+            path={['metadata']}
+            value={value}
+            issues={[]}
+            onChange={(next) => {
+              onChange(next);
+              setValue(next);
+            }}
+          />
+        </TooltipProvider>
+      );
+    }
+    render(<Holder />);
+    await userEvent.click(screen.getByRole('button', { name: 'Edit metadata as JSON' }));
+    await userEvent.click(screen.getByRole('button', { name: 'make it a list' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit metadata as a form' }));
+
+    expect(screen.queryByRole('button', { name: 'Add a key to metadata' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Add an item to metadata' }));
+    expect(onChange).toHaveBeenLastCalledWith(['a', '']);
+  });
 });
