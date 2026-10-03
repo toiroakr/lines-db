@@ -374,6 +374,10 @@ failed `tx.insert()`/`tx.update()`/etc. does not throw on its own and therefore 
 transaction by itself. Check the Result and `throw result.error` (or call `unwrap`) to abort the
 transaction on such a failure; only a thrown error inside the callback rolls it back.
 
+Write through `tx`, not `db`, inside the callback: while a transaction is open, a write made through `db` itself
+(for example from other code running while the callback awaits) is refused, since it would otherwise be committed or
+rolled back with the transaction.
+
 ### Core API
 
 All operations below return `Result<T, Error>` unless noted otherwise; `getSchema`, `getTableNames`,

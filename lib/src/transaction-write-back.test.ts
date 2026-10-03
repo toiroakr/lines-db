@@ -291,6 +291,53 @@ describe('LinesDB.transaction write-back', () => {
     expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
   });
 
+  it('refuses a write made through the database while the callback awaits, and commits the tx writes', async () => {
+    let outside: { ok: boolean } | undefined;
+    let outsideQuery: { ok: boolean } | undefined;
+    const result = await db.transaction(async (tx) => {
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      await Promise.resolve();
+      outside = db.insert('tags', { id: 2, label: 'x' });
+      outsideQuery = db.query("INSERT INTO tags (id, label) VALUES (3, 'y')");
+      unwrap(tx.insert('tags', { id: 4, label: 'z' }));
+    });
+
+    expect(result.ok).toBe(true);
+    expect(outside?.ok).toBe(false);
+    expect(outsideQuery?.ok).toBe(false);
+    expect(unwrap(db.find('tags'))).toEqual([
+      { id: 1, label: 'x' },
+      { id: 4, label: 'z' },
+    ]);
+  });
+
+  it('refuses a write made through the database during a transaction that then rolls back, so none is reported ok and lost', async () => {
+    let outside: { ok: boolean } | undefined;
+    const result = await db.transaction(async (tx) => {
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      await Promise.resolve();
+      outside = db.insert('tags', { id: 2, label: 'x' });
+      throw new Error('changed my mind');
+    });
+
+    expect(result.ok).toBe(false);
+    expect(outside?.ok).toBe(false);
+  });
+
+  it('refuses SQL run through a getDb() taken from the database while the callback awaits', async () => {
+    let threw = false;
+    await db.transaction(async () => {
+      await Promise.resolve();
+      try {
+        db.getDb().exec("INSERT INTO tags (id, label) VALUES (5, 'w')");
+      } catch {
+        threw = true;
+      }
+    });
+
+    expect(threw).toBe(true);
+  });
+
   it('refuses a write made while a transaction is starting, as its write-back would read the transaction', async () => {
     const started = db.transaction((tx) => void unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
     const early = db.insert('tags', { id: 2, label: 'early' });
