@@ -593,6 +593,16 @@ describe('LinesDB.transaction write-back', () => {
     expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
   });
 
+  it('refuses a BEGIN while a transaction is starting, which would make its own BEGIN fail and leave one open', async () => {
+    const started = db.transaction((tx) => void unwrap(tx.update('items', { name: 'A' }, { id: 1 })));
+    const begin = () => db.getDb().exec('BEGIN');
+    expect(begin).toThrow();
+    const result = await started;
+
+    expect(result.ok).toBe(true);
+    expect(unwrap(db.find('items'))).toEqual([{ id: 1, name: 'A' }]);
+  });
+
   it('writes back the records a batchInsert() inserted before a later one failed', async () => {
     unwrap(
       await db.transaction((tx) => {

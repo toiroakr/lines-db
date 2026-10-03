@@ -1970,11 +1970,11 @@ export class LinesDB<Tables extends TableDefs> {
    * comment cannot hide one
    */
   private refuseUnsafeSql(sql: string): void {
-    // Not only once begun: the read-only mode is held from the moment a transaction starts until it closes
-    const running = this.inTransaction;
-    if (!running && !this.transactionStarting && !this.transactionClosing) return;
+    // Not only once begun: the read-only mode is held from the moment a transaction starts until it closes,
+    // and a BEGIN while it starts would make its own BEGIN fail with one left open that it never rolls back
+    if (!this.inTransaction && !this.transactionStarting && !this.transactionClosing) return;
     for (const statement of splitStatements(sql)) {
-      if (running && /^(BEGIN|COMMIT|END|ROLLBACK(?!\s+(TRANSACTION\s+)?TO\b))\b/i.test(statement)) {
+      if (/^(BEGIN|COMMIT|END|ROLLBACK(?!\s+(TRANSACTION\s+)?TO\b))\b/i.test(statement)) {
         throw new Error(
           `'${sql.trim()}' would end the transaction before its files are written back; return from the callback to commit, or throw to roll back`,
         );
