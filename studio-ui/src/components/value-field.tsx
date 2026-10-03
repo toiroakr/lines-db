@@ -24,7 +24,17 @@ export interface ValueFieldProps {
   onValidity?: (valid: boolean) => void;
 }
 
-const nameOf = (path: Path) => path.join('.');
+/** The path as a name, with a key holding a dot or a bracket quoted, as `metadata["a.b"]` apart from `metadata.a.b` */
+const nameOf = (path: Path) =>
+  path
+    .map((segment, index) =>
+      typeof segment === 'string' && /[.[\]"]/.test(segment)
+        ? `[${JSON.stringify(segment)}]`
+        : index === 0
+          ? String(segment)
+          : `.${segment}`,
+    )
+    .join('');
 /** The path inside the column's value as its leeway is listed by, with list indexes as `*` */
 const patternOf = (path: Path) =>
   path

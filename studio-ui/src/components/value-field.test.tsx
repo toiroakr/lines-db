@@ -179,6 +179,13 @@ describe('ValueField', () => {
     expect(screen.getByRole('button', { name: 'Remove metadata.0.gift' })).toBeTruthy();
   });
 
+  it('names a field for a key holding a dot apart from the keys nested inside one another', () => {
+    field({ 'a.b': 'x', a: { b: 'y' } });
+
+    expect(screen.getByRole('textbox', { name: 'metadata["a.b"]' })).toHaveProperty('value', 'x');
+    expect(screen.getByRole('textbox', { name: 'metadata.a.b' })).toHaveProperty('value', 'y');
+  });
+
   it('finds what the schema takes of a key holding a dot apart from the keys nested inside one another', () => {
     field({ 'a.b': 'x', a: { b: 'y' } }, [], { 'a%2Eb': { optional: false }, 'a.b': { optional: true } });
 
