@@ -81,7 +81,8 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
   }, [value, column]);
 
   const parsed: Parsed = json ? { value: value ?? null } : parseInput(column, text);
-  const edited = state === 'changed' || (!json && text !== textOf(column, value));
+  // Not only a change to a row of the file: a value filled in a new row is checked as it is given
+  const edited = state === 'changed' || state === 'set' || (!json && text !== textOf(column, value));
   const { result } = useLiveCheck(table, edited && 'value' in parsed ? model.preview(parsed.value) : undefined);
   const issues = edited ? issuesFor(column.name, result) : model.issues;
   // Not listed under a JSON value: its blocks show those about what they hold
@@ -226,6 +227,8 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
 
 /** A row as the form shows it */
 export interface FormRow {
+  /** What tells the row from the others, as the title of every new row is the same */
+  id: string;
   title: string;
   fields: FieldModel[];
   /** Why the row cannot be changed, when it cannot */
@@ -266,7 +269,7 @@ export function RecordDrawer({ table, row, onClose }: { table: string; row?: For
         </p>
       )}
       {row ? (
-        <div key={row.title} className="grid flex-1 content-start gap-4 overflow-y-auto overscroll-none p-4">
+        <div key={row.id} className="grid flex-1 content-start gap-4 overflow-y-auto overscroll-none p-4">
           {row.fields.map((model) => (
             <FormField key={model.column.name} table={table} model={model} />
           ))}
@@ -320,6 +323,7 @@ function ResizeHandle({ width, onResize }: { width: number; onResize: (width: nu
       aria-orientation="vertical"
       aria-valuenow={width}
       aria-valuemin={MIN_FORM_WIDTH}
+      aria-valuemax={clampWidth(Infinity)}
       tabIndex={0}
       className="absolute inset-y-0 -left-0.5 z-10 hidden w-1 cursor-col-resize touch-none outline-none select-none hover:bg-primary/40 focus-visible:bg-primary/40 lg:block"
       onPointerDown={(event) => {

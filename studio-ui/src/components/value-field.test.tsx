@@ -192,4 +192,30 @@ describe('ValueField', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add an item to metadata' }));
     expect(onChange).toHaveBeenLastCalledWith(['a', '']);
   });
+
+  it('edits an item as its own shape after an item before it is removed', async () => {
+    const onChange = vi.fn();
+    function Holder() {
+      const [value, setValue] = useState<JsonValue>([1, 'x']);
+      return (
+        <TooltipProvider>
+          <ValueField
+            path={['metadata']}
+            value={value}
+            issues={[]}
+            onChange={(next) => {
+              onChange(next);
+              setValue(next);
+            }}
+          />
+        </TooltipProvider>
+      );
+    }
+    render(<Holder />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove metadata.0' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'metadata.0' }), 'y');
+
+    expect(onChange).toHaveBeenLastCalledWith(['xy']);
+  });
 });

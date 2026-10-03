@@ -67,6 +67,15 @@ describe('FormField', () => {
     expect(screen.getByRole('textbox', { name: 'note' }).getAttribute('placeholder')).toBeNull();
   });
 
+  it('checks a value filled in a new row, saying what the schema refuses', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, issues: [{ message: 'Too small', path: ['age'] }] })),
+    );
+    render(<FormField table="users" model={field({ name: 'age', type: 'INTEGER' }, -1, { state: 'set' })} />);
+
+    expect(await screen.findByText(/Too small/)).toBeTruthy();
+  });
+
   it('holds back a number it cannot read, and says why', () => {
     const model = field({ name: 'age', type: 'INTEGER' }, 30);
     render(<FormField table="users" model={model} />);
@@ -234,7 +243,7 @@ describe('RecordDrawer', () => {
   ];
 
   it('shows a field for each column of the row, under the name of the row', () => {
-    render(<RecordDrawer table="users" row={{ title: 'users id 1', fields }} onClose={vi.fn()} />);
+    render(<RecordDrawer table="users" row={{ id: '1', title: 'users id 1', fields }} onClose={vi.fn()} />);
 
     const drawer = screen.getByRole('complementary', { name: 'users id 1' });
     expect(drawer.querySelectorAll('[data-field]')).toHaveLength(2);
@@ -248,7 +257,7 @@ describe('RecordDrawer', () => {
 
   it('hides from its close button', async () => {
     const onClose = vi.fn();
-    render(<RecordDrawer table="users" row={{ title: 'users id 1', fields }} onClose={onClose} />);
+    render(<RecordDrawer table="users" row={{ id: '1', title: 'users id 1', fields }} onClose={onClose} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Hide the row form' }));
 
@@ -257,10 +266,28 @@ describe('RecordDrawer', () => {
 
   it('says why the row cannot be changed, when it cannot', () => {
     render(
-      <RecordDrawer table="users" row={{ title: 'users id 1', fields, readOnlyReason: 'Deleted' }} onClose={vi.fn()} />,
+      <RecordDrawer
+        table="users"
+        row={{ id: '1', title: 'users id 1', fields, readOnlyReason: 'Deleted' }}
+        onClose={vi.fn()}
+      />,
     );
 
     expect(screen.getByText('Deleted')).toBeTruthy();
+  });
+
+  it('starts the fields again for another row, though its title is the same, as new rows have', () => {
+    const age = () => [field({ name: 'age', type: 'INTEGER' }, undefined, { state: 'unset' })];
+    const { rerender } = render(
+      <RecordDrawer table="users" row={{ id: 'new-1', title: 'users · new row', fields: age() }} onClose={vi.fn()} />,
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: 'age' }), { target: { value: '3a' } });
+
+    rerender(
+      <RecordDrawer table="users" row={{ id: 'new-2', title: 'users · new row', fields: age() }} onClose={vi.fn()} />,
+    );
+
+    expect(screen.getByRole('textbox', { name: 'age' })).toHaveProperty('value', '');
   });
 
   describe('width', () => {
@@ -272,6 +299,12 @@ describe('RecordDrawer', () => {
 
     const separator = () => screen.getByRole('separator', { name: 'Resize the row form' });
     const width = () => Number(separator().getAttribute('aria-valuenow'));
+
+    it('says how wide it can be, as far as it leaves the grid room', () => {
+      render(<RecordDrawer table="users" onClose={vi.fn()} />);
+
+      expect(separator().getAttribute('aria-valuemax')).toBe('1200');
+    });
 
     it('widens from the arrow keys on its edge', async () => {
       render(<RecordDrawer table="users" onClose={vi.fn()} />);

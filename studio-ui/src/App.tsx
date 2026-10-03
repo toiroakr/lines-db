@@ -326,7 +326,7 @@ export function App() {
           onRevert: () => undefined,
         };
       });
-      return { title: `${table.name} · new row`, fields, readOnlyReason: undefined };
+      return { id: JSON.stringify(open), title: `${table.name} · new row`, fields, readOnlyReason: undefined };
     }
     const index = data.rows.findIndex(
       (row, at) => JSON.stringify(rowIdOf(table, row, at)) === JSON.stringify(open.key),
@@ -366,7 +366,7 @@ export function App() {
         : `${table.name} · ${table.primaryKey} ${formatValue(key)}`;
     const readOnlyReason =
       table.readOnlyReason ?? (deleted ? 'Marked to be deleted: undo the delete to change it' : undefined);
-    return { title, fields, readOnlyReason };
+    return { id: JSON.stringify(open), title, fields, readOnlyReason };
   }
 
   const tables = (meta?.tables ?? []).filter((candidate) =>

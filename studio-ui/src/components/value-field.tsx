@@ -278,7 +278,8 @@ function Block(props: ValueFieldProps & { shape: 'map' | 'list'; onReshape: () =
             <span className="font-mono text-xs text-muted-foreground italic">{shape === 'list' ? '[ ]' : '{ }'}</span>
           )}
           {entries.map(([key, item]) => (
-            <div key={key} className="grid min-w-0 gap-1">
+            // Not by its index alone: an item shifted into the place of one removed would keep that item's shape
+            <div key={shape === 'list' ? `${key}:${shapeOf(item)}` : key} className="grid min-w-0 gap-1">
               <div className="flex min-h-4 items-center gap-1">
                 <span className="font-mono text-[11px] text-muted-foreground">{key}</span>
                 {!readOnly && canRemove(key) && (
