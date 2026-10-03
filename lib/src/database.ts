@@ -1058,7 +1058,7 @@ export class LinesDB<Tables extends TableDefs> {
   query<T = unknown>(sql: string, params: (string | number | bigint | null | Uint8Array)[] = []): Result<T[], Error> {
     try {
       this.enforceReadOnlySql();
-      this.refuseTransactionControl(sql);
+      this.refuseUnsafeSql(sql);
       return ok(this.trackRawSql(() => this.readOnlyWhileTransactionSettles(() => this.queryInternal<T>(sql, params))));
     } catch (error) {
       return err(toError(error));
@@ -1079,7 +1079,7 @@ export class LinesDB<Tables extends TableDefs> {
   ): Result<T | null, Error> {
     try {
       this.enforceReadOnlySql();
-      this.refuseTransactionControl(sql);
+      this.refuseUnsafeSql(sql);
       return ok(
         this.trackRawSql(() => this.readOnlyWhileTransactionSettles(() => this.queryOneInternal<T>(sql, params))),
       );
@@ -1106,7 +1106,7 @@ export class LinesDB<Tables extends TableDefs> {
   ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
     try {
       this.enforceReadOnlySql();
-      this.refuseTransactionControl(sql);
+      this.refuseUnsafeSql(sql);
       this.refuseWhileTransactionSettles('run SQL');
       return ok(this.trackRawSql(() => this.executeInternal(sql, params)));
     } catch (error) {
@@ -1975,8 +1975,21 @@ export class LinesDB<Tables extends TableDefs> {
         `'${sql.trim()}' would end the transaction before its files are written back; return from the callback to commit, or throw to roll back`,
       );
     }
-    // Not left to the caller: SQL through the database is held read-only with this pragma, which the SQL could lift
-    if (/^PRAGMA\s+(?:\w+\.)?query_only\b/i.test(sql.replace(leadingComments, ''))) {
+  }
+
+  /**
+   * Refuse SQL that would end a transaction() or lift the read-only mode that holds back writes made
+   * through the database while it runs. Checked on the whole text, not on its statements split at `;`: a
+   * `;` inside a comment would otherwise cut a statement in two and hide what it starts with
+   */
+  private refuseUnsafeSql(sql: string): void {
+    if (!this.inTransaction) return;
+    for (const statement of sql.split(';')) this.refuseTransactionControl(statement);
+    const gap = String.raw`(?:\s|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)`;
+    const name = String.raw`(?:\w+|"[^"]*"|\x60[^\x60]*\x60|\[[^\]]*\])`;
+    // Only setting it: reading the pragma changes nothing, and reads through the database stay available
+    const lifting = new RegExp(String.raw`\bPRAGMA${gap}+(?:${name}${gap}*\.${gap}*)?query_only${gap}*[=(]`, 'i');
+    if (lifting.test(sql)) {
       throw new Error(
         `'${sql.trim()}' would lift the read-only mode that refuses writes made while a transaction runs`,
       );
@@ -2844,7 +2857,7 @@ export class LinesDB<Tables extends TableDefs> {
     // refused, and one that changes rows tracked, whichever transaction is open by then
     const guarded = <T>(sql: string, run: () => T): T => {
       if (idle()) return run();
-      for (const statement of sql.split(';')) this.refuseTransactionControl(statement);
+      this.refuseUnsafeSql(sql);
       return this.readOnlyWhileTransactionSettles(() => this.trackRawSql(run), viaTransaction());
     };
     return {

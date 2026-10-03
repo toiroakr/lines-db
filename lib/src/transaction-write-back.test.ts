@@ -426,6 +426,8 @@ describe('LinesDB.transaction write-back', () => {
     const attempts = [
       "PRAGMA query_only = OFF; INSERT INTO tags (id, label) VALUES (10, 'p')",
       "/* lift */ pragma main.query_only=0; INSERT INTO tags (id, label) VALUES (11, 'q')",
+      "/* harmless ; comment */ PRAGMA query_only=OFF; INSERT INTO tags (id, label) VALUES (12, 'o')",
+      "PRAGMA /* ; */ query_only = OFF; INSERT INTO tags (id, label) VALUES (13, 'n')",
     ];
     const refused: boolean[] = [];
     await db.transaction(async () => {
@@ -440,8 +442,18 @@ describe('LinesDB.transaction write-back', () => {
       }
     });
 
-    expect(refused).toEqual([true, true]);
+    expect(refused).toEqual([true, true, true, true]);
     expect(unwrap(db.find('tags'))).toEqual([{ id: 1, label: 'x' }]);
+  });
+
+  it('still answers a read of the query_only pragma while the callback awaits, as only setting it is refused', async () => {
+    let read: unknown;
+    await db.transaction(async () => {
+      await Promise.resolve();
+      read = db.getDb().prepare('PRAGMA query_only').get();
+    });
+
+    expect(read).toHaveProperty('query_only');
   });
 
   it('still answers reads made through the database while the callback awaits', async () => {
