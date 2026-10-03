@@ -10,6 +10,7 @@ test('lists the fixture tables and filters the sidebar', async ({ app, screen })
   await screen.getByRole('textbox', 'Search tables').fill('users');
   await expect(tables).toHaveCount(1);
   await expect(tables).toContainText('users');
+  await app.screenshot('The sidebar filtered to users');
 });
 
 test('saves an edited cell to the JSONL file', async ({ app, screen, browser }) => {
@@ -57,6 +58,7 @@ test('saves an edited cell to the JSONL file', async ({ app, screen, browser }) 
       .toEqual(expected);
     await screen.getByRole('button', 'Reload from the files').tap();
     await expect(row.getByRole('button', 'Edit name', { exact: true })).toHaveText('Ada Byron');
+    await app.screenshot('The saved name, read again from the file');
   } finally {
     await writeFile(file, original);
   }
@@ -73,6 +75,7 @@ test('shows failing cells and fields outside the schema from the file', async ({
   await expect(screen.getByRole('button', /^Edit price, which fails validation:/)).toHaveText('-5');
   await expect(screen.getByRole('columnheader').filter({ hasText: 'legacy' })).toContainText('not in schema');
   await expect(screen.getByRole('cell').filter({ hasText: 'retired' })).toBeVisible();
+  await app.screenshot('The failing row and the field outside the schema');
 });
 
 test('shows the schema file source in the Schema dialog', async ({ app, screen }) => {
@@ -86,6 +89,7 @@ test('shows the schema file source in the Schema dialog', async ({ app, screen }
   await expect(dialog).toBeVisible();
   const source = await readFile(new URL('../fixtures/users.schema.ts', import.meta.url), 'utf8');
   await expect(dialog.getByLabel('users.schema.ts', { exact: true })).toHaveText(source);
+  await app.screenshot('The Schema dialog');
   await dialog.getByRole('button', 'Close', { exact: true }).tap();
   await expect(dialog).toBeHidden();
 });
@@ -99,6 +103,7 @@ test('opens and closes the table drawer at 390px', async ({ app, screen, browser
   await screen.getByRole('button', 'Open the table list').tap();
   await expect(navigation).toBeVisible();
   await expect(navigation.getByRole('button')).toHaveCount(3);
+  await app.screenshot('The table list open at 390px');
   await screen.getByRole('button', 'Close the table list').tap();
   await expect(navigation).toBeHidden();
   await screen.getByRole('button', 'Open the table list').tap();
