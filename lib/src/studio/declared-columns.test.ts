@@ -2,7 +2,7 @@ import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { readDeclaredColumns, type DeclaredColumn } from './declared-columns.js';
+import { isProjectSource, readDeclaredColumns, type DeclaredColumn } from './declared-columns.js';
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
@@ -90,10 +90,29 @@ describe('readDeclaredColumns', () => {
   });
 });
 
-// A directory with typescript@7.1 or later, which has the Corsa API, installed next to zod and valibot
-describe.skipIf(!process.env.LINES_DB_CORSA_DIR)('readDeclaredColumns with the Corsa API of typescript@7.1', () => {
-  it('reads the same columns as the compiler API does', async () => {
-    const dir = await mkdtemp(join(process.env.LINES_DB_CORSA_DIR!, 'run-'));
+describe('isProjectSource', () => {
+  it.each(['/work/app/src/row.ts', 'C:\\work\\app\\src\\row.ts', 'C:/work/app/src/row.ts'])(
+    'keeps %s, a file of the project',
+    (name) => {
+      expect(isProjectSource(name)).toBe(true);
+    },
+  );
+
+  it.each([
+    '/work/app/node_modules/zod/index.d.ts',
+    'C:\\work\\app\\node_modules\\zod\\index.d.ts',
+    'C:/work/app/node_modules/zod/index.d.ts',
+    'bundled:///libs/lib.es5.d.ts',
+    'src/row.ts',
+  ])('drops %s, which is a library or not a path of the disk', (name) => {
+    expect(isProjectSource(name)).toBe(false);
+  });
+});
+
+// A directory with another TypeScript installed next to zod and valibot: 5, whose flags differ from 6, or 7.1 and later, which has the Corsa API
+describe.skipIf(!process.env.LINES_DB_TS_DIR)('readDeclaredColumns with the TypeScript of LINES_DB_TS_DIR', () => {
+  it('reads the same columns as it does with TypeScript 6', async () => {
+    const dir = await mkdtemp(join(process.env.LINES_DB_TS_DIR!, 'run-'));
     try {
       await cp(fixtures, dir, { recursive: true });
       expect(byName(await readDeclaredColumns(join(dir, 'zod.schema.ts'), dir))).toEqual(byName(ZOD_COLUMNS));

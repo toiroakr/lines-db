@@ -1,6 +1,6 @@
 import { stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, join, resolve, win32 } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type * as TS from 'typescript';
 
@@ -14,11 +14,11 @@ export interface DeclaredColumn {
   nullable: boolean;
 }
 
-// The same in the compiler API and in the Corsa API of typescript@7.1
-const NULL = 8;
-const UNION = 134217728;
-const OPTIONAL = 16777216;
-const ALIAS = 2097152;
+// The flags of the Corsa API of typescript@7.1, which are not the ones of every compiler API: typescript 5 has
+// others, so that one is read from the `ts` it is given
+const CORSA_NULL = 8;
+const CORSA_UNION = 134217728;
+const CORSA_OPTIONAL = 16777216;
 
 /** The type checker of either API, as far as reading the columns needs it */
 interface TypeReader<Type, Property> {
@@ -111,20 +111,20 @@ function readWithCompilerApi(ts: typeof TS, schemaPath: string): Reading {
         const exports = checker.getExportsOfModule(module);
         let entry =
           exports.find((symbol) => symbol.name === 'schema') ?? exports.find((symbol) => symbol.name === 'default');
-        if (entry && entry.flags & ALIAS) entry = checker.getAliasedSymbol(entry);
+        if (entry && entry.flags & ts.SymbolFlags.Alias) entry = checker.getAliasedSymbol(entry);
         return entry && checker.getTypeOfSymbolAtLocation(entry, file);
       },
       property: (type, name) => type.getProperty(name),
       typeOf: (property) => checker.getTypeOfSymbol(property),
       nonNullable: (type) => checker.getNonNullableType(type),
-      members: (type) => (type.flags & UNION ? (type as TS.UnionType).types : [type]),
+      members: (type) => (type.flags & ts.TypeFlags.Union ? (type as TS.UnionType).types : [type]),
       properties: (type) => checker.getPropertiesOfType(type),
       nameOf: (property) => property.name,
-      isOptional: (property) => Boolean(property.flags & OPTIONAL),
+      isOptional: (property) => Boolean(property.flags & ts.SymbolFlags.Optional),
       isNullable: (type) =>
-        type.flags & UNION
-          ? (type as TS.UnionType).types.some((member) => member.flags & NULL)
-          : Boolean(type.flags & NULL),
+        type.flags & ts.TypeFlags.Union
+          ? (type as TS.UnionType).types.some((member) => member.flags & ts.TypeFlags.Null)
+          : Boolean(type.flags & ts.TypeFlags.Null),
       text: (type) => checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation),
     }),
   };
@@ -156,6 +156,14 @@ interface CorsaApi {
   close(): void;
 }
 
+/**
+ * Whether a file of a program is one of the project's own, and not a library: those are in node_modules, or
+ * have names that are not paths of the disk at all. Either kind of separator, as on Windows.
+ */
+export function isProjectSource(name: string): boolean {
+  return win32.isAbsolute(name) && !/[\\/]node_modules[\\/]/.test(name);
+}
+
 function readWithCorsa(api: CorsaApi, schemaPath: string): Reading {
   try {
     // ESNext, Bundler and ESNext, as in the compiler API above
@@ -170,8 +178,7 @@ function readWithCorsa(api: CorsaApi, schemaPath: string): Reading {
       types: [],
     });
     const checker = program.getProject().checker;
-    // Not the libraries, which are in node_modules or not on the disk at all
-    const files = program.getSourceFileNames().filter((name) => isAbsolute(name) && !name.includes('/node_modules/'));
+    const files = program.getSourceFileNames().filter(isProjectSource);
     const module = checker.getSymbolOfSourceFile(schemaPath);
     if (!module) return { columns: undefined, files };
     return {
@@ -186,14 +193,14 @@ function readWithCorsa(api: CorsaApi, schemaPath: string): Reading {
         property: (type, name) => type.getProperty(name),
         typeOf: (property) => checker.getTypeOfSymbol(property),
         nonNullable: (type) => checker.getNonNullableType(type),
-        members: (type) => (type.flags & UNION ? (type.getTypes() ?? [type]) : [type]),
+        members: (type) => (type.flags & CORSA_UNION ? (type.getTypes() ?? [type]) : [type]),
         properties: (type) => checker.getPropertiesOfType(type),
         nameOf: (property) => property.name,
-        isOptional: (property) => Boolean(property.flags & OPTIONAL),
+        isOptional: (property) => Boolean(property.flags & CORSA_OPTIONAL),
         isNullable: (type) =>
-          type.flags & UNION
-            ? (type.getTypes() ?? []).some((member) => member.flags & NULL)
-            : Boolean(type.flags & NULL),
+          type.flags & CORSA_UNION
+            ? (type.getTypes() ?? []).some((member) => member.flags & CORSA_NULL)
+            : Boolean(type.flags & CORSA_NULL),
         text: (type) => checker.typeToString(type),
       }),
     };
