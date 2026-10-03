@@ -387,6 +387,17 @@ describe('NewRecordDialog', () => {
     expect(onAdd).toHaveBeenCalledWith({ id: 3, name: 'Ada' });
   });
 
+  it('adds no row while a field holds text it cannot read as its type', async () => {
+    const onAdd = vi.fn();
+    render(<NewRecordDialog table={users} open onClose={vi.fn()} onAdd={onAdd} />);
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'id' }), { target: { value: '3' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'id' }), { target: { value: '3a' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
   it('leaves a field out of the row again on request', async () => {
     const onAdd = vi.fn();
     render(<NewRecordDialog table={users} open onClose={vi.fn()} onAdd={onAdd} />);

@@ -32,6 +32,8 @@ export interface FieldModel {
   onUseDefault: () => void;
   onRevert: () => void;
   onOpenReference?: () => void;
+  /** Told whether the text the field shows is the value it handed on, as text it cannot read is not */
+  onValidity?: (valid: boolean) => void;
 }
 
 /** The text a field shows for a value */
@@ -89,6 +91,12 @@ export function FormField({ table, model }: { table: string; model: FieldModel }
   const listed = json
     ? issues.filter((issue) => !issue.path?.length || segmentKey(issue.path[0]) !== column.name)
     : issues;
+
+  // Not the parse alone: an emptied number field reads as no number, while the value handed on is the last one read
+  const valid = json || text === textOf(column, value) || !('error' in parsed);
+  const report = useRef(model.onValidity);
+  report.current = model.onValidity;
+  useEffect(() => report.current?.(valid), [valid]);
 
   const handValue = (next: JsonValue) => {
     handed.current = JSON.stringify(next);
@@ -378,6 +386,7 @@ export function NewRecordDialog({
 
 function NewRecordFields({ table, onAdd }: { table: TableInfo; onAdd: (row: JsonObject) => void }) {
   const [draft, setDraft] = useState<JsonObject>({});
+  const [unreadable, setUnreadable] = useState<ReadonlySet<string>>(new Set());
   const preview = (row: JsonObject) => ({ inserts: [row], updates: [], deletes: [] });
   const { result } = useLiveCheck(table.name, preview(draft));
   // Not those of a field filled in: that field shows them itself
@@ -408,6 +417,14 @@ function NewRecordFields({ table, onAdd }: { table: TableInfo; onAdd: (row: Json
             return rest;
           }),
         onRevert: () => undefined,
+        onValidity: (valid) =>
+          setUnreadable((now) => {
+            if (valid !== now.has(column.name)) return now;
+            const next = new Set(now);
+            if (valid) next.delete(column.name);
+            else next.add(column.name);
+            return next;
+          }),
       };
     });
   return (
@@ -415,7 +432,7 @@ function NewRecordFields({ table, onAdd }: { table: TableInfo; onAdd: (row: Json
       className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault();
-        onAdd(draft);
+        if (unreadable.size === 0) onAdd(draft);
       }}
     >
       {fields.map((model) => (
@@ -431,7 +448,7 @@ function NewRecordFields({ table, onAdd }: { table: TableInfo; onAdd: (row: Json
         </ul>
       )}
       <div className="flex justify-end">
-        <Button type="submit" size="sm">
+        <Button type="submit" size="sm" disabled={unreadable.size > 0}>
           Add
         </Button>
       </div>
