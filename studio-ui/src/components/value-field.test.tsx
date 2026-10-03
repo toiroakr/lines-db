@@ -161,6 +161,12 @@ describe('ValueField', () => {
     expect(screen.getByRole('button', { name: 'Remove metadata.0.gift' })).toBeTruthy();
   });
 
+  it('finds what the schema takes of a key holding a dot apart from the keys nested inside one another', () => {
+    field({ 'a.b': 'x', a: { b: 'y' } }, [], { 'a%2Eb': { optional: false }, 'a.b': { optional: true } });
+
+    expect(screen.getAllByRole('button', { name: 'Remove metadata.a.b' })).toHaveLength(1);
+  });
+
   it('breaks a line of a string inside the value on Shift+Enter, not on Enter alone', async () => {
     const onChange = vi.fn();
     // Not the field alone: the typed text shows only once the value it hands on comes back to it

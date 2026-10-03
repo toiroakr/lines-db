@@ -593,7 +593,8 @@ const PROBE_KEY = '__lines_db_studio_probe__';
 
 /**
  * What the schema takes of each object inside the sample's value of a JSON column, by its path there
- * with list indexes as `*` (`''` for the value itself, `items.*.name` for a key of each item). Found as
+ * with list indexes as `*` (`''` for the value itself, `items.*.name` for a key of each item, and
+ * `%`, `.` and `*` in a key as `%25`, `%2E` and `%2A`). Found as
  * for a column, from the issues a change brings that the sample did not have: a key added to an object
  * tells whether it takes keys it does not name, and a key removed whether it can be left out. The
  * items of a list are read one by one, and what one of them refuses counts as refused for all
@@ -629,7 +630,7 @@ function nestedLeeway(
       record(pattern.join('.'), { open: takes(at(path, (object) => ({ ...object, [PROBE_KEY]: entries[0][1] }))) });
     }
     for (const [key, item] of entries) {
-      record([...pattern, key].join('.'), {
+      record([...pattern, segmentOf(key)].join('.'), {
         optional: takes(
           at(path, (object) => {
             const { [key]: _removed, ...rest } = object;
@@ -637,12 +638,15 @@ function nestedLeeway(
           }),
         ),
       });
-      walk(item, [...path, key], [...pattern, key]);
+      walk(item, [...path, key], [...pattern, segmentOf(key)]);
     }
   };
   walk(sample[column], [], []);
   return leeway;
 }
+
+/** A key as a segment of a pattern, apart from the dots between segments and the `*` of a list index */
+const segmentOf = (key: string) => key.replace(/[%.*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
 
 /** The value with the object at the path inside it changed */
 function changeAt(

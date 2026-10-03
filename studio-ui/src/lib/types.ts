@@ -15,7 +15,8 @@ export interface Column {
   optional?: boolean;
   /**
    * What the schema takes of each object inside a JSON value, by its path there with list indexes as
-   * `*`: `''` for the value itself, `items.*.name` for a key of each item
+   * `*`: `''` for the value itself, `items.*.name` for a key of each item, and `%`, `.` and `*` in a key
+   * as `%25`, `%2E` and `%2A`
    */
   nested?: Record<string, NestedLeeway>;
 }

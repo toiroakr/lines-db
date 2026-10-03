@@ -509,6 +509,28 @@ describe('studio server', () => {
     });
   });
 
+  it('tells a key holding a dot or a star apart from keys nested inside one another and from the items of a list', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'docs.jsonl'), '{"id":1,"tags":{"a.b":"x","a":{"b":"y"},"*":"z"}}\n');
+    await writeFile(
+      join(dataDir, 'docs.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+        'a.b' in data.tags ? { value: data } : { issues: [{ message: 'required', path: ['tags', 'a.b'] }] } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const docs = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'docs',
+    );
+    const nested = docs.columns.find((column: { name: string }) => column.name === 'tags').nested;
+
+    expect(nested).toMatchObject({
+      'a%2Eb': { optional: false },
+      'a.b': { optional: true },
+      '%2A': { optional: true },
+    });
+  });
+
   it('takes a key inside the items of a list only as far as every item takes it', async () => {
     await studio.close();
     await writeFile(

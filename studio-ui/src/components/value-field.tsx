@@ -29,7 +29,11 @@ const nameOf = (path: Path) => path.join('.');
 const patternOf = (path: Path) =>
   path
     .slice(1)
-    .map((segment) => (typeof segment === 'number' ? '*' : segment))
+    .map((segment) =>
+      typeof segment === 'number'
+        ? '*'
+        : segment.replace(/[%.*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`),
+    )
     .join('.');
 /** Where an issue is inside the value at the path, as its message is prefixed with */
 const within = (issue: Issue, path: Path) => (issue.path ?? []).slice(path.length).map(segmentKey).join('.');
