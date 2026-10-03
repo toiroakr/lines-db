@@ -64,6 +64,8 @@ export interface TableSchema {
   name: string;
   columns: ColumnDefinition[];
   foreignKeys?: ForeignKeyDefinition[];
+  /** The foreign keys the schema file declares, including those left out of `foreignKeys` because the table they reference failed to load */
+  declaredForeignKeys?: ForeignKeyDefinition[];
   indexes?: IndexDefinition[];
 }
 

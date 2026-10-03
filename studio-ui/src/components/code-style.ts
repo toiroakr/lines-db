@@ -27,7 +27,7 @@ export const theme = EditorView.theme({
     textDecorationSkipInk: 'none',
     textUnderlineOffset: '3px',
   },
-  // The gutters stick to the left while the code scrolls under them, so a transparent one lets the code show through
+  // Not transparent: the gutters stick to the left, and the code scrolling under them would show through
   '.cm-gutters': { backgroundColor: 'var(--background)', color: 'var(--muted-foreground)', border: 'none' },
   '.cm-activeLine': { backgroundColor: 'color-mix(in oklch, var(--accent) 60%, transparent)' },
   '.cm-activeLineGutter': { backgroundColor: 'color-mix(in oklch, var(--accent) 60%, var(--background))' },

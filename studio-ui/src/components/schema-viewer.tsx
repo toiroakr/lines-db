@@ -33,7 +33,9 @@ export function SchemaViewer({ source, label }: { source: string; label: string 
     return () => view.destroy();
   }, [source, label]);
 
-  return <div ref={host} className="max-h-[70vh] min-h-40 overflow-auto rounded-md border bg-background" />;
+  return (
+    <div ref={host} className="max-h-[70vh] min-h-40 overflow-auto overscroll-none rounded-md border bg-background" />
+  );
 }
 
 /** A dialog showing the schema file of a table, read when it opens */

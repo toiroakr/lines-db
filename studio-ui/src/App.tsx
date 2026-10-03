@@ -78,7 +78,6 @@ export function App() {
   const [editing, setEditing] = useState<Editing>();
   const [filter, setFilter] = useState('');
   const [schemaTable, setSchemaTable] = useState(() => parseHash(location.hash).schema);
-  // The schemas opened before the one shown, by following a foreign key, nearest last
   const [schemaTrail, setSchemaTrail] = useState<string[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -137,7 +136,6 @@ export function App() {
   useEffect(() => {
     const onHash = () => {
       const { table: shown, schema } = parseHash(location.hash);
-      // Following a link adds the schema left to the trail; going back, by this page or the browser, drops it
       setSchemaTrail((trail) => {
         if (schema === null) return [];
         if (trail.at(-1) === schema) return trail.slice(0, -1);
