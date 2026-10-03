@@ -3,32 +3,77 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+/** As much of the runner's report as the page shows */
+interface Source {
+  file: string;
+  line: number;
+}
+interface Artifact {
+  id: string;
+  kind: string;
+  mediaType: string;
+  path: string;
+}
+interface Step {
+  api: string;
+  label?: string;
+  status: string;
+  durationMs?: number;
+  source?: Source;
+}
+interface Attempt {
+  status: string;
+  durationMs?: number;
+  artifacts: Artifact[];
+  error?: { code?: string; category?: string; message: string; source?: Source };
+  failure?: { url?: string; screen?: string; screenshot?: string };
+  steps: Step[];
+}
+interface Result {
+  titlePath: string[];
+  file: string;
+  status: string;
+  selected: boolean;
+  skip?: { reason?: string };
+  attempts: Attempt[];
+}
+interface Run {
+  status: string;
+  startedAt: string;
+  finishedAt: string;
+  runner: { name: string; version: string };
+  vcs?: { branch?: string; commit?: string };
+  results: Result[];
+}
+
 const dir = fileURLToPath(new URL('.e2e/', import.meta.url));
 const out = process.argv[2] ?? `${dir}report.html`;
-const { run } = JSON.parse(readFileSync(`${dir}report.json`, 'utf8'));
+const { run } = JSON.parse(readFileSync(`${dir}report.json`, 'utf8')) as { run: Run };
 
-const escape = (text) =>
-  String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const duration = (ms) => (ms === undefined ? '' : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
-const where = (source) => (source ? `${source.file}:${source.line}` : '');
-const artifact = (attempt, id) => attempt.artifacts.find((candidate) => candidate.id === id);
-const read = (entry, encoding) => {
-  const path = `${dir}artifacts/${entry.path}`;
-  return existsSync(path) ? readFileSync(path, encoding) : undefined;
-};
-const dataUri = (entry) => {
-  const bytes = read(entry);
-  return bytes && `data:${entry.mediaType};base64,${bytes.toString('base64')}`;
-};
+const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const escape = (value: unknown) => String(value).replace(/[&<>"']/g, (c) => entities[c]);
+const duration = (ms: number | undefined) =>
+  ms === undefined ? '' : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+const where = (source: Source | undefined) => (source ? `${source.file}:${source.line}` : '');
+const artifact = (attempt: Attempt, id: string) => attempt.artifacts.find((candidate) => candidate.id === id);
+const pathOf = (entry: Artifact) => `${dir}artifacts/${entry.path}`;
+const textOf = (entry: Artifact) => (existsSync(pathOf(entry)) ? readFileSync(pathOf(entry), 'utf8') : undefined);
+const dataUri = (entry: Artifact) =>
+  existsSync(pathOf(entry))
+    ? `data:${entry.mediaType};base64,${readFileSync(pathOf(entry)).toString('base64')}`
+    : undefined;
 
-const mark = { passed: '✓', failed: '✗', skipped: '–', flaky: '!' };
+const mark: Record<string, string> = { passed: '✓', failed: '✗', skipped: '–', flaky: '!' };
 const selected = run.results.filter((result) => result.selected);
 const counts = Object.entries(
-  selected.reduce((all, result) => ({ ...all, [result.status]: (all[result.status] ?? 0) + 1 }), {}),
+  selected.reduce<Record<string, number>>(
+    (all, result) => ({ ...all, [result.status]: (all[result.status] ?? 0) + 1 }),
+    {},
+  ),
 );
 
-function attemptDetails(attempt) {
-  const parts = [];
+function attemptDetails(attempt: Attempt) {
+  const parts: string[] = [];
   if (attempt.error) {
     parts.push(
       `<p class="where">${escape(attempt.error.code ?? attempt.error.category ?? 'error')} · ${escape(where(attempt.error.source))}</p>`,
@@ -50,9 +95,12 @@ function attemptDetails(attempt) {
     const image = screenshot && dataUri(screenshot);
     if (image) parts.push(`<img class="shot" alt="The screen at the failure" src="${image}">`);
     const screen = failure.screen && artifact(attempt, failure.screen);
-    const text = screen && read(screen, 'utf8');
-    if (text)
-      parts.push(`<details><summary>The screen at the failure, as text</summary><pre>${escape(text)}</pre></details>`);
+    const screenText = screen && textOf(screen);
+    if (screenText) {
+      parts.push(
+        `<details><summary>The screen at the failure, as text</summary><pre>${escape(screenText)}</pre></details>`,
+      );
+    }
   }
   // Not for a passing test: its trace adds hundreds of kilobytes for little to look at
   if (attempt.status !== 'passed') {
