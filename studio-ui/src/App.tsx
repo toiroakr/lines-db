@@ -133,17 +133,30 @@ export function App() {
   }, [filesChanged, dirty, editing, current, load]);
 
   const selectRef = useRef<(name: string, fromHistory?: boolean) => boolean>(() => false);
+  const closeOnArrival = useRef(false);
   useEffect(() => {
     const onHash = () => {
       const { table: shown, schema } = parseHash(location.hash);
+      if (closeOnArrival.current && schema !== null) {
+        closeOnArrival.current = false;
+        history.replaceState(null, '', formatHash(shown));
+        setSchemaTable(null);
+        setSchemaTrail([]);
+        return;
+      }
       setSchemaTrail(schema === null ? [] : schemaTrailOf(history.state));
       setSchemaTable(schema);
       if (!selectRef.current(shown, true)) {
         history.replaceState(null, '', formatHash(stateRef.current.tableName ?? '', schema));
       }
     };
+    // Also popstate: going back across entries with one address, as a circular foreign key leaves, fires only that
     window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    window.addEventListener('popstate', onHash);
+    return () => {
+      window.removeEventListener('hashchange', onHash);
+      window.removeEventListener('popstate', onHash);
+    };
   }, []);
 
   useEffect(() => {
@@ -462,12 +475,16 @@ export function App() {
                   : undefined
               }
               onClose={() => {
-                if (schemaOpenedInApp(history.state)) {
-                  // Back to the entry before the schema, which the hashchange then shows without it
-                  history.go(-(schemaTrail.length + 1));
+                const inApp = schemaOpenedInApp(history.state);
+                const steps = schemaTrail.length + (inApp ? 1 : 0);
+                if (steps > 0) {
+                  // Back to the entry before the schema, which the hashchange then shows without it. An address
+                  // typed in has none: its own entry is the first, so going back from it could leave the page, and
+                  // the schema it names is closed once there instead
+                  closeOnArrival.current = !inApp;
+                  history.go(-steps);
                   return;
                 }
-                // Not gone back from an address typed in: that entry may be the first, and going back leaves the page
                 history.replaceState(null, '', formatHash(table?.name ?? ''));
                 setSchemaTable(null);
                 setSchemaTrail([]);
