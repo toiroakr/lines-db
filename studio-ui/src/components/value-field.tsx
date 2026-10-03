@@ -261,6 +261,13 @@ function RawJson({ path, value, issues, readOnly, onChange }: ValueFieldProps) {
   );
 }
 
+/** A value for a new key of a map, shaped as the values it holds when they are all of one shape */
+function newValueOf(map: Record<string, JsonValue>): JsonValue {
+  const values = Object.values(map);
+  const shapes = new Set(values.map(shapeOf));
+  return shapes.size === 1 ? emptyLike(values[0]) : '';
+}
+
 /** A map or a list as a block of fields, which can also be edited as JSON */
 function Block(props: ValueFieldProps & { shape: 'map' | 'list'; onReshape: () => void }) {
   const { path, value, issues, readOnly, leeway, onChange, shape } = props;
@@ -364,7 +371,7 @@ function Block(props: ValueFieldProps & { shape: 'map' | 'list'; onReshape: () =
                   if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
                   event.preventDefault();
                   const key = newKey.trim();
-                  if (key !== '' && !shown.has(key)) onChange({ ...map, [key]: '' });
+                  if (key !== '' && !shown.has(key)) onChange({ ...map, [key]: newValueOf(map) });
                   setNewKey(undefined);
                 }}
               />

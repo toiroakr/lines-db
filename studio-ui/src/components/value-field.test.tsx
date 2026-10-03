@@ -71,6 +71,24 @@ describe('ValueField', () => {
     expect(onChange).toHaveBeenLastCalledWith({ source: 'web', device: '' });
   });
 
+  it('adds a key to a map shaped as the values it holds, when they are all of one shape', async () => {
+    const onChange = field({ a: 1, b: 2 });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add a key to metadata' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'New key in metadata' }), 'c{Enter}');
+
+    expect(onChange).toHaveBeenLastCalledWith({ a: 1, b: 2, c: 0 });
+  });
+
+  it('adds a key to a map as empty text, when the values it holds are of more than one shape', async () => {
+    const onChange = field({ source: 'web', visits: 3 });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add a key to metadata' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'New key in metadata' }), 'device{Enter}');
+
+    expect(onChange).toHaveBeenLastCalledWith({ source: 'web', visits: 3, device: '' });
+  });
+
   it('shows each item of a list of maps as a block of its own', () => {
     const onChange = field([{ name: 'Laptop', price: 999 }]);
 
