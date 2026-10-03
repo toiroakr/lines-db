@@ -211,7 +211,10 @@ export function App() {
   };
   selectRef.current = selectTable;
 
+  // Not left to the fields of the form: text one could not read was never pending, so discarding leaves it there
+  const [discards, setDiscards] = useState(0);
   const discard = () => {
+    setDiscards((now) => now + 1);
     setPending(emptyPending());
     setEditing(undefined);
     setNotice(undefined);
@@ -712,7 +715,9 @@ export function App() {
             />
           )}
         </main>
-        {table && formShown && <RecordDrawer table={table.name} row={formRow} onClose={() => showForm(false)} />}
+        {table && formShown && (
+          <RecordDrawer key={discards} table={table.name} row={formRow} onClose={() => showForm(false)} />
+        )}
       </div>
     </TooltipProvider>
   );

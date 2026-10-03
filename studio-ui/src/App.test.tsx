@@ -158,6 +158,25 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Save 1 change' })).toHaveProperty('disabled', true);
   });
 
+  it('shows the value of the file again in the form once the changes are discarded, dropping text it could not read', async () => {
+    showTable('orders');
+    render(<App />);
+    await showForm();
+    // Not a change of the field itself: text it cannot read hands nothing on, so another change keeps Discard there
+    await userEvent.click(await screen.findByRole('button', { name: 'Add record' }));
+    await userEvent.click(
+      within(screen.getByRole('dialog', { name: 'New row in orders' })).getByRole('button', { name: 'Add' }),
+    );
+    await userEvent.click((await screen.findAllByRole('button', { name: 'Edit customerId' }))[1]);
+    const customerId = within(form()!).getByRole('textbox', { name: 'customerId' });
+    await userEvent.clear(customerId);
+    await userEvent.type(customerId, 'x');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Discard' }));
+
+    expect(within(form()!).getByRole('textbox', { name: 'customerId' })).toHaveProperty('value', '2');
+  });
+
   it('opens the row a foreign key refers to, in the table it is in', async () => {
     showTable('orders');
     render(<App />);
