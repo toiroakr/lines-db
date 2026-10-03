@@ -16,6 +16,8 @@ interface Artifact {
 }
 interface Step {
   api: string;
+  /** The ids of the artifacts the step made, such as the screenshot `app.screenshot()` took */
+  artifacts: string[];
   label?: string;
   status: string;
   durationMs?: number;
@@ -82,10 +84,15 @@ function attemptDetails(attempt: Attempt) {
   }
   parts.push(
     '<ol class="steps">',
-    ...attempt.steps.map(
-      (step) =>
-        `<li class="${escape(step.status)}"><span class="mark">${mark[step.status] ?? '·'}</span> <code>${escape(step.api)}</code> ${escape(step.label ?? '')} <span class="muted">${duration(step.durationMs)} · ${escape(where(step.source))}</span></li>`,
-    ),
+    ...attempt.steps.map((step) => {
+      const shots = step.artifacts
+        .map((id) => artifact(attempt, id))
+        .filter((entry) => entry?.kind === 'screenshot')
+        .map((entry) => entry && dataUri(entry))
+        .filter((uri) => uri !== undefined)
+        .map((uri) => `<img class="shot" alt="${escape(step.label ?? 'A screenshot')}" src="${uri}">`);
+      return `<li class="${escape(step.status)}"><span class="mark">${mark[step.status] ?? '·'}</span> <code>${escape(step.api)}</code> ${escape(step.label ?? '')} <span class="muted">${duration(step.durationMs)} · ${escape(where(step.source))}</span>${shots.join('')}</li>`;
+    }),
     '</ol>',
   );
   const failure = attempt.failure;
@@ -156,7 +163,7 @@ h1 { font-size: 20px; margin: 0 0 4px; }
 pre { overflow: auto; padding: 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); font-size: 12px; }
 code, pre { font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
 .steps { padding-left: 20px; }
-.shot { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+.shot { display: block; max-width: 100%; margin: 6px 0 10px; border: 1px solid var(--line); border-radius: 6px; }
 a { color: inherit; }
 </style>
 </head>
