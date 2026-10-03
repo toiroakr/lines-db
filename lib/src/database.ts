@@ -27,6 +27,7 @@ import type {
 } from './types.js';
 import type { BiDirectionalSchema } from './schema.js';
 import { type Result, ok, err, toError, unwrap } from './result.js';
+import { splitStatements } from './sql-statements.js';
 
 /**
  * Options for {@link LinesDB.update}
@@ -1964,36 +1965,26 @@ export class LinesDB<Tables extends TableDefs> {
    * `PRAGMA query_only = OFF`
    */
   /**
-   * Refuse SQL that would end a transaction() before it writes the files back: committed early, the
-   * change could no longer be rolled back when the write-back fails
-   */
-  private refuseTransactionControl(sql: string): void {
-    if (!this.inTransaction) return;
-    const leadingComments = /^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?(?:\*\/|$))*/;
-    if (/^(BEGIN|COMMIT|END|ROLLBACK(?!\s+(TRANSACTION\s+)?TO\b))\b/i.test(sql.replace(leadingComments, ''))) {
-      throw new Error(
-        `'${sql.trim()}' would end the transaction before its files are written back; return from the callback to commit, or throw to roll back`,
-      );
-    }
-  }
-
-  /**
    * Refuse SQL that would end a transaction() or lift the read-only mode that holds back writes made
-   * through the database while it runs. Checked on the whole text, not on its statements split at `;`: a
-   * `;` inside a comment would otherwise cut a statement in two and hide what it starts with
+   * through the database while it runs. Looked for in each statement as SQLite reads it, so a `;` or a
+   * comment cannot hide one
    */
   private refuseUnsafeSql(sql: string): void {
     // Not only once begun: the read-only mode is held from the moment a transaction starts until it closes
-    if (!this.inTransaction && !this.transactionStarting && !this.transactionClosing) return;
-    for (const statement of sql.split(';')) this.refuseTransactionControl(statement);
-    const gap = String.raw`(?:\s|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)`;
-    const name = String.raw`(?:\w+|"[^"]*"|\x60[^\x60]*\x60|\[[^\]]*\])`;
-    // Only setting it: reading the pragma changes nothing, and reads through the database stay available
-    const lifting = new RegExp(String.raw`\bPRAGMA${gap}+(?:${name}${gap}*\.${gap}*)?query_only${gap}*[=(]`, 'i');
-    if (lifting.test(sql)) {
-      throw new Error(
-        `'${sql.trim()}' would lift the read-only mode that refuses writes made while a transaction runs`,
-      );
+    const running = this.inTransaction;
+    if (!running && !this.transactionStarting && !this.transactionClosing) return;
+    for (const statement of splitStatements(sql)) {
+      if (running && /^(BEGIN|COMMIT|END|ROLLBACK(?!\s+(TRANSACTION\s+)?TO\b))\b/i.test(statement)) {
+        throw new Error(
+          `'${sql.trim()}' would end the transaction before its files are written back; return from the callback to commit, or throw to roll back`,
+        );
+      }
+      // Only setting it: reading the pragma changes nothing, and reads through the database stay available
+      if (/^PRAGMA\s+(?:(?:\w+|"[^"]*"|`[^`]*`|\[[^\]]*\])\s*\.\s*)?query_only\s*[=(]/i.test(statement)) {
+        throw new Error(
+          `'${sql.trim()}' would lift the read-only mode that refuses writes made while a transaction runs`,
+        );
+      }
     }
   }
 

@@ -422,6 +422,22 @@ describe('LinesDB.transaction write-back', () => {
     ]);
   });
 
+  it('refuses a COMMIT that a semicolon in a comment would hide, as it would end the transaction early', async () => {
+    let refused = false;
+    const result = await db.transaction((tx) => {
+      unwrap(tx.update('items', { name: 'A' }, { id: 1 }));
+      try {
+        tx.getDb().exec('/* ; */ COMMIT');
+      } catch {
+        refused = true;
+      }
+    });
+
+    expect(refused).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(unwrap(db.find('items'))).toEqual([{ id: 1, name: 'A' }]);
+  });
+
   it('refuses SQL that lifts query_only, which the guard relies on to refuse writes through the database', async () => {
     const attempts = [
       "PRAGMA query_only = OFF; INSERT INTO tags (id, label) VALUES (10, 'p')",
