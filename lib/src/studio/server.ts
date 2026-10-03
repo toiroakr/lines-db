@@ -536,9 +536,11 @@ function withLeeway<Column extends { name: string; type?: string; notNull?: bool
     const { [column.name]: _removed, ...without } = sample ?? {};
     const value = sample?.[column.name];
     // Not taken on the schema's word alone for a NOT NULL column: the row is written as the schema leaves it
+    // Not taken while the field still fails: a sample failing for it already, as with no row that passes,
+    // has its issue among the sample's, so the change brings no new one
     const takes = (row: JsonObject) => {
-      const { taken, value: validated } = probe(row);
-      return taken && (!column.notNull || (validated?.[column.name] ?? null) !== null);
+      const { taken, value: validated, failing } = probe(row);
+      return taken && !failing.has(column.name) && (!column.notNull || (validated?.[column.name] ?? null) !== null);
     };
     return {
       ...column,
@@ -560,10 +562,11 @@ function prober(db: LinesDB<TableDefs>, tableName: string, sample: JsonObject) {
   const issuesOf = (result: ReturnType<typeof tryValidate>) =>
     !result ? undefined : result.ok ? [] : perKey(result.error.issues).map((issue) => JSON.stringify(issue));
   const before = new Set(issuesOf(tryValidate(db, tableName, sample)));
-  return (row: JsonObject): { taken: boolean; value?: JsonObject } => {
+  return (row: JsonObject): { taken: boolean; value?: JsonObject; failing: Set<string | undefined> } => {
     const result = tryValidate(db, tableName, row);
     const taken = issuesOf(result)?.every((issue) => before.has(issue)) ?? false;
-    return { taken, value: result?.ok ? result.value : undefined };
+    const failing = new Set(result && !result.ok ? result.error.issues.map(fieldOf) : []);
+    return { taken, value: result?.ok ? result.value : undefined, failing };
   };
 }
 

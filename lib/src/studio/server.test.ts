@@ -600,6 +600,45 @@ describe('studio server', () => {
     });
   });
 
+  it('takes neither null nor leaving out a field every row fails for, having no row that passes to try it on', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'nameless.jsonl'), '{"id":1}\n{"id":2}\n');
+    await writeFile(
+      join(dataDir, 'nameless.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+        typeof data.name === 'string' ? { value: data } : { issues: [{ message: 'name is required', path: ['name'] }] } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const nameless = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'nameless',
+    );
+
+    expect(nameless.columns.find((column: { name: string }) => column.name === 'name')).toMatchObject({
+      nullable: false,
+      optional: false,
+    });
+  });
+
+  it('takes leaving out a field the schema lets be left out, though every row fails for the value it holds', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'priced.jsonl'), '{"id":1,"price":-5}\n{"id":2,"price":null}\n');
+    await writeFile(
+      join(dataDir, 'priced.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+        !('price' in data) || (typeof data.price === 'number' && data.price >= 0) ? { value: data } : { issues: [{ message: 'negative', path: ['price'] }] } } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const priced = (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables.find(
+      (table: { name: string }) => table.name === 'priced',
+    );
+
+    expect(priced.columns.find((column: { name: string }) => column.name === 'price')).toMatchObject({
+      optional: true,
+    });
+  });
+
   it('lists the foreign keys of a table with rows that fail validation, so a failing row can open the row it refers to', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'owners.jsonl'), '{"id":1}\n');
