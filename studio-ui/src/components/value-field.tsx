@@ -241,6 +241,10 @@ function Block(props: ValueFieldProps & { shape: 'map' | 'list'; onReshape: () =
   const entries: Array<[string | number, JsonValue]> =
     shape === 'list' ? list.map((item, index) => [index, item]) : Object.entries(map);
   const shown = new Set(entries.map(([key]) => String(key)));
+  // Not by index: an item shifted into the place of one removed would take over that item's state, such as its JSON editor
+  const ids = useRef<number[]>([]);
+  const nextId = useRef(0);
+  if (ids.current.length !== list.length) ids.current = list.map(() => nextId.current++);
   // Not only its own: an issue about a key it does not have, such as a required one, has no field to show it
   const blockIssues = issuesUnder(issues, path).filter(
     (issue) => issue.path!.length === path.length || !shown.has(segmentKey(issue.path![path.length])),
@@ -278,8 +282,7 @@ function Block(props: ValueFieldProps & { shape: 'map' | 'list'; onReshape: () =
             <span className="font-mono text-xs text-muted-foreground italic">{shape === 'list' ? '[ ]' : '{ }'}</span>
           )}
           {entries.map(([key, item]) => (
-            // Not by its index alone: an item shifted into the place of one removed would keep that item's shape
-            <div key={shape === 'list' ? `${key}:${shapeOf(item)}` : key} className="grid min-w-0 gap-1">
+            <div key={shape === 'list' ? ids.current[key as number] : key} className="grid min-w-0 gap-1">
               <div className="flex min-h-4 items-center gap-1">
                 <span className="font-mono text-[11px] text-muted-foreground">{key}</span>
                 {!readOnly && canRemove(key) && (
@@ -287,7 +290,10 @@ function Block(props: ValueFieldProps & { shape: 'map' | 'list'; onReshape: () =
                     type="button"
                     aria-label={`Remove ${nameOf([...path, key])}`}
                     className="ml-auto text-muted-foreground hover:text-destructive"
-                    onClick={() => onChange(removeIn(value, [key]))}
+                    onClick={() => {
+                      if (shape === 'list') ids.current = ids.current.filter((_, index) => index !== key);
+                      onChange(removeIn(value, [key]));
+                    }}
                   >
                     <X className="size-3.5" />
                   </button>
@@ -328,7 +334,11 @@ function Block(props: ValueFieldProps & { shape: 'map' | 'list'; onReshape: () =
                 type="button"
                 aria-label={shape === 'list' ? `Add an item to ${name}` : `Add a key to ${name}`}
                 className="flex items-center gap-1 justify-self-start text-[11px] text-muted-foreground hover:text-foreground"
-                onClick={() => (shape === 'list' ? onChange([...list, emptyLike(list.at(-1))]) : setNewKey(''))}
+                onClick={() => {
+                  if (shape !== 'list') return setNewKey('');
+                  ids.current = [...ids.current, nextId.current++];
+                  onChange([...list, emptyLike(list.at(-1))]);
+                }}
               >
                 <Plus className="size-3" /> {shape === 'list' ? 'item' : 'key'}
               </button>

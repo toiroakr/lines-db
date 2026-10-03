@@ -218,4 +218,21 @@ describe('ValueField', () => {
 
     expect(onChange).toHaveBeenLastCalledWith(['xy']);
   });
+
+  it('shows an item shifted into the place of one removed as itself, not as the JSON editor the removed one was in', async () => {
+    function Holder() {
+      const [value, setValue] = useState<JsonValue>([{ name: 'a' }, { name: 'b' }]);
+      return (
+        <TooltipProvider>
+          <ValueField path={['metadata']} value={value} issues={[]} onChange={setValue} />
+        </TooltipProvider>
+      );
+    }
+    render(<Holder />);
+    await userEvent.click(screen.getByRole('button', { name: 'Edit metadata.0 as JSON' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove metadata.0' }));
+
+    expect((screen.getByRole('textbox', { name: 'metadata.0.name' }) as HTMLTextAreaElement).value).toBe('b');
+  });
 });
