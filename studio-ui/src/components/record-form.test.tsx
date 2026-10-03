@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { cleanup, fireEvent, render as renderPlain, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as renderPlain, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { FormField, MIN_FORM_WIDTH, NewRecordDialog, RecordDrawer, type FieldModel } from './record-form';
 import type { Column, JsonValue } from '@/lib/types';
@@ -374,6 +374,20 @@ describe('RecordDrawer', () => {
 
     const separator = () => screen.getByRole('separator', { name: 'Resize the row form' });
     const width = () => Number(separator().getAttribute('aria-valuenow'));
+
+    it('narrows as the window narrows, leaving the grid its room', () => {
+      localStorage.setItem('lines-db-studio:form-width', '1000');
+      render(<RecordDrawer table="users" onClose={vi.fn()} />);
+      expect(separator().getAttribute('aria-valuenow')).toBe('1000');
+
+      vi.stubGlobal('innerWidth', 1000);
+      act(() => {
+        window.dispatchEvent(new Event('resize'));
+      });
+
+      expect(separator().getAttribute('aria-valuenow')).toBe('600');
+      expect(separator().getAttribute('aria-valuemax')).toBe('600');
+    });
 
     it('says how wide it can be, as far as it leaves the grid room', () => {
       render(<RecordDrawer table="users" onClose={vi.fn()} />);

@@ -284,10 +284,18 @@ export interface FormRow {
 export function RecordDrawer({ table, row, onClose }: { table: string; row?: FormRow; onClose: () => void }) {
   // Not checked by each field: every field changed would send the same row
   const { result } = useLiveCheck(table, row?.preview);
-  const [width, setWidth] = useState(readFormWidth);
+  const [chosen, setChosen] = useState(readFormWidth);
+  // Not clamped once only: a window narrowed since would leave the grid no room
+  const [, setWindowWidth] = useState(innerWidth);
+  useEffect(() => {
+    const measure = () => setWindowWidth(innerWidth);
+    addEventListener('resize', measure);
+    return () => removeEventListener('resize', measure);
+  }, []);
+  const width = clampWidth(chosen);
   const resize = (next: number) => {
     const clamped = clampWidth(next);
-    setWidth(clamped);
+    setChosen(clamped);
     writeFormWidth(clamped);
   };
   return (
