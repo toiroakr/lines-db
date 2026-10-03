@@ -457,6 +457,8 @@ describe('LinesDB.transaction write-back', () => {
       "PRAGMA `query_only` = OFF; INSERT INTO tags (id, label) VALUES (17, 'j')",
       "PRAGMA [query_only] = OFF; INSERT INTO tags (id, label) VALUES (18, 'i')",
       `PRAGMA main."query_only" = OFF; INSERT INTO tags (id, label) VALUES (19, 'h')`,
+      `PRAGMA 'main'.query_only = OFF; INSERT INTO tags (id, label) VALUES (20, 'g')`,
+      `PRAGMA main . query_only\t=\n0; INSERT INTO tags (id, label) VALUES (21, 'f')`,
     ];
     const refused: boolean[] = [];
     await db.transaction(async () => {

@@ -1985,7 +1985,7 @@ export class LinesDB<Tables extends TableDefs> {
       }
       // Only setting it: reading the pragma changes nothing, and reads through the database stay available
       if (
-        /^PRAGMA\s+(?:(?:\w+|"[^"]*"|`[^`]*`|\[[^\]]*\])\s*\.\s*)?(?:query_only|"query_only"|'query_only'|`query_only`|\[query_only\])\s*[=(]/i.test(
+        /^PRAGMA\s+(?:(?:\w+|"[^"]*"|'[^']*'|`[^`]*`|\[[^\]]*\])\s*\.\s*)?(?:query_only|"query_only"|'query_only'|`query_only`|\[query_only\])\s*[=(]/i.test(
           statement,
         )
       ) {
