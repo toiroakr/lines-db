@@ -2636,7 +2636,8 @@ export class LinesDB<Tables extends TableDefs> {
     if (previousContent === undefined) {
       this.fileHashes.delete(jsonlPath);
       this.observedHashes.delete(jsonlPath);
-      await rm(jsonlPath, { force: true });
+      if (this.hasSeveralDataDirs()) await replaceFile(jsonlPath, undefined, JsonlWriter.serialize(rows));
+      else await rm(jsonlPath, { force: true });
       return;
     }
     this.fileHashes.set(jsonlPath, hashJsonlContent(previousContent));

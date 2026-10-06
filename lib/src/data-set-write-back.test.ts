@@ -7,6 +7,11 @@ import { JsonlWriter } from './jsonl-writer.js';
 import { unwrap } from './result.js';
 import type { TableDefs } from './types.js';
 
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return { ...actual, readFile: vi.fn(actual.readFile) };
+});
+
 describe('data set write-back', () => {
   let root: string;
   let local: string;
@@ -31,6 +36,7 @@ describe('data set write-back', () => {
   });
   afterEach(async () => {
     vi.restoreAllMocks();
+    vi.mocked(readFile).mockReset();
     await db.close();
     await rm(root, { recursive: true, force: true });
   });
@@ -99,6 +105,34 @@ describe('data set write-back', () => {
     expect(unwrap(await db.hasExternalChanges())).toBe(false);
     unwrap(await db.transaction((tx) => unwrap(tx.delete('users', { id: 4 }))));
     expect((await readFile(join(third, 'users.jsonl'), 'utf8')).trim()).toBe('');
+  });
+
+  it('preserves an external edit after checking a newly created file during rollback', async () => {
+    await db.close();
+    const third = join(root, 'third');
+    await mkdir(third);
+    const created = join(third, 'users.jsonl');
+    db = LinesDB.create({ dataDir: [root, third, local], schemaDir: root, writeDataSets: true });
+    unwrap(await db.initialize());
+    const next = '{"id":3,"name":"New"}\n';
+    const external = '{"id":3,"name":"External"}\n';
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    vi.mocked(readFile).mockImplementation(async (...args: Parameters<typeof readFile>) => {
+      const content = await actual.readFile(...args);
+      if (args[0] === created && content === next) await writeFile(created, external);
+      return content;
+    });
+    const write = JsonlWriter.write.bind(JsonlWriter);
+    vi.spyOn(JsonlWriter, 'write').mockImplementation(async (file, rows) => {
+      if (file.startsWith(localFile() + '.')) throw new Error('disk full');
+      await write(file, rows);
+    });
+    const result = await db.transaction((tx) => {
+      unwrap(tx.insert('users', { id: 3, name: 'New' }, { dataDir: third }));
+      unwrap(tx.update('users', { name: 'Changed' }, { id: 2 }));
+    });
+    expect(result.ok).toBe(false);
+    expect(await readFile(created, 'utf8')).toBe(external);
   });
 
   it('rolls back every file and row when a later file fails, and retains routing for a retry', async () => {

@@ -4,7 +4,7 @@ import type { JsonlConflictError } from './types.js';
 
 export async function replaceFile(
   file: string,
-  write: (temporary: string) => Promise<void>,
+  write: ((temporary: string) => Promise<void>) | undefined,
   expected: string | undefined,
 ): Promise<void> {
   const suffix = randomBytes(12).toString('hex');
@@ -17,12 +17,14 @@ export async function replaceFile(
       file,
     }) as JsonlConflictError;
   try {
-    await write(temporary);
-    const mode = await stat(file).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return undefined;
-      throw error;
-    });
-    if (mode) await chmod(temporary, mode.mode & 0o7777);
+    if (write) {
+      await write(temporary);
+      const mode = await stat(file).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return undefined;
+        throw error;
+      });
+      if (mode) await chmod(temporary, mode.mode & 0o7777);
+    }
     if (expected !== undefined) {
       await rename(file, backup).catch((error: NodeJS.ErrnoException) => {
         if (error.code === 'ENOENT') throw conflict();
@@ -31,20 +33,21 @@ export async function replaceFile(
       moved = true;
       if ((await readFile(backup, 'utf8')) !== expected) throw conflict();
     }
-    await link(temporary, file).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'EEXIST') throw conflict();
-      throw error;
-    });
-    if (moved) {
-      await rm(backup);
-      moved = false;
+    if (write) {
+      await link(temporary, file).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'EEXIST') throw conflict();
+        throw error;
+      });
     }
+    const cleanBackup = moved;
+    moved = false;
+    if (cleanBackup) await rm(backup).catch(() => {});
   } catch (error) {
     if (moved) {
       try {
         await link(backup, file);
-        await rm(backup);
         moved = false;
+        await rm(backup).catch(() => {});
       } catch (restoreError) {
         if (error instanceof Error) {
           error.message += `; original content remains in '${backup}' because it could not be restored`;
@@ -57,6 +60,6 @@ export async function replaceFile(
     }
     throw error;
   } finally {
-    await rm(temporary, { force: true });
+    await rm(temporary, { force: true }).catch(() => {});
   }
 }

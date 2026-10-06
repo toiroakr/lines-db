@@ -8,7 +8,14 @@ import { startStudioServer, type StudioServer } from './server.js';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
-  return { ...actual, rename: vi.fn(actual.rename), link: vi.fn(actual.link), chmod: vi.fn(actual.chmod) };
+  return {
+    ...actual,
+    rename: vi.fn(actual.rename),
+    link: vi.fn(actual.link),
+    rm: vi.fn(actual.rm),
+    readFile: vi.fn(actual.readFile),
+    chmod: vi.fn(actual.chmod),
+  };
 });
 
 describe('studio server', () => {
@@ -50,6 +57,7 @@ describe('studio server', () => {
     await rm(dataDir, { recursive: true, force: true });
     vi.mocked(rename).mockReset();
     vi.mocked(link).mockReset();
+    vi.mocked(rm).mockReset();
     vi.mocked(chmod).mockReset();
   });
 
@@ -192,6 +200,51 @@ describe('studio server', () => {
     expect(await readFile(join(set, 'users.jsonl'), 'utf8')).toBe(
       '{"id":3,"name":"Fixed local"}\n{"id":4,"name":"Carol"}\n',
     );
+  });
+
+  it('commits a save when only backup cleanup fails', async () => {
+    await studio.close();
+    const local = join(dataDir, 'local');
+    await mkdir(local);
+    studio = await startStudioServer({ dataDir: [dataDir, local], schemaDir: dataDir, port: 0 });
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    vi.mocked(rm).mockImplementation(async (path, options) => {
+      if (String(path).endsWith('.backup')) throw new Error('backup cleanup failed');
+      await actual.rm(path, options);
+    });
+    const result = await patchJson(rowUrl('users', 1), { changes: { name: 'Saved' } });
+    expect(result.status).toBe(200);
+    expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toContain('"name":"Saved"');
+    const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    expect(rows.rows[0]).toMatchObject({ id: 1, name: 'Saved' });
+    vi.mocked(rm).mockReset();
+    vi.mocked(readFile).mockReset();
+  });
+
+  it('describes a stale composed invalid table without naming the wrong source file', async () => {
+    await studio.close();
+    const local = join(dataDir, 'local');
+    await mkdir(local);
+    await writeFile(join(dataDir, 'users.jsonl'), '{"id":1,"name":""}\n');
+    await writeFile(join(local, 'users.jsonl'), '{"id":2,"name":""}\n');
+    studio = await startStudioServer({ dataDir: [dataDir, local], schemaDir: dataDir, port: 0 });
+    const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    let changed = false;
+    vi.mocked(readFile).mockImplementation(async (...args: Parameters<typeof readFile>) => {
+      const content = await actual.readFile(...args);
+      if (!changed && args[0] === join(local, 'users.jsonl')) {
+        changed = true;
+        await writeFile(join(local, 'users.jsonl'), '{"id":2,"name":"External"}\n');
+      }
+      return content;
+    });
+    const result = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+      updates: [{ key: 0, changes: { name: 'Saved' } }],
+      revision: rows.revision,
+    });
+    expect(result.status).toBe(409);
+    expect((await bodyOf(result)).message).toContain('Source files');
   });
 
   it('returns a conflict and reloads valid rows changed while their replacement is staged', async () => {

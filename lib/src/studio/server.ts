@@ -433,7 +433,10 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       // Not left to the watcher: once it reloads, the file it compares against is the changed one, while
       // the page still addresses rows by where they stood when it read them
       if (batch.revision !== revision) {
-        const message = `${relative(dataDir, file)} changed since its rows were read; reload the table to see them`;
+        const message =
+          files.length > 1
+            ? 'Source files changed since their rows were read; reload the table to see them'
+            : `${relative(dataDir, file)} changed since its rows were read; reload the table to see them`;
         return { status: 409, body: { message } };
       }
       const rows = invalid.rows ?? unwrap(await JsonlReader.read(file));
