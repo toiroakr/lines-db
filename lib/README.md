@@ -750,6 +750,7 @@ await db.transaction((tx) => {
 ```
 
 Use `insert` with a destination for new rows in this mode; `batchInsert` has no destination argument.
+Raw SQL through `execute`, `query`, `queryOne`, and `getDb` stays read-only to preserve source routing.
 Transactions check all affected source files before writing, and restore earlier file writes if a
 later write fails. Studio enables this mode automatically.
 

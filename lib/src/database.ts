@@ -129,6 +129,7 @@ interface RowOrigin {
 
 export class LinesDB<Tables extends TableDefs> {
   private db: SQLiteDatabase;
+  private readonly rowMovesTable = `__lines_db_moves_${randomBytes(12).toString('hex')}`;
   private config: DatabaseConfig<Tables>;
   private schemas: Map<string, TableSchema> = new Map();
   private validationSchemas: Map<string, StandardSchema | undefined> = new Map();
@@ -845,6 +846,16 @@ export class LinesDB<Tables extends TableDefs> {
     const allDefs = [...columnDefs, ...foreignKeyDefs];
     const sql = `CREATE TABLE IF NOT EXISTS ${quotedTableName} (${allDefs.join(', ')})`;
     this.db.exec(sql);
+    if (this.hasSeveralDataDirs() && this.config.writeDataSets) {
+      const moves = this.quoteIdentifier(this.rowMovesTable);
+      const trigger = this.quoteIdentifier(`${this.rowMovesTable}_${schema.name}`);
+      const name = `'${schema.name.replace(/'/g, "''")}'`;
+      this.db.exec(`CREATE TEMP TABLE IF NOT EXISTS ${moves} (tableName TEXT, oldRowid INTEGER, newRowid INTEGER)`);
+      this.db.exec(`CREATE TEMP TRIGGER IF NOT EXISTS ${trigger} AFTER UPDATE ON ${quotedTableName}
+        WHEN OLD.rowid != NEW.rowid BEGIN
+          INSERT INTO ${moves} VALUES (${name}, OLD.rowid, NEW.rowid);
+        END`);
+    }
 
     // Create indexes
     if (schema.indexes && schema.indexes.length > 0) {
@@ -1117,7 +1128,7 @@ export class LinesDB<Tables extends TableDefs> {
       this.enforceReadOnlySql();
       this.refuseUnsafeSql(sql);
       this.refuseWhileTransactionSettles('run SQL');
-      return ok(this.trackRawSql(() => this.executeInternal(sql, params)));
+      return ok(this.trackRawSql(() => this.readOnlyWhileTransactionSettles(() => this.executeInternal(sql, params))));
     } catch (error) {
       return err(toError(error));
     }
@@ -1153,7 +1164,17 @@ export class LinesDB<Tables extends TableDefs> {
     params: (string | number | bigint | null | Uint8Array)[] = [],
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
     const stmt = this.db.prepare(sql);
-    return stmt.run(...params);
+    const result = stmt.run(...params);
+    if (this.hasSeveralDataDirs() && this.config.writeDataSets) {
+      const moves = this.quoteIdentifier(this.rowMovesTable);
+      const changes = this.queryInternal<{ tableName: string; oldRowid: number | bigint; newRowid: number | bigint }>(
+        `SELECT tableName, oldRowid, newRowid FROM ${moves} ORDER BY rowid`,
+      );
+      for (const change of changes)
+        this.moveRowMetadata(change.tableName, String(change.oldRowid), String(change.newRowid));
+      if (changes.length > 0) this.db.exec(`DELETE FROM ${moves}`);
+    }
+    return result;
   }
 
   /**
@@ -1997,6 +2018,15 @@ export class LinesDB<Tables extends TableDefs> {
    * comment cannot hide one
    */
   private refuseUnsafeSql(sql: string, viaTransaction = this.viaTransactionObject): void {
+    if (
+      this.hasSeveralDataDirs() &&
+      this.config.writeDataSets &&
+      splitStatements(sql).some((statement) => !isReadOnlyStatement(statement))
+    ) {
+      throw new Error(
+        'Raw SQL is read-only for composed data sets; use insert, update, or delete to preserve source routing',
+      );
+    }
     // Not only once begun: the read-only mode is held from the moment a transaction starts until it closes,
     // and a BEGIN while it starts would make its own BEGIN fail with one left open that it never rolls back
     if (!this.inTransaction && !this.transactionStarting && !this.transactionClosing) return;
@@ -2073,7 +2103,12 @@ export class LinesDB<Tables extends TableDefs> {
    * Not refused outright as execute() is: a query that only reads changes nothing the files would miss
    */
   private readOnlyWhileTransactionSettles<T>(run: () => T, viaTransaction = this.viaTransactionObject): T {
-    if (!this.transactionStarting && !this.transactionClosing && !(this.inTransaction && !viaTransaction)) {
+    if (
+      !this.hasSeveralDataDirs() &&
+      !this.transactionStarting &&
+      !this.transactionClosing &&
+      !(this.inTransaction && !viaTransaction)
+    ) {
       return run();
     }
     this.db.exec('PRAGMA query_only = ON');
@@ -3044,15 +3079,15 @@ export class LinesDB<Tables extends TableDefs> {
     // Checked each time SQL runs, not when the handle is taken: SQL that would end a transaction must be
     // refused, and one that changes rows tracked, whichever transaction is open by then
     const guarded = <T>(sql: string, run: () => T): T => {
-      if (idle()) return run();
+      if (idle() && !this.hasSeveralDataDirs()) return run();
       this.refuseUnsafeSql(sql, viaTransaction());
       return this.readOnlyWhileTransactionSettles(() => this.trackRawSql(run), viaTransaction());
     };
     return {
       prepare: (sql: string) => {
         // Also when prepared: SQLite runs some pragmas then, not only when the statement is stepped
-        if (!idle()) this.refuseUnsafeSql(sql, viaTransaction());
-        const statement = this.db.prepare(sql);
+        if (!idle() || this.hasSeveralDataDirs()) this.refuseUnsafeSql(sql, viaTransaction());
+        const statement = this.readOnlyWhileTransactionSettles(() => this.db.prepare(sql), viaTransaction());
         return {
           run: (...params: unknown[]) => guarded(sql, () => statement.run(...params)),
           get: (...params: unknown[]) => guarded(sql, () => statement.get(...params)),

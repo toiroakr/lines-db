@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { watch } from 'node:fs';
-import { chmod, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, extname, join, relative, resolve as resolvePath } from 'node:path';
@@ -67,14 +67,23 @@ interface InvalidTable {
 }
 
 export async function startStudioServer(options: StudioServerOptions): Promise<StudioServer> {
-  const dataDirs = [options.dataDir].flat().map((dir) => resolvePath(dir));
+  const dataDirs: string[] = [];
+  const seen = new Set<string>();
+  for (const dir of [options.dataDir].flat()) {
+    const resolved = resolvePath(dir);
+    const actual = await realpath(resolved);
+    if (seen.has(actual)) continue;
+    seen.add(actual);
+    dataDirs.push(resolved);
+  }
+  if (dataDirs.length === 0) throw new Error('Studio requires at least one data directory');
   const dataDir = dataDirs[0];
   const schemaDir = options.schemaDir ?? dataDir;
   const host = options.host ?? '127.0.0.1';
   const uiDir = options.uiDir ?? (await shippedUiDir());
   const token = randomBytes(24).toString('base64url');
   const writeFilledValues = options.writeFilledValues ?? 'primaryKey';
-  const load = () => loadSnapshot(options.dataDir, options.schemaDir, writeFilledValues);
+  const load = () => loadSnapshot(dataDirs, options.schemaDir, writeFilledValues);
   let snapshot = await load();
 
   let queue: Promise<unknown> = Promise.resolve();
@@ -255,7 +264,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         }
         tables.sort((a, b) => a.name.localeCompare(b.name));
         return {
-          dataDir: dataDirs.join(', '),
+          dataDir,
           dataDirs,
           schemaDir: resolvePath(schemaDir),
           tables,
@@ -459,23 +468,20 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       const written: typeof plans = [];
       try {
         for (const plan of plans) {
-          const temporary = `${plan.file}.${randomBytes(6).toString('hex')}.tmp`;
-          try {
-            await writeFile(temporary, plan.next, 'utf8');
-            await chmod(temporary, (await stat(plan.file)).mode & 0o7777);
-            await rename(temporary, plan.file);
-            written.push(plan);
-          } finally {
-            await rm(temporary, { force: true });
-          }
+          await replaceUnchangedFile(plan.file, plan.next, plan.content);
+          written.push(plan);
         }
       } catch (error) {
         const unrestored: string[] = [];
         for (const plan of written) {
-          await writeFile(plan.file, plan.content, 'utf8').catch(() => unrestored.push(plan.file));
+          await replaceUnchangedFile(plan.file, plan.content, plan.next).catch(() => unrestored.push(plan.file));
         }
         if (unrestored.length)
           throw new Error(`${errorMessage(error)}; could not restore ${unrestored.join(', ')}`, { cause: error });
+        if (error instanceof Error && error.name === 'JsonlConflictError') {
+          await reloadUnlocked();
+          return { status: 409, body: { message: error.message }, changed: true };
+        }
         throw error;
       }
       await reloadUnlocked();
@@ -603,6 +609,23 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       await serialize(() => snapshot.db.close());
     },
   };
+}
+
+async function replaceUnchangedFile(file: string, next: string, expected: string): Promise<void> {
+  const temporary = `${file}.${randomBytes(12).toString('hex')}.tmp`;
+  try {
+    await writeFile(temporary, next, 'utf8');
+    await chmod(temporary, (await stat(file)).mode & 0o7777);
+    if ((await readFile(file, 'utf8')) !== expected) {
+      throw Object.assign(new Error(`${file} changed during the save; reload the table before trying again`), {
+        name: 'JsonlConflictError',
+        file,
+      });
+    }
+    await rename(temporary, file);
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 async function loadSnapshot(

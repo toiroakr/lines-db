@@ -34,6 +34,43 @@ describe('data set write-back', () => {
     await db.close();
     await rm(root, { recursive: true, force: true });
   });
+  it('rejects raw mutations through every SQL interface while typed edits remain writable', async () => {
+    expect(db.execute("INSERT INTO users (id, name) VALUES (3, 'Raw')").ok).toBe(false);
+    expect(db.query('UPDATE users SET id = 8 WHERE id = 2 RETURNING *').ok).toBe(false);
+    expect(db.queryOne('DELETE FROM users WHERE id = 1 RETURNING *').ok).toBe(false);
+    const handle = db.getDb();
+    expect(() => handle.exec('DELETE FROM users WHERE id = 5')).toThrow();
+    expect(() => handle.prepare("UPDATE users SET name = 'Raw' WHERE id = 2").run()).toThrow();
+    expect(() => handle.prepare('PRAGMA query_only = OFF')).toThrow();
+    expect(unwrap(db.query('SELECT COUNT(*) AS count FROM users'))).toEqual([{ count: 3 }]);
+    expect(handle.prepare('SELECT COUNT(*) AS count FROM users').get()).toEqual({ count: 3 });
+    unwrap(
+      await db.transaction((tx) => {
+        expect(tx.execute("UPDATE users SET name = 'Raw' WHERE id = 1").ok).toBe(false);
+        expect(() => tx.getDb().exec("INSERT INTO users (id, name) VALUES (3, 'Raw')")).toThrow();
+        unwrap(tx.update('users', { name: 'Typed' }, { id: 2 }));
+      }),
+    );
+    expect(await readFile(localFile(), 'utf8')).toBe('{"id":2,"name":"Typed"}\n');
+  });
+
+  it('keeps the source of a child whose integer primary key is updated by a foreign-key cascade', async () => {
+    await db.close();
+    const profiles = join(local, 'profiles.jsonl');
+    await writeFile(profiles, '{"id":5,"bio":"Local profile"}\n');
+    await writeFile(
+      join(root, 'profiles.schema.ts'),
+      "export const foreignKeys = [{ column: 'id', references: { table: 'users', column: 'id' }, onUpdate: 'CASCADE' }];\n" +
+        "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
+    );
+    db = LinesDB.create({ dataDir: [root, local], schemaDir: root, writeDataSets: true });
+    unwrap(await db.initialize());
+    unwrap(await db.transaction((tx) => unwrap(tx.update('users', { id: 9 }, { id: 5 }))));
+    expect(await readFile(profiles, 'utf8')).toBe('{"id":9,"bio":"Local profile"}\n');
+    unwrap(await db.transaction((tx) => unwrap(tx.update('profiles', { bio: 'Updated' }, { id: 9 }))));
+    expect(await readFile(profiles, 'utf8')).toBe('{"id":9,"bio":"Updated"}\n');
+  });
+
   it('updates and deletes rows in their original files, preserving line order after a key changes', async () => {
     unwrap(
       await db.transaction((tx) => {

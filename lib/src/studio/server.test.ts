@@ -1,10 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { request } from 'node:http';
 import { startStudioServer, type StudioServer } from './server.js';
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return { ...actual, rename: vi.fn(actual.rename), chmod: vi.fn(actual.chmod) };
+});
 
 describe('studio server', () => {
   let dataDir: string;
@@ -43,6 +48,8 @@ describe('studio server', () => {
   afterEach(async () => {
     await studio.close();
     await rm(dataDir, { recursive: true, force: true });
+    vi.mocked(rename).mockReset();
+    vi.mocked(chmod).mockReset();
   });
 
   it('lists each table with its columns and primary key', async () => {
@@ -61,6 +68,23 @@ describe('studio server', () => {
         ]),
       }),
     ]);
+  });
+
+  it('rejects an empty data directory list before starting the server', async () => {
+    await expect(startStudioServer({ dataDir: [], port: 0 })).rejects.toThrow('at least one data directory');
+  });
+
+  it('loads each resolved data directory once and exposes one primary path for copying', async () => {
+    await studio.close();
+    const set = join(dataDir, 'local');
+    await mkdir(set);
+    await writeFile(join(set, 'users.jsonl'), '{"id":3,"name":"Carol"}\n');
+    studio = await startStudioServer({ dataDir: [dataDir, join(dataDir, '.'), set], schemaDir: dataDir, port: 0 });
+    const listing = await bodyOf(await fetch(`${studio.url}/api/tables`));
+    expect(listing.dataDir).toBe(dataDir);
+    expect(listing.dataDirs).toEqual([dataDir, set]);
+    expect(listing.tables[0]).toMatchObject({ rowCount: 3, invalidRows: 0 });
+    expect((await patchJson(rowUrl('users', 3), { changes: { name: 'Changed' } })).status).toBe(200);
   });
 
   it('validates and edits a data set using the shared schema directory', async () => {
@@ -167,6 +191,58 @@ describe('studio server', () => {
     expect(await readFile(join(set, 'users.jsonl'), 'utf8')).toBe(
       '{"id":3,"name":"Fixed local"}\n{"id":4,"name":"Carol"}\n',
     );
+  });
+
+  it('preserves an invalid source file edited while repaired rows are staged', async () => {
+    await studio.close();
+    const file = join(dataDir, 'users.jsonl');
+    await writeFile(file, '{"id":1,"name":""}\n');
+    studio = await startStudioServer({ dataDir, port: 0 });
+    const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    const external = '{"id":1,"name":"External"}\n';
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    vi.mocked(chmod).mockImplementationOnce(async (path, mode) => {
+      await actual.chmod(path, mode);
+      await writeFile(file, external);
+    });
+    const result = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+      updates: [{ key: 0, changes: { name: 'Repaired' } }],
+      revision: rows.revision,
+    });
+    expect(result.status).toBe(409);
+    expect(await readFile(file, 'utf8')).toBe(external);
+  });
+
+  it('preserves an external edit of a repaired source when another repair fails', async () => {
+    await studio.close();
+    const set = join(dataDir, 'local');
+    await mkdir(set);
+    const base = join(dataDir, 'users.jsonl');
+    const local = join(set, 'users.jsonl');
+    await writeFile(base, '{"id":1,"name":""}\n');
+    await writeFile(local, '{"id":2,"name":""}\n');
+    studio = await startStudioServer({ dataDir: [dataDir, set], schemaDir: dataDir, port: 0 });
+    const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    const external = '{"id":1,"name":"External"}\n';
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    vi.mocked(rename).mockImplementation(async (from, to) => {
+      if (to === local) {
+        await writeFile(base, external);
+        throw new Error('disk full');
+      }
+      await actual.rename(from, to);
+    });
+    const response = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+      updates: [
+        { key: 0, changes: { name: 'Fixed base' } },
+        { key: 1, changes: { name: 'Fixed local' } },
+      ],
+      revision: rows.revision,
+    });
+    expect(response.status).toBe(500);
+    expect((await bodyOf(response)).message).toContain('could not restore');
+    expect(await readFile(base, 'utf8')).toBe(external);
+    expect(await readFile(local, 'utf8')).toBe('{"id":2,"name":""}\n');
   });
 
   it('notifies the page when a shared schema changes and validates edits against it', async () => {
