@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,8 +11,13 @@ const output = fileURLToPath(new URL('.e2e/', import.meta.url));
 mkdirSync(output, { recursive: true });
 const dataDir = mkdtempSync(join(output, 'studio-data-'));
 process.once('exit', () => rmSync(dataDir, { recursive: true, force: true }));
+const schemaDir = join(dataDir, 'schemas');
+mkdirSync(schemaDir);
 cpSync(new URL('fixtures/', import.meta.url), dataDir, { recursive: true });
+for (const file of readdirSync(dataDir)) {
+  if (file.includes('.schema.')) renameSync(join(dataDir, file), join(schemaDir, file));
+}
 
 const cli = new URL('../lib/bin/cli.mjs', import.meta.url);
-process.argv = [process.execPath, fileURLToPath(cli), 'studio', dataDir, '--port', port];
+process.argv = [process.execPath, fileURLToPath(cli), 'studio', dataDir, '--schema-dir', schemaDir, '--port', port];
 await import(cli.href);

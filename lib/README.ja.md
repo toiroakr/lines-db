@@ -199,6 +199,22 @@ const { filled } = unwrap(
 npx lines-db studio <dataDir> [--port 4848] [--open] [--write-filled-values primaryKey|all]
 ```
 
+JSONLファイルだけを持つデータセットを編集するには、`--schema-dir` に共通スキーマのディレクトリを指定します。
+バリデーション、宣言された列、外部キー、Schemaダイアログは共通スキーマを参照し、保存先は選択したデータセットです。
+
+```bash
+npx lines-db studio seed/data/cogs --schema-dir seed/data
+```
+
+複数のデータディレクトリをまとめて閲覧する場合は、`--data-dir` を繰り返し、`--schema-dir` を指定します。
+
+```bash
+npx lines-db studio --data-dir seed/data --data-dir seed/data/cogs --schema-dir seed/data
+```
+
+合成したビューは、バリデーションに失敗した行も含めて読み取り専用です。レコードの追加・編集・削除には、
+単一のデータセットを開いてください。位置引数のディレクトリと `--data-dir` を組み合わせることもできます。
+
 `http://127.0.0.1:4848` でローカルの Web UI を起動します。`dataDir` のテーブルを行数つきで一覧表示し、
 テーブルを表形式で表示します。セルを押して編集するほか、表の横の行フォームで1行をまとめて編集し、
 列ごとの入力欄が並ぶダイアログで行を追加し、行を選んで削除できます。変更は表の中で色分けされた

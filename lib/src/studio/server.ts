@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { basename, extname, join, relative, resolve as resolvePath } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { LinesDB } from '../database.js';
+import { DirectoryScanner } from '../directory-scanner.js';
 import { ErrorFormatter } from '../error-formatter.js';
 import { unwrap } from '../result.js';
 import { JsonlReader, hashJsonlContent } from '../jsonl-reader.js';
@@ -27,7 +28,8 @@ import type {
 } from '../types.js';
 
 export interface StudioServerOptions {
-  dataDir: string;
+  dataDir: string | string[];
+  schemaDir?: string;
   /** Directory holding the built page. Defaults to the one shipped with the package */
   uiDir?: string;
   /** Which values the schema fills in a save writes into the file. Defaults to 'primaryKey' */
@@ -56,17 +58,24 @@ interface Snapshot {
 
 interface InvalidTable {
   file: string;
+  rows?: JsonObject[];
   /** The issues of each failing row, by its index among the rows of the file */
   issues: Map<number, StandardSchemaIssue[]>;
 }
 
 export async function startStudioServer(options: StudioServerOptions): Promise<StudioServer> {
-  const { dataDir } = options;
+  const dataDirs = [options.dataDir].flat().map((dir) => resolvePath(dir));
+  const dataDir = dataDirs[0];
+  const schemaDir = options.schemaDir ?? dataDir;
+  const readOnlyReason =
+    dataDirs.length > 1
+      ? 'This view combines several data directories and is read-only. Open a single data set to edit its rows.'
+      : null;
   const host = options.host ?? '127.0.0.1';
   const uiDir = options.uiDir ?? (await shippedUiDir());
   const token = randomBytes(24).toString('base64url');
   const writeFilledValues = options.writeFilledValues ?? 'primaryKey';
-  const load = () => loadSnapshot(dataDir, writeFilledValues);
+  const load = () => loadSnapshot(options.dataDir, options.schemaDir, writeFilledValues);
   let snapshot = await load();
 
   let queue: Promise<unknown> = Promise.resolve();
@@ -110,7 +119,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const referencesFor = async (current: Snapshot, name: string): Promise<References> => {
     const byTable = references.get(current) ?? new Map<string, References>();
     references.set(current, byTable);
-    if (!byTable.has(name)) byTable.set(name, await referencesOf(current.db, dataDir, name));
+    if (!byTable.has(name)) byTable.set(name, await referencesOf(current.db, schemaDir, name));
     return byTable.get(name)!;
   };
   // Not found on each listing either for a table whose rows fail validation: finding it validates rows
@@ -119,8 +128,9 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     const byTable = invalidColumns.get(current) ?? new Map<string, { columns: Columns; rowCount: number }>();
     invalidColumns.set(current, byTable);
     if (!byTable.has(name)) {
-      const { file, issues } = current.invalid.get(name)!;
-      const rows = unwrap(await JsonlReader.read(file));
+      const invalid = current.invalid.get(name)!;
+      const { issues } = invalid;
+      const rows = invalid.rows ?? unwrap(await JsonlReader.read(invalid.file));
       const unknown = unknownFields(current.db, name, rows, issues);
       const inferred = unwrap(JsonlReader.inferSchema(name, rows)).columns;
       // A field no row holds - a required one every row lacks - has no column to fill it in otherwise;
@@ -144,17 +154,20 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
   let watchTimer: NodeJS.Timeout | undefined;
   // Not checking on each event: an editor saving a file fires several (a temporary file, then a rename)
-  const watcher = watch(dataDir, () => {
-    clearTimeout(watchTimer);
-    watchTimer = setTimeout(() => {
-      // Not reporting the error here: the page asks again on 'changed' and shows the error it gets
-      reloadIfChanged().catch(notifyChanged);
-    }, 100);
-  });
-  // Not letting the error end the process: Reload still loads the current files without the watcher
-  watcher.on('error', (error) => {
-    console.warn(`Live reload is off, as the data directory cannot be watched: ${errorMessage(error)}`);
-    watcher.close();
+  const watchers = [...new Set([...dataDirs, resolvePath(schemaDir)])].map((dir) => {
+    const watcher = watch(dir, () => {
+      clearTimeout(watchTimer);
+      watchTimer = setTimeout(() => {
+        // Not reporting the error here: the page asks again on 'changed' and shows the error it gets
+        reloadIfChanged().catch(notifyChanged);
+      }, 100);
+    });
+    // Not letting the error end the process: Reload still loads the current files without the watcher
+    watcher.on('error', (error) => {
+      console.warn(`Live reload is off, as the data directory cannot be watched: ${errorMessage(error)}`);
+      watcher.close();
+    });
+    return watcher;
   });
   const reloadIfChanged = (): Promise<boolean> => serialize(reloadIfChangedUnlocked);
 
@@ -219,7 +232,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
             primaryKey,
             rowCount,
             invalidRows: 0,
-            readOnlyReason: whyReadOnly(current.db, name),
+            readOnlyReason: readOnlyReason ?? whyReadOnly(current.db, name),
             schemaFile: null as string | null,
             references: await referencesFor(current, name),
           });
@@ -232,17 +245,23 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
             primaryKey: null,
             rowCount,
             invalidRows: issues.size,
-            readOnlyReason: null,
+            readOnlyReason,
             schemaFile: null,
             references: await referencesFor(current, name),
           });
         }
         for (const table of tables) {
-          const schemaPath = await findSchemaFile(dataDir, table.name);
+          const schemaPath = await findSchemaFile(schemaDir, table.name);
           table.schemaFile = schemaPath ? basename(schemaPath) : null;
         }
         tables.sort((a, b) => a.name.localeCompare(b.name));
-        return { dataDir: resolvePath(dataDir), tables, problems: current.problems };
+        return {
+          dataDir: dataDirs.join(', '),
+          dataDirs,
+          schemaDir: resolvePath(schemaDir),
+          tables,
+          problems: current.problems,
+        };
       });
       sendJson(res, 200, listing);
       return;
@@ -257,13 +276,13 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       await reloadIfChanged();
       // Not looked up for a name that is not a table: the name would otherwise reach the file system as is
       const known = Boolean(snapshot.db.getSchema(tableName)) || snapshot.invalid.has(tableName);
-      const schemaPath = known ? await findSchemaFile(dataDir, tableName) : undefined;
+      const schemaPath = known ? await findSchemaFile(schemaDir, tableName) : undefined;
       if (!schemaPath) {
         sendJson(res, 404, { message: `Table '${tableName}' has no schema file` });
         return;
       }
       const loaded = snapshot.invalid.has(tableName) ? undefined : snapshot.db.getSchema(tableName);
-      const declared = loaded && (await readDeclaredColumns(schemaPath, dataDir));
+      const declared = loaded && (await readDeclaredColumns(schemaPath, schemaDir));
       const flagsOf = (name: string) => {
         const column = loaded?.columns.find((candidate) => candidate.name === name);
         return { ...(column?.primaryKey ? { primaryKey: true } : {}), ...(column?.unique ? { unique: true } : {}) };
@@ -306,6 +325,14 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       await reloadIfChanged();
       const invalid = snapshot.invalid.get(tableName);
       if (invalid) {
+        if (invalid.rows) {
+          sendJson(res, 200, {
+            rows: invalid.rows,
+            defaulted: invalid.rows.map(() => []),
+            issues: Object.fromEntries(invalid.issues),
+          });
+          return;
+        }
         const { rows, contentHash } = unwrap(await JsonlReader.readSnapshot(invalid.file));
         const read = unwrap(rows);
         sendJson(res, 200, {
@@ -439,6 +466,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         }
       }
       const { db } = snapshot;
+      if (readOnlyReason) return { status: 409, body: { message: readOnlyReason } };
       const invalid = snapshot.invalid.get(tableName);
       if (invalid) return writeInvalidTable(invalid);
       const schema = db.getSchema(tableName);
@@ -512,7 +540,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       });
     });
   } catch (error) {
-    watcher.close();
+    watchers.forEach((watcher) => watcher.close());
     await snapshot.db.close();
     throw error;
   }
@@ -523,7 +551,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     url,
     token,
     close: async () => {
-      watcher.close();
+      watchers.forEach((watcher) => watcher.close());
       clearTimeout(watchTimer);
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -532,8 +560,13 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   };
 }
 
-async function loadSnapshot(dataDir: string, writeFilledValues: WriteFilledValues): Promise<Snapshot> {
-  const db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues });
+async function loadSnapshot(
+  dataDir: string | string[],
+  schemaDir: string | undefined,
+  writeFilledValues: WriteFilledValues,
+): Promise<Snapshot> {
+  const db = LinesDB.create<TableDefs>({ dataDir, schemaDir, writeFilledValues });
+  const baseDir = [dataDir].flat()[0];
   // Not the bulk insert: a foreign key or NOT NULL violation would fail the whole load instead of
   // marking the row, which the studio then cannot show to be fixed
   const loaded = await db.initialize({ detailedValidate: true });
@@ -541,14 +574,17 @@ async function loadSnapshot(dataDir: string, writeFilledValues: WriteFilledValue
     await db.close();
     if (loaded.error.name === 'JsonlParseError') {
       const { file, line, message } = loaded.error as JsonlParseError;
-      throw new Error(`${relative(dataDir, file) || file}:${line}: ${message}`, { cause: loaded.error });
+      throw new Error(`${relative(baseDir, file) || file}:${line}: ${message}`, { cause: loaded.error });
     }
     throw loaded.error;
   }
   return {
     db,
-    problems: describeProblems(dataDir, loaded.value.errors),
-    invalid: invalidTables(loaded.value.errors),
+    problems: describeProblems(baseDir, loaded.value.errors),
+    invalid:
+      typeof dataDir !== 'string' && dataDir.length > 1
+        ? await composedInvalidTables(dataDir, loaded.value.errors)
+        : invalidTables(loaded.value.errors),
   };
 }
 
@@ -835,6 +871,31 @@ function invalidTables(errors: ValidationErrorDetail[]): Map<string, InvalidTabl
     tables.set(error.tableName, table);
   }
   return new Map([...tables].filter((entry): entry is [string, InvalidTable] => entry[1] !== null));
+}
+
+async function composedInvalidTables(
+  dataDirs: string[],
+  errors: ValidationErrorDetail[],
+): Promise<Map<string, InvalidTable>> {
+  const tables = await DirectoryScanner.scanDirectory(dataDirs);
+  const invalid = new Map<string, InvalidTable>();
+  for (const name of new Set(errors.map((error) => error.tableName))) {
+    const config = tables.get(name)!;
+    const rows: JsonObject[] = [];
+    const adjusted: ValidationErrorDetail[] = [];
+    for (const file of config.jsonlPaths ?? [config.jsonlPath]) {
+      const offset = rows.length;
+      rows.push(...unwrap(await JsonlReader.read(file)));
+      adjusted.push(
+        ...errors
+          .filter((error) => error.tableName === name && error.file === file)
+          .map((error) => ({ ...error, file: config.jsonlPath, rowIndex: offset + error.rowIndex })),
+      );
+    }
+    const table = invalidTables(adjusted).get(name)!;
+    invalid.set(name, { ...table, rows });
+  }
+  return invalid;
 }
 
 function describeProblems(dataDir: string, errors: ValidationErrorDetail[]): string[] {

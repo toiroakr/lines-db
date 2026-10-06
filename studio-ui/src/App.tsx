@@ -380,7 +380,7 @@ export function App() {
     const defaulted = data.defaulted[index] ?? [];
     const issues = data.issues?.[index] ?? [];
     const byIndex = table.invalidRows > 0;
-    const writable = byIndex || (!table.readOnlyReason && table.primaryKey !== null);
+    const writable = !table.readOnlyReason && (byIndex || table.primaryKey !== null);
     const deleted = writable && !byIndex && isDeleted(pending, key);
     const fields = table.columns.map((column): FieldModel => {
       const change = writable ? cellChange(pending, key, column.name) : undefined;
@@ -832,7 +832,7 @@ function Grid({
   const primaryKey = table.primaryKey;
   // Not found by primary key in a table with failing rows: the failing field may be that key
   const byIndex = table.invalidRows > 0;
-  const writable = byIndex || (!table.readOnlyReason && primaryKey !== null);
+  const writable = !table.readOnlyReason && (byIndex || primaryKey !== null);
   const selectable = writable && !byIndex;
   const keyOfRow = (row: JsonObject, index: number): JsonValue =>
     byIndex ? index : primaryKey ? keyOf(row, primaryKey) : null;
@@ -879,7 +879,7 @@ function Grid({
                       </Badge>
                     </Tooltip>
                   )}
-                  {column.unknown && (
+                  {column.unknown && writable && (
                     <Tooltip content={`Remove ${column.name} from every row`}>
                       <button
                         type="button"

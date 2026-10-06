@@ -349,9 +349,15 @@ const studioCommand = defineCommand({
   name: 'studio',
   description: 'Browse and edit the tables of a data directory in the browser',
   args: z.object({
-    dataDir: arg(z.string(), {
+    path: arg(z.string().optional(), {
       positional: true,
-      description: 'Directory containing JSONL and schema files',
+      description: 'Directory containing JSONL files',
+    }),
+    dataDir: arg(z.array(z.string()).default([]), {
+      description: 'Directory containing JSONL files (repeatable; several directories are read-only)',
+    }),
+    schemaDir: arg(z.string().optional(), {
+      description: 'Directory containing shared schema files (required for several data directories)',
     }),
     port: arg(z.coerce.number().int().min(0).max(65535).default(4848), {
       alias: 'p',
@@ -366,8 +372,11 @@ const studioCommand = defineCommand({
   }),
   run: async (args) => {
     try {
+      const dataDirs = [...(args.path ? [args.path] : []), ...args.dataDir];
+      if (dataDirs.length === 0) throw new Error('Pass a data directory or --data-dir');
       studio = await startStudioServer({
-        dataDir: args.dataDir,
+        dataDir: dataDirs.length === 1 ? dataDirs[0] : dataDirs,
+        schemaDir: args.schemaDir,
         port: args.port,
         writeFilledValues: args.writeFilledValues,
       });

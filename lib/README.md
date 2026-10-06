@@ -202,6 +202,23 @@ not JSON objects (`unreadableLines`), and the named fields no table produced a v
 npx lines-db studio <dataDir> [--port 4848] [--open] [--write-filled-values primaryKey|all]
 ```
 
+To edit a data set containing only JSONL files, point `--schema-dir` at the shared schema directory.
+Validation, declared columns, foreign keys, and the Schema dialog use those shared files; saves go
+back to the selected data set.
+
+```bash
+npx lines-db studio seed/data/cogs --schema-dir seed/data
+```
+
+To browse several data directories together, repeat `--data-dir` and supply `--schema-dir`:
+
+```bash
+npx lines-db studio --data-dir seed/data --data-dir seed/data/cogs --schema-dir seed/data
+```
+
+A composed view is read-only, including rows that fail validation. Open a single data set to add,
+edit, or delete records. A positional directory can also be combined with `--data-dir`.
+
 Starts a local web UI at `http://127.0.0.1:4848` that lists the tables of `dataDir` with their row
 counts and shows a table as a grid. Click a cell to edit it, edit a whole row in the row form beside
 the grid, add records from a dialog of their fields, or select rows to delete; the changes stay pending - highlighted in the grid - until **Save N changes** writes them all in one

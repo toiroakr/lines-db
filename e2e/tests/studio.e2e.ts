@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
@@ -23,6 +23,28 @@ const linesOf = async (file: string) =>
     .trim()
     .split('\n')
     .map((line) => JSON.parse(line));
+
+test('opens JSONL-only data with shared schemas for validation, declared columns and foreign keys', async ({
+  app,
+  screen,
+  browser,
+}) => {
+  await app.open('/');
+  const dataDir = await dataDirOf(browser);
+  expect((await readdir(dataDir)).some((file) => file.includes('.schema.'))).toBe(false);
+  await screen
+    .getByRole('navigation')
+    .getByRole('button', /^orders/)
+    .tap();
+  await screen.getByRole('button', 'Edit customerId', { exact: true }).tap();
+  await screen.getByRole('button', 'Open users where id is 2', { exact: true }).tap();
+  await expect(screen.getByRole('heading', 'users', { exact: true })).toBeVisible();
+  await screen.getByRole('button', 'Schema', { exact: true }).tap();
+  const dialog = screen.getByRole('dialog', 'users.schema.ts');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('email');
+  await app.screenshot('Shared schema of a JSONL-only data set');
+});
 
 test('lists the fixture tables and filters the sidebar', async ({ app, screen }) => {
   await app.open('/');
