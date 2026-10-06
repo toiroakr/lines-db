@@ -163,20 +163,25 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
   let watchTimer: NodeJS.Timeout | undefined;
   // Not checking on each event: an editor saving a file fires several (a temporary file, then a rename)
-  const watchers = [...new Set([...dataDirs, resolvePath(schemaDir)])].map((dir) => {
-    const watcher = watch(dir, () => {
-      clearTimeout(watchTimer);
-      watchTimer = setTimeout(() => {
-        // Not reporting the error here: the page asks again on 'changed' and shows the error it gets
-        reloadIfChanged().catch(notifyChanged);
-      }, 100);
-    });
-    // Not letting the error end the process: Reload still loads the current files without the watcher
-    watcher.on('error', (error) => {
-      console.warn(`Live reload is off, as the data directory cannot be watched: ${errorMessage(error)}`);
-      watcher.close();
-    });
-    return watcher;
+  const watchers = [...new Set([...dataDirs, resolvePath(schemaDir)])].flatMap((dir) => {
+    try {
+      const watcher = watch(dir, () => {
+        clearTimeout(watchTimer);
+        watchTimer = setTimeout(() => {
+          // Not reporting the error here: the page asks again on 'changed' and shows the error it gets
+          reloadIfChanged().catch(notifyChanged);
+        }, 100);
+      });
+      // Not letting the error end the process: Reload still loads the current files without the watcher
+      watcher.on('error', (error) => {
+        console.warn(`Live reload is off for '${dir}': ${errorMessage(error)}`);
+        watcher.close();
+      });
+      return [watcher];
+    } catch (error) {
+      console.warn(`Live reload is off for '${dir}': ${errorMessage(error)}`);
+      return [];
+    }
   });
   const reloadIfChanged = (): Promise<boolean> => serialize(reloadIfChangedUnlocked);
 

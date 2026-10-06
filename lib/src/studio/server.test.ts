@@ -388,6 +388,19 @@ describe('studio server', () => {
     expect(await readFile(local, 'utf8')).toBe('{"id":2,"name":""}\n');
   });
 
+  it('starts without live reload when the shared schema directory cannot be watched', async () => {
+    await studio.close();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      studio = await startStudioServer({ dataDir, schemaDir: join(dataDir, 'missing-schemas'), port: 0 });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Live reload is off'));
+      const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+      expect(rows.rows[0]).toMatchObject({ id: 1, name: 'Alice' });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('notifies the page when a shared schema changes and validates edits against it', async () => {
     await studio.close();
     const set = join(dataDir, 'local');
