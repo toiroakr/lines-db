@@ -476,6 +476,17 @@ describe('NewRecordDialog', () => {
     vi.restoreAllMocks();
   });
 
+  it('requires choosing a destination for a new row in a composed view', async () => {
+    const onAdd = vi.fn();
+    render(<NewRecordDialog table={users} dataDirs={['/base', '/local']} open onClose={vi.fn()} onAdd={onAdd} />);
+    expect(screen.getByRole('button', { name: 'Add' })).toHaveProperty('disabled', true);
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Data directory' }), '/local');
+    fireEvent.change(screen.getByRole('textbox', { name: 'id' }), { target: { value: '3' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'name' }), { target: { value: 'Ada' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(onAdd).toHaveBeenCalledWith({ id: 3, name: 'Ada' }, '/local');
+  });
+
   it('adds a row holding the fields filled in, its key among them, and none it was not given', async () => {
     const onAdd = vi.fn();
     render(<NewRecordDialog table={users} open onClose={vi.fn()} onAdd={onAdd} />);

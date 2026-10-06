@@ -354,7 +354,7 @@ const studioCommand = defineCommand({
       description: 'Directory containing JSONL files',
     }),
     dataDir: arg(z.array(z.string()).default([]), {
-      description: 'Directory containing JSONL files (repeatable; several directories are read-only)',
+      description: 'Directory containing JSONL files (repeatable)',
     }),
     schemaDir: arg(z.string().optional(), {
       description: 'Directory containing shared schema files (required for several data directories)',

@@ -80,48 +80,56 @@ describe('studio server', () => {
     expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toContain('Alice');
   });
 
-  it('composes directories with foreign keys and refuses all writes, including invalid rows', async () => {
+  it('edits composed rows in their source files and inserts into the selected directory', async () => {
     await studio.close();
     const set = join(dataDir, 'local');
     await mkdir(set);
-    await writeFile(join(set, 'pets.jsonl'), '{"id":1,"owner":1}\n');
-    await writeFile(
-      join(dataDir, 'pets.schema.ts'),
-      "export const foreignKeys = [{ column: 'owner', references: { table: 'users', column: 'id' } }];\n" +
-        "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n",
-    );
-    await writeFile(join(set, 'broken.jsonl'), '{"id":1,"name":""}\n');
-    await writeFile(join(dataDir, 'broken.schema.ts'), NAME_REQUIRED_SCHEMA);
+    await writeFile(join(set, 'users.jsonl'), '{"id":3,"name":"Carol"}\n');
     studio = await startStudioServer({ dataDir: [dataDir, set], schemaDir: dataDir, port: 0 });
-
     const listing = await bodyOf(await fetch(`${studio.url}/api/tables`));
-    expect(listing.problems).toHaveLength(1);
-    expect(listing.tables.find((table: { name: string }) => table.name === 'pets')).toMatchObject({
-      rowCount: 1,
-      references: [{ column: 'owner', table: 'users', referencedColumn: 'id' }],
-    });
-    expect(
-      listing.tables.every((table: { readOnlyReason: string | null }) =>
-        table.readOnlyReason?.includes('several data directories'),
-      ),
-    ).toBe(true);
-    const original = await readFile(join(set, 'broken.jsonl'), 'utf8');
-    const rows = await bodyOf(await fetch(`${studio.url}/api/tables/broken/rows`));
+    expect(listing.tables[0].readOnlyReason).toBeNull();
+    expect((await patchJson(rowUrl('users', 3), { changes: { name: 'Caroline' } })).status).toBe(200);
+    expect(await readFile(join(set, 'users.jsonl'), 'utf8')).toBe('{"id":3,"name":"Caroline"}\n');
     expect(
       (
-        await sendJsonRequest('POST', `${studio.url}/api/tables/broken/changes`, {
-          updates: [{ key: 0, changes: { name: 'Fixed' } }],
-          revision: rows.revision,
+        await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+          inserts: [{ id: 4, name: 'New' }],
+          insertDataDirs: [set],
+          deletes: [1],
         })
       ).status,
-    ).toBe(409);
-    expect((await patchJson(rowUrl('pets', 1), { changes: { owner: 2 } })).status).toBe(409);
+    ).toBe(200);
+    expect(await readFile(join(set, 'users.jsonl'), 'utf8')).toBe(
+      '{"id":3,"name":"Caroline"}\n{"id":4,"name":"New"}\n',
+    );
+    expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).not.toContain('Alice');
     expect(
-      (await sendJsonRequest('POST', `${studio.url}/api/tables/pets/rows`, { row: { id: 2, owner: 1 } })).status,
-    ).toBe(409);
-    expect((await fetch(rowUrl('pets', 1), { method: 'DELETE' })).status).toBe(409);
-    expect(await readFile(join(set, 'broken.jsonl'), 'utf8')).toBe(original);
-    expect(await readFile(join(set, 'pets.jsonl'), 'utf8')).toBe('{"id":1,"owner":1}\n');
+      (
+        await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+          inserts: [{ id: 5, name: 'No target' }],
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+          inserts: [{ id: 5, name: 'Outside' }],
+          insertDataDirs: [tmpdir()],
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  it('rejects an edit after the secondary data file changes on disk', async () => {
+    await studio.close();
+    const set = join(dataDir, 'local');
+    await mkdir(set);
+    const file = join(set, 'users.jsonl');
+    await writeFile(file, '{"id":3,"name":"Carol"}\n');
+    studio = await startStudioServer({ dataDir: [dataDir, set], schemaDir: dataDir, port: 0 });
+    await writeFile(file, '{"id":3,"name":"External"}\n');
+    expect((await patchJson(rowUrl('users', 3), { changes: { name: 'Stale edit' } })).status).toBe(409);
+    expect(await readFile(file, 'utf8')).toBe('{"id":3,"name":"External"}\n');
   });
 
   it('shows all composed rows when a table has validation failures in several files', async () => {
@@ -142,6 +150,23 @@ describe('studio server', () => {
       { id: 4, name: 'Carol' },
     ]);
     expect(Object.keys(body.issues)).toEqual(['0', '2']);
+    expect(
+      (
+        await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+          updates: [
+            { key: 0, changes: { name: 'Fixed base' } },
+            { key: 2, changes: { name: 'Fixed local' } },
+          ],
+          revision: body.revision,
+        })
+      ).status,
+    ).toBe(200);
+    expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toBe(
+      '{"id":1,"name":"Fixed base"}\n{"id":2,"name":"Bob"}\n',
+    );
+    expect(await readFile(join(set, 'users.jsonl'), 'utf8')).toBe(
+      '{"id":3,"name":"Fixed local"}\n{"id":4,"name":"Carol"}\n',
+    );
   });
 
   it('notifies the page when a shared schema changes and validates edits against it', async () => {

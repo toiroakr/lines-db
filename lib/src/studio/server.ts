@@ -59,6 +59,9 @@ interface Snapshot {
 interface InvalidTable {
   file: string;
   rows?: JsonObject[];
+  sources?: Array<{ file: string; rowIndex: number }>;
+  files?: Array<{ file: string; content: string }>;
+  revision?: string;
   /** The issues of each failing row, by its index among the rows of the file */
   issues: Map<number, StandardSchemaIssue[]>;
 }
@@ -67,10 +70,6 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const dataDirs = [options.dataDir].flat().map((dir) => resolvePath(dir));
   const dataDir = dataDirs[0];
   const schemaDir = options.schemaDir ?? dataDir;
-  const readOnlyReason =
-    dataDirs.length > 1
-      ? 'This view combines several data directories and is read-only. Open a single data set to edit its rows.'
-      : null;
   const host = options.host ?? '127.0.0.1';
   const uiDir = options.uiDir ?? (await shippedUiDir());
   const token = randomBytes(24).toString('base64url');
@@ -232,7 +231,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
             primaryKey,
             rowCount,
             invalidRows: 0,
-            readOnlyReason: readOnlyReason ?? whyReadOnly(current.db, name),
+            readOnlyReason: whyReadOnly(current.db, name),
             schemaFile: null as string | null,
             references: await referencesFor(current, name),
           });
@@ -245,7 +244,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
             primaryKey: null,
             rowCount,
             invalidRows: issues.size,
-            readOnlyReason,
+            readOnlyReason: null,
             schemaFile: null,
             references: await referencesFor(current, name),
           });
@@ -330,6 +329,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
             rows: invalid.rows,
             defaulted: invalid.rows.map(() => []),
             issues: Object.fromEntries(invalid.issues),
+            revision: invalid.revision,
           });
           return;
         }
@@ -381,7 +381,12 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       const body = writeBody(await readJson(req));
       batch =
         write.kind === 'insert'
-          ? { inserts: [body.row ?? {}], updates: [], deletes: [] }
+          ? {
+              inserts: [body.row ?? {}],
+              insertDataDirs: body.dataDir ? [body.dataDir] : undefined,
+              updates: [],
+              deletes: [],
+            }
           : {
               inserts: [],
               updates: [{ key: write.key, changes: body.changes ?? {}, resetToDefault: body.resetToDefault }],
@@ -389,21 +394,39 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
             };
     }
 
+    if (
+      dataDirs.length > 1 &&
+      batch.inserts.some((_, index) => {
+        const dir = batch.insertDataDirs?.[index];
+        return !dir || !dataDirs.includes(resolvePath(dir));
+      })
+    )
+      throw new BadRequestError('Choose a data directory for each inserted row');
+
     type Outcome = { status: number; body: unknown; changed?: boolean };
     /** Apply the updates to the rows of the file, and write them only once every edited row passes */
-    const writeInvalidTable = async ({ file }: InvalidTable): Promise<Outcome> => {
+    const writeInvalidTable = async (invalid: InvalidTable): Promise<Outcome> => {
+      const { file } = invalid;
       if (batch.inserts.length > 0 || batch.deletes.length > 0) {
         const message = 'Fix the rows that fail validation before adding or deleting rows of this table';
         return { status: 409, body: { message } };
       }
-      const content = await readFile(file, 'utf8');
+      const files = await Promise.all(
+        (invalid.files ?? [{ file }]).map(async ({ file }) => ({
+          file,
+          content: await readFile(file, 'utf8'),
+        })),
+      );
+      const content = files[0].content;
+      const revision =
+        files.length > 1 || invalid.files ? hashJsonlContent(JSON.stringify(files)) : hashJsonlContent(content);
       // Not left to the watcher: once it reloads, the file it compares against is the changed one, while
       // the page still addresses rows by where they stood when it read them
-      if (batch.revision !== hashJsonlContent(content)) {
+      if (batch.revision !== revision) {
         const message = `${relative(dataDir, file)} changed since its rows were read; reload the table to see them`;
         return { status: 409, body: { message } };
       }
-      const rows = unwrap(await JsonlReader.read(file));
+      const rows = invalid.rows ?? unwrap(await JsonlReader.read(file));
       const replaced = new Map<number, JsonObject>();
       for (const [index, { key, changes, resetToDefault }] of batch.updates.entries()) {
         // An earlier update of the same row in the batch is built on, as a transaction would apply it
@@ -423,15 +446,36 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         replaced.set(key as number, next);
       }
       if (write.kind === 'check') return { status: 200, body: { ok: true } };
-      // Not written over the file in place: a write that fails partway would leave it truncated
-      const temporary = `${file}.${randomBytes(6).toString('hex')}.tmp`;
+      const plans = files
+        .map(({ file, content }) => {
+          const changes = new Map<number, JsonObject>();
+          for (const [index, row] of replaced) {
+            const source = invalid.sources?.[index] ?? { file: invalid.file, rowIndex: index };
+            if (source.file === file) changes.set(source.rowIndex, row);
+          }
+          return { file, content, next: replaceRows(content, changes), changed: changes.size > 0 };
+        })
+        .filter((plan) => plan.changed);
+      const written: typeof plans = [];
       try {
-        await writeFile(temporary, replaceRows(content, replaced), 'utf8');
-        // Not left to the umask: the file replaced would otherwise lose a mode such as 0600
-        await chmod(temporary, (await stat(file)).mode & 0o7777);
-        await rename(temporary, file);
+        for (const plan of plans) {
+          const temporary = `${plan.file}.${randomBytes(6).toString('hex')}.tmp`;
+          try {
+            await writeFile(temporary, plan.next, 'utf8');
+            await chmod(temporary, (await stat(plan.file)).mode & 0o7777);
+            await rename(temporary, plan.file);
+            written.push(plan);
+          } finally {
+            await rm(temporary, { force: true });
+          }
+        }
       } catch (error) {
-        await rm(temporary, { force: true });
+        const unrestored: string[] = [];
+        for (const plan of written) {
+          await writeFile(plan.file, plan.content, 'utf8').catch(() => unrestored.push(plan.file));
+        }
+        if (unrestored.length)
+          throw new Error(`${errorMessage(error)}; could not restore ${unrestored.join(', ')}`, { cause: error });
         throw error;
       }
       await reloadUnlocked();
@@ -457,7 +501,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         // A changed schema file of the edited table counts too: its primary key may name another column
         const ownFile = changedFiles.find(
           (file) =>
-            resolvePath(file) === resolvePath(dataDir, `${tableName}.jsonl`) ||
+            dataDirs.some((dir) => resolvePath(file) === resolvePath(dir, `${tableName}.jsonl`)) ||
             basename(file).startsWith(`${tableName}.schema.`),
         );
         if (ownFile) {
@@ -466,7 +510,6 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         }
       }
       const { db } = snapshot;
-      if (readOnlyReason) return { status: 409, body: { message: readOnlyReason } };
       const invalid = snapshot.invalid.get(tableName);
       if (invalid) return writeInvalidTable(invalid);
       const schema = db.getSchema(tableName);
@@ -489,7 +532,9 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
             key,
           }),
         );
-        batch.inserts.forEach((row, index) => check(tx.insert(tableName, row), { kind: 'insert', index }));
+        batch.inserts.forEach((row, index) =>
+          check(tx.insert(tableName, row, { dataDir: batch.insertDataDirs?.[index] }), { kind: 'insert', index }),
+        );
         // Not committed when only checking: throwing rolls the transaction back before anything is written
         if (write.kind === 'check') throw DRY_RUN;
       });
@@ -565,7 +610,7 @@ async function loadSnapshot(
   schemaDir: string | undefined,
   writeFilledValues: WriteFilledValues,
 ): Promise<Snapshot> {
-  const db = LinesDB.create<TableDefs>({ dataDir, schemaDir, writeFilledValues });
+  const db = LinesDB.create<TableDefs>({ dataDir, schemaDir, writeFilledValues, writeDataSets: true });
   const baseDir = [dataDir].flat()[0];
   // Not the bulk insert: a foreign key or NOT NULL violation would fail the whole load instead of
   // marking the row, which the studio then cannot show to be fixed
@@ -883,9 +928,14 @@ async function composedInvalidTables(
     const config = tables.get(name)!;
     const rows: JsonObject[] = [];
     const adjusted: ValidationErrorDetail[] = [];
+    const files: Array<{ file: string; content: string }> = [];
+    const sources: Array<{ file: string; rowIndex: number }> = [];
     for (const file of config.jsonlPaths ?? [config.jsonlPath]) {
       const offset = rows.length;
-      rows.push(...unwrap(await JsonlReader.read(file)));
+      const read = unwrap(await JsonlReader.read(file));
+      files.push({ file, content: await readFile(file, 'utf8') });
+      sources.push(...read.map((_, rowIndex) => ({ file, rowIndex })));
+      rows.push(...read);
       adjusted.push(
         ...errors
           .filter((error) => error.tableName === name && error.file === file)
@@ -893,7 +943,7 @@ async function composedInvalidTables(
       );
     }
     const table = invalidTables(adjusted).get(name)!;
-    invalid.set(name, { ...table, rows });
+    invalid.set(name, { ...table, rows, files, sources, revision: hashJsonlContent(JSON.stringify(files)) });
   }
   return invalid;
 }
@@ -1024,6 +1074,7 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 /** The rows a save inserts, the changes it makes by primary key, and the keys it deletes */
 interface ChangeBatch {
   inserts: JsonObject[];
+  insertDataDirs?: string[];
   updates: Array<{ key: JsonValue; changes: JsonObject; resetToDefault?: string[] }>;
   deletes: JsonValue[];
   /** For a table with failing rows, whose rows are addressed by index: the file the page read them from */
@@ -1048,7 +1099,14 @@ function isJsonMediaType(contentType: string | undefined): boolean {
 
 function changeBatch(body: unknown): ChangeBatch {
   if (!isJsonObject(body)) throw new BadRequestError('The request body must be a JSON object');
-  const { inserts = [], updates = [], deletes = [] } = body;
+  const { inserts = [], updates = [], deletes = [], insertDataDirs } = body;
+  if (
+    insertDataDirs !== undefined &&
+    (!Array.isArray(insertDataDirs) ||
+      !insertDataDirs.every((dir) => typeof dir === 'string') ||
+      insertDataDirs.length !== (Array.isArray(inserts) ? inserts.length : 0))
+  )
+    throw new BadRequestError('`insertDataDirs` must name a directory for each insert');
   if (!Array.isArray(inserts) || !inserts.every(isJsonObject))
     throw new BadRequestError('`inserts` must be a list of rows');
   if (!Array.isArray(deletes)) throw new BadRequestError('`deletes` must be a list of primary keys');
@@ -1068,6 +1126,7 @@ function changeBatch(body: unknown): ChangeBatch {
     throw new BadRequestError('`revision` must be a string');
   return {
     inserts,
+    insertDataDirs: insertDataDirs as string[] | undefined,
     updates: updates as unknown as ChangeBatch['updates'],
     deletes,
     revision: body.revision,
@@ -1075,6 +1134,7 @@ function changeBatch(body: unknown): ChangeBatch {
 }
 
 interface WriteBody {
+  dataDir?: string;
   row?: JsonObject;
   changes?: JsonObject;
   resetToDefault?: string[];
@@ -1082,13 +1142,14 @@ interface WriteBody {
 
 function writeBody(body: unknown): WriteBody {
   if (!isJsonObject(body)) throw new BadRequestError('The request body must be a JSON object');
-  const { row, changes, resetToDefault } = body;
+  const { row, changes, resetToDefault, dataDir } = body;
+  if (dataDir !== undefined && typeof dataDir !== 'string') throw new BadRequestError('`dataDir` must be a string');
   if (row !== undefined && !isJsonObject(row)) throw new BadRequestError('`row` must be an object');
   if (changes !== undefined && !isJsonObject(changes)) throw new BadRequestError('`changes` must be an object');
   if (resetToDefault !== undefined && !isFieldList(resetToDefault)) {
     throw new BadRequestError('`resetToDefault` must be a list of field names');
   }
-  return { row, changes, resetToDefault };
+  return { row, changes, resetToDefault, dataDir };
 }
 
 /** Thrown at the end of a checked batch, so its transaction rolls back */

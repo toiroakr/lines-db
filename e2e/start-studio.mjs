@@ -18,6 +18,20 @@ for (const file of readdirSync(dataDir)) {
   if (file.includes('.schema.')) renameSync(join(dataDir, file), join(schemaDir, file));
 }
 
+const localDir = join(dataDir, 'local');
+mkdirSync(localDir);
+
 const cli = new URL('../lib/bin/cli.mjs', import.meta.url);
-process.argv = [process.execPath, fileURLToPath(cli), 'studio', dataDir, '--schema-dir', schemaDir, '--port', port];
+process.argv = [
+  process.execPath,
+  fileURLToPath(cli),
+  'studio',
+  dataDir,
+  '--data-dir',
+  localDir,
+  '--schema-dir',
+  schemaDir,
+  '--port',
+  port,
+];
 await import(cli.href);

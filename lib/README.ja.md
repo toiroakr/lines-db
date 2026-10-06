@@ -212,8 +212,10 @@ npx lines-db studio seed/data/cogs --schema-dir seed/data
 npx lines-db studio --data-dir seed/data --data-dir seed/data/cogs --schema-dir seed/data
 ```
 
-合成したビューは、バリデーションに失敗した行も含めて読み取り専用です。レコードの追加・編集・削除には、
-単一のデータセットを開いてください。位置引数のディレクトリと `--data-dir` を組み合わせることもできます。
+更新・削除は、行を読み込んだ元のファイルへ反映します。追加時はAdd recordダイアログで保存先の
+データディレクトリを選択します。テーブルのファイルがなければ作成します。外部キーや一意制約は合成した
+データ全体で検証し、外部で変更されたファイルへの保存は競合として拒否します。保存に失敗した場合は、
+書き込み済みのファイルを元に戻します。位置引数と `--data-dir` の組み合わせも可能です。
 
 `http://127.0.0.1:4848` でローカルの Web UI を起動します。`dataDir` のテーブルを行数つきで一覧表示し、
 テーブルを表形式で表示します。セルを押して編集するほか、表の横の行フォームで1行をまとめて編集し、
@@ -682,7 +684,8 @@ await JsonlWriter.write('./data/users.jsonl', filled);
 ```typescript
 interface DatabaseConfig {
   dataDir: string | readonly string[]; // JSONLファイルが含まれるディレクトリ（複数指定可）
-  schemaDir?: string; // スキーマファイルが含まれるディレクトリ（デフォルト：各JSONLファイルと同じディレクトリ）
+  schemaDir?: string;
+  writeDataSets?: boolean;
   writeBackFields?: readonly string[]; // 同期時に書き戻すフィールド（デフォルト：全フィールド）
 }
 
@@ -718,10 +721,21 @@ const result = unwrap(await db.initialize({ detailedValidate: true }));
 `schemaDir` は単一ディレクトリでも使えます（`{ dataDir: './data/cogs', schemaDir: './data' }`）。
 単一ディレクトリで指定しない場合、スキーマはJSONLファイルと同じディレクトリから探します。
 
-複数のファイルから組み立てたテーブルの行には書き戻し先のファイルが1つに定まらないため、
-`dataDir` に複数のディレクトリを指定したデータベースは読み取り専用になります。`insert` / `update` / `delete`、
-それぞれの `batch*` 版、`sync()`、および `execute()` / `query()` で書き込む SQL は、
-データベースもファイルも変更せずにエラーを返します。
+複数ディレクトリのデータベースはデフォルトでは読み取り専用です。`writeDataSets: true` を指定すると、
+更新・削除を元のファイルへ反映できます。追加時は、設定済みディレクトリを明示します。
+
+```typescript
+const db = LinesDB.create({ dataDir: ['./data', './data/cogs'], schemaDir: './data', writeDataSets: true });
+await db.initialize();
+await db.transaction((tx) => {
+  const inserted = tx.insert('Item', { id: 'new-item', name: 'New item' }, { dataDir: './data/cogs' });
+  if (!inserted.ok) throw inserted.error;
+});
+```
+
+このモードの追加には、保存先を指定した `insert` を使ってください。`batchInsert` には保存先の引数がありません。
+トランザクションは書き込む前に対象ファイルの競合を確認し、途中で失敗すれば書き込み済みのファイルを元に戻します。
+Studioはこのモードを自動で有効にします。
 
 ## 型マッピング
 

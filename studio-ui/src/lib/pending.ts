@@ -11,7 +11,7 @@ interface RowEdit {
 export interface Pending {
   /** By the JSON of the primary key, so 1 and "1" stay apart */
   edits: Record<string, RowEdit>;
-  inserts: Array<{ id: string; row: JsonObject }>;
+  inserts: Array<{ id: string; row: JsonObject; dataDir?: string }>;
   deletes: Record<string, JsonValue>;
 }
 
@@ -82,8 +82,8 @@ export function cellChange(pending: Pending, key: JsonValue, field: string): Cel
   return Object.hasOwn(edit.changes, field) ? { kind: 'set', value: edit.changes[field] } : undefined;
 }
 
-export function addInsert(pending: Pending, id: string, row: JsonObject = {}): Pending {
-  return { ...pending, inserts: [...pending.inserts, { id, row }] };
+export function addInsert(pending: Pending, id: string, row: JsonObject = {}, dataDir?: string): Pending {
+  return { ...pending, inserts: [...pending.inserts, { id, row, ...(dataDir ? { dataDir } : {}) }] };
 }
 
 export function setInsertCell(pending: Pending, id: string, field: string, value: JsonValue | undefined): Pending {
@@ -92,7 +92,7 @@ export function setInsertCell(pending: Pending, id: string, field: string, value
     inserts: pending.inserts.map((insert) => {
       if (insert.id !== id) return insert;
       const { [field]: _dropped, ...row } = insert.row;
-      return { id, row: value === undefined ? row : { ...row, [field]: value } };
+      return { ...insert, row: value === undefined ? row : { ...row, [field]: value } };
     }),
   };
 }
@@ -124,6 +124,7 @@ export function countChanges(pending: Pending): number {
 
 export interface Batch {
   inserts: JsonObject[];
+  insertDataDirs?: string[];
   updates: Array<{ key: JsonValue; changes: JsonObject; resetToDefault?: string[] }>;
   deletes: JsonValue[];
   /** For a table with failing rows, addressed by index: the file its rows were read from */
@@ -133,6 +134,9 @@ export interface Batch {
 export function toBatch(pending: Pending): Batch {
   return {
     inserts: pending.inserts.map(({ row }) => row),
+    ...(pending.inserts.some((insert) => insert.dataDir)
+      ? { insertDataDirs: pending.inserts.map((insert) => insert.dataDir ?? '') }
+      : {}),
     updates: Object.entries(pending.edits)
       .filter(([key]) => !Object.hasOwn(pending.deletes, key))
       .map(([, { key, changes, reset }]) => ({ key, changes, ...(reset.length > 0 ? { resetToDefault: reset } : {}) })),

@@ -367,7 +367,12 @@ export function App() {
         id: JSON.stringify(open),
         title: `${table.name} · new row`,
         fields,
-        preview: { inserts: [insert.row], updates: [], deletes: [] },
+        preview: {
+          inserts: [insert.row],
+          ...(insert.dataDir ? { insertDataDirs: [insert.dataDir] } : {}),
+          updates: [],
+          deletes: [],
+        },
         readOnlyReason: undefined,
       };
     }
@@ -607,11 +612,12 @@ export function App() {
           {table && (
             <NewRecordDialog
               table={table}
+              dataDirs={meta?.dataDirs}
               open={adding}
               onClose={() => setAdding(false)}
-              onAdd={(row) => {
+              onAdd={(row, dataDir) => {
                 const id = `new-${Date.now()}`;
-                setPending((now) => addInsert(now, id, row));
+                setPending((now) => addInsert(now, id, row, dataDir));
                 setOpenRow({ row: 'new', id });
                 setAdding(false);
               }}
@@ -924,6 +930,7 @@ function Grid({
                   value={insert.row[column.name]}
                   preview={(value) => ({
                     inserts: [{ ...insert.row, [column.name]: value }],
+                    ...(insert.dataDir ? { insertDataDirs: [insert.dataDir] } : {}),
                     updates: [],
                     deletes: [],
                   })}

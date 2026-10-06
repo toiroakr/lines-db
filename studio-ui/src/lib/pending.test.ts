@@ -161,6 +161,12 @@ describe('markDeleted', () => {
 });
 
 describe('addInsert', () => {
+  it('keeps the insert destination through cell edits and sends it with the batch', () => {
+    let pending = addInsert(emptyPending(), 'new-local', { id: 3, name: 'Ada' }, '/local');
+    pending = setInsertCell(pending, 'new-local', 'name', 'Ada Byron');
+    expect(toBatch(pending)).toMatchObject({ inserts: [{ id: 3, name: 'Ada Byron' }], insertDataDirs: ['/local'] });
+  });
+
   it('adds a new row holding the fields it is given', () => {
     const pending = addInsert(emptyPending(), 'new-1', { name: 'Ada' });
 

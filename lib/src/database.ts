@@ -7,7 +7,7 @@ import { hasBackward } from './schema.js';
 import { keepUnknownFields, mergeFields } from './merge-fields.js';
 import { findSchemaFile } from './schema-extensions.js';
 import { readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type {
   DatabaseConfig,
   TableSchema,
@@ -77,6 +77,8 @@ interface PreparedWriteBack {
   previousContent: string | undefined;
   /** How many changes the table had seen when its rows were read */
   generation: number;
+  rowids?: string[];
+  unchanged?: boolean;
 }
 
 /** The fields set and reset on a row since its table was last written back */
@@ -220,7 +222,7 @@ export class LinesDB<Tables extends TableDefs> {
       return await this.loadTables(options);
     } finally {
       // Raw SQL through execute() or query() must not change a database whose changes cannot be written back
-      if (this.hasSeveralDataDirs()) {
+      if (this.isReadOnlyDataSet()) {
         this.db.exec('PRAGMA query_only = ON');
       }
     }
@@ -746,7 +748,7 @@ export class LinesDB<Tables extends TableDefs> {
     this.createTable(schema);
 
     // Insert validated data (with detailed validation if requested)
-    if (detailedValidate) {
+    if (detailedValidate || this.config.writeDataSets) {
       const insertErrors = this.insertDataWithDetailedValidation(tableName, schema, validatedData, origins);
       if (insertErrors.length > 0) {
         return { loaded: false, rowCount: data.length, errors: insertErrors };
@@ -764,11 +766,14 @@ export class LinesDB<Tables extends TableDefs> {
         `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)} ORDER BY rowid`,
       );
       const lines = new Map<string, JsonObject>();
+      const sourceIndexes = new Map(origins.map((origin, index) => [origin, index]));
       rowids.forEach((row, index) => {
         const rowid = row[ROWID_ALIAS] as number | bigint;
-        const set = transformedFields[index] ?? [];
+        const origin = this.rowOriginsByRowid.get(tableName)?.get(String(rowid));
+        const sourceIndex = origin ? (sourceIndexes.get(origin) ?? index) : index;
+        const set = transformedFields[sourceIndex] ?? [];
         if (set.length > 0) this.noteFieldChanges(tableName, rowid, { set });
-        if (withUnknown[index]) lines.set(String(rowid), data[index]);
+        if (withUnknown[sourceIndex]) lines.set(String(rowid), data[sourceIndex]);
       });
       this.linesWithUnknownFields.set(tableName, lines);
     }
@@ -1358,9 +1363,10 @@ export class LinesDB<Tables extends TableDefs> {
   insert<K extends keyof Tables & string>(
     tableName: K,
     data: Tables[K],
+    options?: { dataDir?: string },
   ): Result<{ changes: number | bigint; lastInsertRowid: number | bigint }, Error> {
     try {
-      return ok(this.insertInternal(tableName, data));
+      return ok(this.insertInternal(tableName, data, options));
     } catch (error) {
       return err(toError(error));
     }
@@ -1369,8 +1375,20 @@ export class LinesDB<Tables extends TableDefs> {
   private insertInternal<K extends keyof Tables & string>(
     tableName: K,
     data: Tables[K],
+    options?: { dataDir?: string },
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
     this.assertMutable(tableName);
+    let destination: string | undefined;
+    if (this.hasSeveralDataDirs()) {
+      const dataDir = options?.dataDir;
+      if (!dataDir || ![this.config.dataDir].flat().some((dir) => resolve(dir) === resolve(dataDir))) {
+        throw new Error('Choose an insert dataDir from the configured data directories');
+      }
+      destination = join(
+        [this.config.dataDir].flat().find((dir) => resolve(dir) === resolve(dataDir))!,
+        `${tableName}.jsonl`,
+      );
+    }
 
     // Not inserting the row as given: a value the schema fills in would be missing, unlike in a loaded row
     const row = this.validateAndTransform(tableName, data);
@@ -1387,6 +1405,11 @@ export class LinesDB<Tables extends TableDefs> {
 
     const values = Object.values(row).map((v) => this.normalizeValue(v));
     const result = this.executeInternal(sql, values);
+    if (destination) {
+      const origins = this.rowOriginsByRowid.get(tableName) ?? new Map<string, RowOrigin>();
+      origins.set(String(result.lastInsertRowid), { file: destination, rowIndex: -1 });
+      this.rowOriginsByRowid.set(tableName, origins);
+    }
     this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(data), inserted: true });
 
     // Auto-sync if not in transaction
@@ -1414,6 +1437,7 @@ export class LinesDB<Tables extends TableDefs> {
     records: Tables[K][],
   ): { changes: number | bigint; lastInsertRowid: number | bigint } {
     this.assertMutable(tableName);
+    if (this.hasSeveralDataDirs()) throw new Error('Use insert with a dataDir for data sets');
 
     const schema = this.schemas.get(tableName);
     if (!schema) {
@@ -2004,8 +2028,12 @@ export class LinesDB<Tables extends TableDefs> {
     }
   }
 
+  private isReadOnlyDataSet(): boolean {
+    return this.hasSeveralDataDirs() && !this.config.writeDataSets;
+  }
+
   private enforceReadOnlySql(): void {
-    if (this.hasSeveralDataDirs()) {
+    if (this.isReadOnlyDataSet()) {
       this.db.exec('PRAGMA query_only = ON');
     }
   }
@@ -2053,12 +2081,12 @@ export class LinesDB<Tables extends TableDefs> {
       if (/readonly/i.test(toError(error).message)) this.refuseWhileTransactionSettles('change rows', viaTransaction);
       throw error;
     } finally {
-      if (!this.hasSeveralDataDirs()) this.db.exec('PRAGMA query_only = OFF');
+      if (!this.isReadOnlyDataSet()) this.db.exec('PRAGMA query_only = OFF');
     }
   }
 
   private assertWritable(tableName?: string): void {
-    if (this.hasSeveralDataDirs()) {
+    if (this.isReadOnlyDataSet()) {
       const target = tableName ? `table '${tableName}'` : 'the database';
       throw new Error(
         `Cannot write to ${target}: dataDir lists several directories, so its rows have no single file to be written back to`,
@@ -2088,40 +2116,81 @@ export class LinesDB<Tables extends TableDefs> {
    * Uses backward transformation when available
    */
   private async writeTable(tableName: string, options?: InternalSyncOptions): Promise<void> {
-    await this.writePrepared(await this.prepareWriteBack(tableName, options));
+    await this.writeFilesTogether(await this.prepareWriteBack(tableName, options));
   }
 
   /**
    * The rows a table is written back as, laid over the lines of its file; fails when the file changed
    * since this database last read or wrote it
    */
-  private async prepareWriteBack(tableName: string, options?: InternalSyncOptions): Promise<PreparedWriteBack> {
+  private async prepareWriteBack(tableName: string, options?: InternalSyncOptions): Promise<PreparedWriteBack[]> {
     this.assertWritable(tableName);
-
-    const tableConfig = this.tables.get(tableName);
-    if (!tableConfig) {
-      throw new Error(`Table ${tableName} not found`);
+    const config = this.tables.get(tableName);
+    if (!config) throw new Error(`Table ${tableName} not found`);
+    const stored = this.readStoredRows(tableName);
+    if (!this.hasSeveralDataDirs()) {
+      return [await this.prepareFileWriteBack(tableName, config.jsonlPath, stored, options)];
     }
+    const origins = this.rowOriginsByRowid.get(tableName);
+    const byFile = new Map<string, number[]>(
+      [this.config.dataDir].flat().map((dir) => [join(dir, `${tableName}.jsonl`), []]),
+    );
+    stored.rowids.forEach((rowid, index) => {
+      const origin = origins?.get(rowid);
+      if (!origin) throw new Error(`Row ${rowid} of '${tableName}' has no data directory; insert with a dataDir`);
+      const indexes = byFile.get(origin.file) ?? [];
+      indexes.push(index);
+      byFile.set(origin.file, indexes);
+    });
+    const prepared: PreparedWriteBack[] = [];
+    for (const [file, indexes] of byFile) {
+      indexes.sort(
+        (a, b) =>
+          (origins!.get(stored.rowids[a])!.rowIndex < 0 ? Infinity : origins!.get(stored.rowids[a])!.rowIndex) -
+          (origins!.get(stored.rowids[b])!.rowIndex < 0 ? Infinity : origins!.get(stored.rowids[b])!.rowIndex),
+      );
+      const rows = {
+        rowids: indexes.map((i) => stored.rowids[i]),
+        rows: indexes.map((i) => stored.rows[i]),
+        lineRows: indexes.map((i) => stored.lineRows[i]),
+      };
+      const fileWrite = await this.prepareFileWriteBack(tableName, file, rows, options);
+      if (!fileWrite.unchanged) prepared.push(fileWrite);
+    }
+    return prepared;
+  }
 
-    // Get all rows from the table. Order by rowid so the rows arrive in insertion order:
-    // without it SQLite may return them in any order, and matching rows to their existing
-    // line by position depends on that order being the one the file was read in.
-    const { rowids, rows: deserializedRows, lineRows } = this.readStoredRows(tableName);
+  private async prepareFileWriteBack(
+    tableName: string,
+    jsonlPath: string,
+    stored: ReturnType<LinesDB<Tables>['readStoredRows']>,
+    options?: InternalSyncOptions,
+  ): Promise<PreparedWriteBack> {
+    const { rowids, rows: deserializedRows, lineRows } = stored;
     const generation = this.changeGenerations.get(tableName) ?? 0;
     let finalRows = lineRows;
-
-    const previousContent = await readFile(tableConfig.jsonlPath, 'utf-8').catch((error: NodeJS.ErrnoException) => {
+    const previousContent = await readFile(jsonlPath, 'utf-8').catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return undefined;
       throw error;
     });
-    const existingRows = await this.readUnchangedRows(tableConfig.jsonlPath);
+    const existingRows = await this.readUnchangedRows(jsonlPath);
+
+    const matches = this.hasSeveralDataDirs()
+      ? rowids.map((rowid) => existingRows[this.rowOriginsByRowid.get(tableName)!.get(rowid)!.rowIndex])
+      : undefined;
 
     // An empty list means no field is written back, not that every field is
     const fields = options?.fields ?? this.config.writeBackFields;
     if ((options?.writeFilledValues ?? this.config.writeFilledValues ?? 'all') === 'primaryKey') {
-      finalRows = this.keepWrittenFields(tableName, rowids, deserializedRows, finalRows, existingRows, fields).map(
-        ({ written }) => written,
-      );
+      finalRows = this.keepWrittenFields(
+        tableName,
+        rowids,
+        deserializedRows,
+        finalRows,
+        existingRows,
+        fields,
+        matches,
+      ).map(({ written }) => written);
     }
     // Not added before narrowing: a field the line holds that the row lacks reads as a renamed one there
     const columns = new Set(this.schemas.get(tableName)?.columns.map((column) => column.name));
@@ -2133,9 +2202,19 @@ export class LinesDB<Tables extends TableDefs> {
     finalRows = this.mergeWithExistingLines(tableName, existingRows, finalRows, {
       fields,
       strictFields: options?.strictFields ?? false,
+      matches,
     });
 
-    return { tableName, jsonlPath: tableConfig.jsonlPath, rows: finalRows, previousContent, generation };
+    return {
+      tableName,
+      jsonlPath,
+      rows: finalRows,
+      previousContent,
+      generation,
+      ...(matches
+        ? { rowids, unchanged: JsonlWriter.serialize(existingRows) === JsonlWriter.serialize(finalRows) }
+        : {}),
+    };
   }
 
   /**
@@ -2169,6 +2248,7 @@ export class LinesDB<Tables extends TableDefs> {
     lineRows: JsonObject[],
     existingRows: JsonObject[],
     namedFields: readonly string[] = [],
+    matchedLines?: Array<JsonObject | undefined>,
   ): Array<{ written: JsonObject; narrowed: boolean }> {
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
     // Not left to the recorded changes: an ON DELETE / ON UPDATE action changes these columns in SQLite
@@ -2176,7 +2256,7 @@ export class LinesDB<Tables extends TableDefs> {
     const actionColumns = (this.schemas.get(tableName)?.foreignKeys ?? [])
       .filter((fk) => [fk.onDelete, fk.onUpdate].some((action) => action === 'CASCADE' || action === 'SET NULL'))
       .map((fk) => fk.column);
-    const lines = this.matchExistingRows(tableName, lineRows, existingRows, { required: false });
+    const lines = matchedLines ?? this.matchExistingRows(tableName, lineRows, existingRows, { required: false });
     const changes = this.fieldChanges.get(tableName);
 
     return lineRows.map((lineRow, index) => {
@@ -2217,7 +2297,11 @@ export class LinesDB<Tables extends TableDefs> {
    * later, which must not inherit them
    */
   private moveRowMetadata(tableName: string, from: string, to: string): void {
-    for (const byRow of [this.fieldChanges.get(tableName), this.linesWithUnknownFields.get(tableName)]) {
+    for (const byRow of [
+      this.fieldChanges.get(tableName),
+      this.linesWithUnknownFields.get(tableName),
+      this.rowOriginsByRowid.get(tableName),
+    ]) {
       const kept = byRow?.get(from);
       if (!byRow || kept === undefined) continue;
       byRow.delete(from);
@@ -2333,10 +2417,33 @@ export class LinesDB<Tables extends TableDefs> {
       }
       // Not read as the file is now: lines another tool changed would be matched to the rows read before
       await this.waitForPendingSyncs();
-      const existingRows = await this.readUnchangedRows(tableConfig.jsonlPath);
       const { rowids, rows, lineRows } = this.readStoredRows(tableName);
-
-      const kept = this.keepWrittenFields(tableName, rowids, rows, lineRows, existingRows, this.config.writeBackFields);
+      const fileRows = new Map<string, JsonObject[]>();
+      for (const file of this.hasSeveralDataDirs()
+        ? new Set([
+            ...(tableConfig.jsonlPaths ?? [tableConfig.jsonlPath]),
+            ...[...(this.rowOriginsByRowid.get(tableName)?.values() ?? [])].map((origin) => origin.file),
+          ])
+        : [tableConfig.jsonlPath]) {
+        fileRows.set(file, await this.readUnchangedRows(file));
+      }
+      const existingRows = [...fileRows.values()].flat();
+      const matches =
+        this.hasSeveralDataDirs() && this.config.writeDataSets
+          ? rowids.map((rowid) => {
+              const origin = this.rowOriginsByRowid.get(tableName)?.get(rowid);
+              return origin && fileRows.get(origin.file)?.[origin.rowIndex];
+            })
+          : undefined;
+      const kept = this.keepWrittenFields(
+        tableName,
+        rowids,
+        rows,
+        lineRows,
+        existingRows,
+        this.config.writeBackFields,
+        matches,
+      );
       return ok(
         rows.map((row, index) => ({
           row: row as Tables[K],
@@ -2350,7 +2457,7 @@ export class LinesDB<Tables extends TableDefs> {
     }
   }
 
-  private async writePrepared({ tableName, jsonlPath, rows, generation }: PreparedWriteBack): Promise<void> {
+  private async writePrepared({ tableName, jsonlPath, rows, generation, rowids }: PreparedWriteBack): Promise<void> {
     await JsonlWriter.write(jsonlPath, rows);
     // Not cleared once a change came while writing: the write-back after it needs that change's fields
     if ((this.changeGenerations.get(tableName) ?? 0) === generation) {
@@ -2360,6 +2467,11 @@ export class LinesDB<Tables extends TableDefs> {
     const contentHash = hashJsonlContent(JsonlWriter.serialize(rows));
     this.fileHashes.set(jsonlPath, contentHash);
     this.observedHashes.set(jsonlPath, contentHash);
+    if (rowids) {
+      const origins = this.rowOriginsByRowid.get(tableName)!;
+      rowids.forEach((rowid, rowIndex) => origins.set(rowid, { file: jsonlPath, rowIndex }));
+      if (!this.scannedJsonlFiles.includes(jsonlPath)) this.scannedJsonlFiles.push(jsonlPath);
+    }
   }
 
   /**
@@ -2420,8 +2532,12 @@ export class LinesDB<Tables extends TableDefs> {
     await this.waitForPendingSyncs();
     const prepared = [];
     for (const tableName of tableNames) {
-      prepared.push(await this.prepareWriteBack(tableName));
+      prepared.push(...(await this.prepareWriteBack(tableName)));
     }
+    return this.writeFilesTogether(prepared);
+  }
+
+  private async writeFilesTogether(prepared: PreparedWriteBack[]): Promise<PreparedWriteBack[]> {
     const written: PreparedWriteBack[] = [];
     try {
       for (const table of prepared) {
@@ -2485,7 +2601,7 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: string,
     existingRows: JsonObject[],
     rows: JsonObject[],
-    options: { fields?: readonly string[]; strictFields: boolean },
+    options: { fields?: readonly string[]; strictFields: boolean; matches?: Array<JsonObject | undefined> },
   ): JsonObject[] {
     if (rows.length === 0) {
       return rows;
@@ -2503,7 +2619,8 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Without `fields` the rows are written whole, so matching them to their line only decides the
     // order: fall back to database order rather than failing when they cannot be matched
-    const existing = this.matchExistingRows(tableName, rows, existingRows, { required: fields !== undefined });
+    const existing =
+      options.matches ?? this.matchExistingRows(tableName, rows, existingRows, { required: fields !== undefined });
     if (!existing) {
       return rows;
     }
@@ -2594,7 +2711,10 @@ export class LinesDB<Tables extends TableDefs> {
     const snapshot = result.ok ? result.value : { rows: ok<JsonObject[]>([]), contentHash: undefined };
 
     const knownHash = this.fileHashes.get(jsonlPath);
-    if (knownHash !== undefined && snapshot.contentHash !== knownHash) {
+    if (
+      (knownHash !== undefined && snapshot.contentHash !== knownHash) ||
+      (this.config.writeDataSets && !this.scannedJsonlFiles.includes(jsonlPath) && snapshot.contentHash !== undefined)
+    ) {
       const conflictError = new Error(
         `JSONL file '${jsonlPath}' was changed after the database read it, so it was not overwritten. ` +
           `Create the database again and call initialize() to load the current file, then retry the write.`,
@@ -2737,10 +2857,13 @@ export class LinesDB<Tables extends TableDefs> {
     let fieldChangesBefore: Map<string, Map<string, FieldChanges>> | undefined;
     let rawSqlTablesBefore: Set<string> | undefined;
     let linesWithUnknownFieldsBefore: Map<string, Map<string, JsonObject>> | undefined;
+    let originsBefore: Map<string, Map<string, RowOrigin>> | undefined;
+    const scannedBefore = [...this.scannedJsonlFiles];
     let written: PreparedWriteBack[] = [];
     try {
       // Not beginning first: a pending auto-sync would then read, and write out, rows still uncommitted
       await this.waitForPendingSyncs();
+      originsBefore = new Map([...this.rowOriginsByRowid].map(([name, origins]) => [name, new Map(origins)]));
       fieldChangesBefore = cloneFieldChanges(this.fieldChanges);
       rawSqlTablesBefore = new Set(this.rawSqlTables);
       linesWithUnknownFieldsBefore = new Map(
@@ -2764,7 +2887,7 @@ export class LinesDB<Tables extends TableDefs> {
 
       // Written back before COMMIT, so a failed write-back rolls the change back instead of leaving the
       // database holding rows its files do not; a read-only database has no changes to write back
-      if (!this.hasSeveralDataDirs()) {
+      if (!this.isReadOnlyDataSet()) {
         written = await this.writeBackTogether(this.tablesChangedInTransaction());
       }
 
@@ -2776,6 +2899,8 @@ export class LinesDB<Tables extends TableDefs> {
     } catch (error) {
       this.transactionStarting = false;
       this.transactionChanges = undefined;
+      if (originsBefore) this.rowOriginsByRowid = originsBefore;
+      this.scannedJsonlFiles = scannedBefore;
       if (fieldChangesBefore) this.fieldChanges = fieldChangesBefore;
       if (rawSqlTablesBefore) this.rawSqlTables = rawSqlTablesBefore;
       if (linesWithUnknownFieldsBefore) this.linesWithUnknownFields = linesWithUnknownFieldsBefore;
