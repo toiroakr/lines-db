@@ -155,6 +155,22 @@ describe('data set write-back', () => {
     expect(await readFile(localFile(), 'utf8')).toBe(set + '{"id":3,"name":"New"}\n');
   });
 
+  it('does not report restoration failure for an external edit captured before publication', async () => {
+    const write = JsonlWriter.write.bind(JsonlWriter);
+    const external = '{"id":5,"name":"External"}\n';
+    vi.spyOn(JsonlWriter, 'write').mockImplementation(async (file, rows) => {
+      await write(file, rows);
+      await writeFile(baseFile(), external);
+    });
+    const result = await db.transaction((tx) => unwrap(tx.update('users', { name: 'Saved' }, { id: 5 })));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.name).toBe('JsonlConflictError');
+      expect(result.error.message).not.toContain('could not be put back');
+    }
+    expect(await readFile(baseFile(), 'utf8')).toBe(external);
+  });
+
   it('preserves the bytes of source files whose rows were not edited', async () => {
     await db.close();
     const formatted = '{ "id":5, "name":"Base" }\n{"id":1,"name":"First"}\n';

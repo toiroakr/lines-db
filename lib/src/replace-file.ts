@@ -51,6 +51,7 @@ export async function replaceFile(
       } catch (restoreError) {
         if (error instanceof Error) {
           error.message += `; original content remains in '${backup}' because it could not be restored`;
+          if (write) error.message += `; staged content remains in '${temporary}'`;
         } else {
           throw new Error(`Original content remains in '${backup}' because it could not be restored`, {
             cause: restoreError,
@@ -60,6 +61,6 @@ export async function replaceFile(
     }
     throw error;
   } finally {
-    await rm(temporary, { force: true }).catch(() => {});
+    if (!moved) await rm(temporary, { force: true }).catch(() => {});
   }
 }

@@ -2497,7 +2497,7 @@ export class LinesDB<Tables extends TableDefs> {
 
   private async writePrepared(prepared: PreparedWriteBack): Promise<void> {
     const { jsonlPath, rows, previousContent } = prepared;
-    if (this.hasSeveralDataDirs()) {
+    if (this.hasSeveralDataDirs() || this.config.writeDataSets) {
       await replaceFile(jsonlPath, (temporary) => JsonlWriter.write(temporary, rows), previousContent);
     } else {
       await JsonlWriter.write(jsonlPath, rows);
@@ -2624,25 +2624,26 @@ export class LinesDB<Tables extends TableDefs> {
    * counts as changed on disk instead of matching the database
    */
   private async restorePrepared({ jsonlPath, previousContent, rows, completed }: PreparedWriteBack): Promise<void> {
-    if (this.hasSeveralDataDirs()) {
+    if (this.hasSeveralDataDirs() || this.config.writeDataSets) {
+      if (!completed) return;
       const current = await readFile(jsonlPath, 'utf8').catch((error: NodeJS.ErrnoException) => {
         if (error.code === 'ENOENT') return undefined;
         throw error;
       });
-      const expected = completed ? JsonlWriter.serialize(rows) : previousContent;
+      const expected = JsonlWriter.serialize(rows);
       if (current !== expected) throw new Error(`JSONL file '${jsonlPath}' changed during rollback`);
-      if (!completed) return;
     }
     if (previousContent === undefined) {
       this.fileHashes.delete(jsonlPath);
       this.observedHashes.delete(jsonlPath);
-      if (this.hasSeveralDataDirs()) await replaceFile(jsonlPath, undefined, JsonlWriter.serialize(rows));
+      if (this.hasSeveralDataDirs() || this.config.writeDataSets)
+        await replaceFile(jsonlPath, undefined, JsonlWriter.serialize(rows));
       else await rm(jsonlPath, { force: true });
       return;
     }
     this.fileHashes.set(jsonlPath, hashJsonlContent(previousContent));
     this.observedHashes.set(jsonlPath, hashJsonlContent(previousContent));
-    if (this.hasSeveralDataDirs()) {
+    if (this.hasSeveralDataDirs() || this.config.writeDataSets) {
       await replaceFile(
         jsonlPath,
         (temporary) => writeFile(temporary, previousContent, 'utf8'),

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { chmod, link, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -247,25 +247,28 @@ describe('studio server', () => {
     expect((await bodyOf(result)).message).toContain('Source files');
   });
 
-  it('returns a conflict and reloads valid rows changed while their replacement is staged', async () => {
-    await studio.close();
-    const set = join(dataDir, 'local');
-    await mkdir(set);
-    const file = join(dataDir, 'users.jsonl');
-    studio = await startStudioServer({ dataDir: [dataDir, set], schemaDir: dataDir, port: 0 });
-    const external = '{"id":1,"name":"External"}\n{"id":2,"name":"Bob"}\n';
-    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
-    vi.mocked(chmod).mockImplementationOnce(async (path, mode) => {
-      await actual.chmod(path, mode);
-      await writeFile(file, external);
-    });
-    const result = await patchJson(rowUrl('users', 1), { changes: { name: 'Stale edit' } });
-    expect(result.status).toBe(409);
-    expect((await bodyOf(result)).message).toContain('tables were reloaded');
-    expect(await readFile(file, 'utf8')).toBe(external);
-    const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
-    expect(rows.rows[0]).toMatchObject({ id: 1, name: 'External' });
-  });
+  it.each([false, true])(
+    'returns a conflict and reloads rows changed during staging (multiple directories: %s)',
+    async (multiple) => {
+      await studio.close();
+      const set = join(dataDir, 'local');
+      await mkdir(set);
+      const file = join(dataDir, 'users.jsonl');
+      studio = await startStudioServer({ dataDir: multiple ? [dataDir, set] : dataDir, schemaDir: dataDir, port: 0 });
+      const external = '{"id":1,"name":"External"}\n{"id":2,"name":"Bob"}\n';
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      vi.mocked(chmod).mockImplementationOnce(async (path, mode) => {
+        await actual.chmod(path, mode);
+        await writeFile(file, external);
+      });
+      const result = await patchJson(rowUrl('users', 1), { changes: { name: 'Stale edit' } });
+      expect(result.status).toBe(409);
+      expect((await bodyOf(result)).message).toContain('tables were reloaded');
+      expect(await readFile(file, 'utf8')).toBe(external);
+      const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+      expect(rows.rows[0]).toMatchObject({ id: 1, name: 'External' });
+    },
+  );
 
   it('preserves an invalid source file edited while repaired rows are staged', async () => {
     await studio.close();
@@ -375,6 +378,12 @@ describe('studio server', () => {
     });
     expect(response.status).toBe(500);
     expect((await bodyOf(response)).message).toContain('could not restore');
+    const recovery = await Promise.all(
+      (await readdir(dataDir))
+        .filter((file) => file.endsWith('.tmp'))
+        .map((file) => readFile(join(dataDir, file), 'utf8')),
+    );
+    expect(recovery).toContain('{"id":1,"name":""}\n');
     expect(await readFile(base, 'utf8')).toBe(external);
     expect(await readFile(local, 'utf8')).toBe('{"id":2,"name":""}\n');
   });
