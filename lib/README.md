@@ -742,11 +742,13 @@ route updates and deletes back to their source files. Insert with an explicit co
 
 ```typescript
 const db = LinesDB.create({ dataDir: ['./data', './data/cogs'], schemaDir: './data', writeDataSets: true });
-await db.initialize();
-await db.transaction((tx) => {
-  const inserted = tx.insert('Item', { id: 'new-item', name: 'New item' }, { dataDir: './data/cogs' });
-  if (!inserted.ok) throw inserted.error;
-});
+unwrap(await db.initialize());
+unwrap(
+  await db.transaction((tx) => {
+    const inserted = tx.insert('Item', { id: 'new-item', name: 'New item' }, { dataDir: './data/cogs' });
+    if (!inserted.ok) throw inserted.error;
+  }),
+);
 ```
 
 Use `insert` with a destination for new rows in this mode; `batchInsert` has no destination argument.
