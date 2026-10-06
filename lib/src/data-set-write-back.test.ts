@@ -94,6 +94,37 @@ describe('data set write-back', () => {
     expect(await readFile(baseFile(), 'utf8')).toBe(formatted);
   });
 
+  it('retains source positions when an automatic sync fails, so a retry preserves untouched fields', async () => {
+    await db.close();
+    const original = '{"id":5,"name":"Base","age":10}\n{"id":1,"name":"First"}\n';
+    await writeFile(baseFile(), original);
+    await writeFile(
+      join(root, 'users.schema.ts'),
+      "export const schema = { '~standard': { version: 1, vendor: 'test', validate: (row) => ({ value: { ...row, age: row.age ?? 20 } }) } };",
+    );
+    db = LinesDB.create({
+      dataDir: [root, local],
+      schemaDir: root,
+      writeDataSets: true,
+      writeFilledValues: 'primaryKey',
+    });
+    unwrap(await db.initialize());
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const write = JsonlWriter.write.bind(JsonlWriter);
+    const failure = vi.spyOn(JsonlWriter, 'write').mockImplementation(async (file, rows) => {
+      if (file === localFile()) throw new Error('disk full');
+      return write(file, rows);
+    });
+    unwrap(db.delete('users', { id: 5 }));
+    unwrap(db.update('users', { name: 'Changed' }, { id: 2 }));
+    expect((await db.sync('users')).ok).toBe(false);
+    expect(await readFile(baseFile(), 'utf8')).toBe(original);
+    failure.mockRestore();
+    unwrap(await db.sync('users'));
+    expect(await readFile(baseFile(), 'utf8')).toBe('{"id":1,"name":"First"}\n');
+    expect(await readFile(localFile(), 'utf8')).toBe('{"id":2,"name":"Changed"}\n');
+  });
+
   it('writes nothing when any source file changes externally', async () => {
     await writeFile(localFile(), '{"id":2,"name":"External"}\n');
     const result = await db.transaction((tx) => unwrap(tx.update('users', { name: 'Changed' }, { id: 5 })));

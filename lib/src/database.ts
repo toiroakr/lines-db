@@ -2457,21 +2457,11 @@ export class LinesDB<Tables extends TableDefs> {
     }
   }
 
-  private async writePrepared({ tableName, jsonlPath, rows, generation, rowids }: PreparedWriteBack): Promise<void> {
+  private async writePrepared({ jsonlPath, rows }: PreparedWriteBack): Promise<void> {
     await JsonlWriter.write(jsonlPath, rows);
-    // Not cleared once a change came while writing: the write-back after it needs that change's fields
-    if ((this.changeGenerations.get(tableName) ?? 0) === generation) {
-      this.fieldChanges.delete(tableName);
-      this.rawSqlTables.delete(tableName);
-    }
     const contentHash = hashJsonlContent(JsonlWriter.serialize(rows));
     this.fileHashes.set(jsonlPath, contentHash);
     this.observedHashes.set(jsonlPath, contentHash);
-    if (rowids) {
-      const origins = this.rowOriginsByRowid.get(tableName)!;
-      rowids.forEach((rowid, rowIndex) => origins.set(rowid, { file: jsonlPath, rowIndex }));
-      if (!this.scannedJsonlFiles.includes(jsonlPath)) this.scannedJsonlFiles.push(jsonlPath);
-    }
   }
 
   /**
@@ -2547,6 +2537,17 @@ export class LinesDB<Tables extends TableDefs> {
       }
     } catch (error) {
       throw await this.restoreAll(written, error);
+    }
+    for (const { tableName, jsonlPath, generation, rowids } of written) {
+      if ((this.changeGenerations.get(tableName) ?? 0) === generation) {
+        this.fieldChanges.delete(tableName);
+        this.rawSqlTables.delete(tableName);
+      }
+      if (rowids) {
+        const origins = this.rowOriginsByRowid.get(tableName)!;
+        rowids.forEach((rowid, rowIndex) => origins.set(rowid, { file: jsonlPath, rowIndex }));
+        if (!this.scannedJsonlFiles.includes(jsonlPath)) this.scannedJsonlFiles.push(jsonlPath);
+      }
     }
     return written;
   }
