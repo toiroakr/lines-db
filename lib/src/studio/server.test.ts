@@ -193,6 +193,26 @@ describe('studio server', () => {
     );
   });
 
+  it('returns a conflict and reloads valid rows changed while their replacement is staged', async () => {
+    await studio.close();
+    const set = join(dataDir, 'local');
+    await mkdir(set);
+    const file = join(dataDir, 'users.jsonl');
+    studio = await startStudioServer({ dataDir: [dataDir, set], schemaDir: dataDir, port: 0 });
+    const external = '{"id":1,"name":"External"}\n{"id":2,"name":"Bob"}\n';
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    vi.mocked(chmod).mockImplementationOnce(async (path, mode) => {
+      await actual.chmod(path, mode);
+      await writeFile(file, external);
+    });
+    const result = await patchJson(rowUrl('users', 1), { changes: { name: 'Stale edit' } });
+    expect(result.status).toBe(409);
+    expect((await bodyOf(result)).message).toContain('tables were reloaded');
+    expect(await readFile(file, 'utf8')).toBe(external);
+    const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    expect(rows.rows[0]).toMatchObject({ id: 1, name: 'External' });
+  });
+
   it('preserves an invalid source file edited while repaired rows are staged', async () => {
     await studio.close();
     const file = join(dataDir, 'users.jsonl');

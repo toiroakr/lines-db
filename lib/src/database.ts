@@ -2524,7 +2524,12 @@ export class LinesDB<Tables extends TableDefs> {
         if (error.code === 'ENOENT') return undefined;
         throw error;
       });
-      if (current !== expectedContent) throw new Error(`JSONL file '${file}' changed during the write`);
+      if (current !== expectedContent) {
+        const error = new Error(`JSONL file '${file}' changed during the write`) as JsonlConflictError;
+        error.name = 'JsonlConflictError';
+        error.file = file;
+        throw error;
+      }
       await rename(temporary, file);
     } finally {
       await rm(temporary, { force: true });
@@ -2629,10 +2634,16 @@ export class LinesDB<Tables extends TableDefs> {
       await this.restorePrepared(table).catch(() => notRestored.push(table.jsonlPath));
     }
     if (notRestored.length === 0) return error;
-    return new Error(
-      `${toError(error).message}\nThese files could not be put back and hold rows the database does not: ${notRestored.join(', ')}`,
+    const failure = toError(error);
+    const recoveryError = new Error(
+      `${failure.message}\nThese files could not be put back and hold rows the database does not: ${notRestored.join(', ')}`,
       { cause: error },
     );
+    if (failure.name === 'JsonlConflictError') {
+      recoveryError.name = failure.name;
+      (recoveryError as JsonlConflictError).file = (failure as JsonlConflictError).file;
+    }
+    return recoveryError;
   }
 
   /**
