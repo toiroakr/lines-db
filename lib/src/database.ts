@@ -1,12 +1,13 @@
 import { createDatabase, type SQLiteDatabase } from './sqlite-adapter.js';
 import { JsonlReader, hashJsonlContent } from './jsonl-reader.js';
 import { JsonlWriter } from './jsonl-writer.js';
+import { replaceFile } from './replace-file.js';
 import { SchemaLoader } from './schema-loader.js';
 import { DirectoryScanner } from './directory-scanner.js';
 import { hasBackward } from './schema.js';
 import { keepUnknownFields, mergeFields } from './merge-fields.js';
 import { findSchemaFile } from './schema-extensions.js';
-import { chmod, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import type {
@@ -2497,7 +2498,7 @@ export class LinesDB<Tables extends TableDefs> {
   private async writePrepared(prepared: PreparedWriteBack): Promise<void> {
     const { jsonlPath, rows, previousContent } = prepared;
     if (this.hasSeveralDataDirs()) {
-      await this.replaceFile(jsonlPath, (temporary) => JsonlWriter.write(temporary, rows), previousContent);
+      await replaceFile(jsonlPath, (temporary) => JsonlWriter.write(temporary, rows), previousContent);
     } else {
       await JsonlWriter.write(jsonlPath, rows);
     }
@@ -2505,35 +2506,6 @@ export class LinesDB<Tables extends TableDefs> {
     const contentHash = hashJsonlContent(JsonlWriter.serialize(rows));
     this.fileHashes.set(jsonlPath, contentHash);
     this.observedHashes.set(jsonlPath, contentHash);
-  }
-
-  private async replaceFile(
-    file: string,
-    write: (temporary: string) => Promise<void>,
-    expectedContent: string | undefined,
-  ): Promise<void> {
-    const temporary = `${file}.${randomBytes(12).toString('hex')}.tmp`;
-    try {
-      await write(temporary);
-      const mode = await stat(file).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === 'ENOENT') return undefined;
-        throw error;
-      });
-      if (mode) await chmod(temporary, mode.mode & 0o7777);
-      const current = await readFile(file, 'utf8').catch((error: NodeJS.ErrnoException) => {
-        if (error.code === 'ENOENT') return undefined;
-        throw error;
-      });
-      if (current !== expectedContent) {
-        const error = new Error(`JSONL file '${file}' changed during the write`) as JsonlConflictError;
-        error.name = 'JsonlConflictError';
-        error.file = file;
-        throw error;
-      }
-      await rename(temporary, file);
-    } finally {
-      await rm(temporary, { force: true });
-    }
   }
 
   /**
@@ -2670,7 +2642,7 @@ export class LinesDB<Tables extends TableDefs> {
     this.fileHashes.set(jsonlPath, hashJsonlContent(previousContent));
     this.observedHashes.set(jsonlPath, hashJsonlContent(previousContent));
     if (this.hasSeveralDataDirs()) {
-      await this.replaceFile(
+      await replaceFile(
         jsonlPath,
         (temporary) => writeFile(temporary, previousContent, 'utf8'),
         JsonlWriter.serialize(rows),

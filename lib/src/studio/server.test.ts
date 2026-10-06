@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,7 @@ import { startStudioServer, type StudioServer } from './server.js';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
-  return { ...actual, rename: vi.fn(actual.rename), chmod: vi.fn(actual.chmod) };
+  return { ...actual, rename: vi.fn(actual.rename), link: vi.fn(actual.link), chmod: vi.fn(actual.chmod) };
 });
 
 describe('studio server', () => {
@@ -49,6 +49,7 @@ describe('studio server', () => {
     await studio.close();
     await rm(dataDir, { recursive: true, force: true });
     vi.mocked(rename).mockReset();
+    vi.mocked(link).mockReset();
     vi.mocked(chmod).mockReset();
   });
 
@@ -233,6 +234,35 @@ describe('studio server', () => {
     expect(await readFile(file, 'utf8')).toBe(external);
   });
 
+  it.each([false, true])(
+    'preserves an external replacement at publication, including invalid-row repair (%s)',
+    async (invalid) => {
+      await studio.close();
+      const local = join(dataDir, 'local');
+      await mkdir(local);
+      const file = join(dataDir, 'users.jsonl');
+      await writeFile(file, invalid ? '{"id":1,"name":""}\n' : '{"id":1,"name":"Alice"}\n');
+      studio = await startStudioServer({ dataDir: [dataDir, local], schemaDir: dataDir, port: 0 });
+      const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+      const external = '{"id":1,"name":"External"}\n';
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      vi.mocked(rename).mockImplementation(async (from, to) => {
+        if (to === file) await writeFile(file, external);
+        await actual.rename(from, to);
+      });
+      vi.mocked(link).mockImplementation(async (from, to) => {
+        if (to === file) await writeFile(file, external);
+        await actual.link(from, to);
+      });
+      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+        updates: [{ key: invalid ? 0 : 1, changes: { name: 'Saved' } }],
+        revision: rows.revision,
+      });
+      expect(response.status).toBe(409);
+      expect(await readFile(file, 'utf8')).toBe(external);
+    },
+  );
+
   it('preserves an external edit of a repaired source when another repair fails', async () => {
     await studio.close();
     const set = join(dataDir, 'local');
@@ -245,12 +275,43 @@ describe('studio server', () => {
     const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
     const external = '{"id":1,"name":"External"}\n';
     const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
-    vi.mocked(rename).mockImplementation(async (from, to) => {
-      if (to === local) {
+    vi.mocked(link).mockImplementation(async (from, to) => {
+      if (to === local && String(from).endsWith('.tmp')) {
         await writeFile(base, external);
         throw new Error('disk full');
       }
-      await actual.rename(from, to);
+      await actual.link(from, to);
+    });
+    const response = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+      updates: [
+        { key: 0, changes: { name: 'Fixed base' } },
+        { key: 1, changes: { name: 'Fixed local' } },
+      ],
+      revision: rows.revision,
+    });
+    expect(response.status).toBe(500);
+    expect((await bodyOf(response)).message).toContain('could not restore');
+    expect(await readFile(base, 'utf8')).toBe(external);
+    expect(await readFile(local, 'utf8')).toBe('{"id":2,"name":""}\n');
+  });
+
+  it('preserves an external file created while repaired rows are being rolled back', async () => {
+    await studio.close();
+    const set = join(dataDir, 'local');
+    await mkdir(set);
+    const base = join(dataDir, 'users.jsonl');
+    const local = join(set, 'users.jsonl');
+    await writeFile(base, '{"id":1,"name":""}\n');
+    await writeFile(local, '{"id":2,"name":""}\n');
+    studio = await startStudioServer({ dataDir: [dataDir, set], schemaDir: dataDir, port: 0 });
+    const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    const external = '{"id":1,"name":"External"}\n';
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    let publications = 0;
+    vi.mocked(link).mockImplementation(async (from, to) => {
+      if (to === local && String(from).endsWith('.tmp')) throw new Error('disk full');
+      if (to === base && ++publications === 2) await writeFile(base, external);
+      await actual.link(from, to);
     });
     const response = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
       updates: [

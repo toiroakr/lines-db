@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { watch } from 'node:fs';
-import { chmod, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, extname, join, relative, resolve as resolvePath } from 'node:path';
@@ -13,6 +13,7 @@ import { JsonlReader, hashJsonlContent } from '../jsonl-reader.js';
 import { findSchemaFile } from '../schema-extensions.js';
 import { readDeclaredColumns } from './declared-columns.js';
 import { replaceRows } from './file-rows.js';
+import { replaceFile } from '../replace-file.js';
 import type {
   ColumnDefinition,
   ForeignKeyDefinition,
@@ -612,20 +613,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 }
 
 async function replaceUnchangedFile(file: string, next: string, expected: string): Promise<void> {
-  const temporary = `${file}.${randomBytes(12).toString('hex')}.tmp`;
-  try {
-    await writeFile(temporary, next, 'utf8');
-    await chmod(temporary, (await stat(file)).mode & 0o7777);
-    if ((await readFile(file, 'utf8')) !== expected) {
-      throw Object.assign(new Error(`${file} changed during the save; reload the table before trying again`), {
-        name: 'JsonlConflictError',
-        file,
-      });
-    }
-    await rename(temporary, file);
-  } finally {
-    await rm(temporary, { force: true });
-  }
+  await replaceFile(file, (temporary) => writeFile(temporary, next, 'utf8'), expected);
 }
 
 async function loadSnapshot(
