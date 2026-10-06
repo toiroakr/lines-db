@@ -67,7 +67,7 @@ describe('data set write-back', () => {
   it('rolls back every file and row when a later file fails, and retains routing for a retry', async () => {
     const write = JsonlWriter.write.bind(JsonlWriter);
     const failure = vi.spyOn(JsonlWriter, 'write').mockImplementation(async (file, rows) => {
-      if (file === localFile()) throw new Error('disk full');
+      if (file === localFile() || file.startsWith(localFile() + '.')) throw new Error('disk full');
       return write(file, rows);
     });
     const change = (tx: LinesDB<TableDefs>) => {
@@ -94,6 +94,39 @@ describe('data set write-back', () => {
     expect(await readFile(baseFile(), 'utf8')).toBe(formatted);
   });
 
+  it('refuses to replace a source file changed while the new content is staged', async () => {
+    const external = '{"id":5,"name":"External"}\n{"id":1,"name":"First"}\n';
+    const write = JsonlWriter.write.bind(JsonlWriter);
+    vi.spyOn(JsonlWriter, 'write').mockImplementation(async (file, rows) => {
+      await write(file, rows);
+      if (file.startsWith(baseFile() + '.')) await writeFile(baseFile(), external);
+    });
+    expect((await db.transaction((tx) => unwrap(tx.update('users', { name: 'Changed' }, { id: 5 })))).ok).toBe(false);
+    expect(await readFile(baseFile(), 'utf8')).toBe(external);
+    expect(await readFile(localFile(), 'utf8')).toBe(set);
+  });
+
+  it('preserves an external edit made after the first file was saved when a later write fails', async () => {
+    const external = '{"id":5,"name":"External"}\n{"id":1,"name":"First"}\n';
+    const write = JsonlWriter.write.bind(JsonlWriter);
+    vi.spyOn(JsonlWriter, 'write').mockImplementation(async (file, rows) => {
+      if (file === localFile() || file.startsWith(localFile() + '.')) {
+        await writeFile(baseFile(), external);
+        throw new Error('disk full');
+      }
+      return write(file, rows);
+    });
+    const result = await db.transaction((tx) => {
+      unwrap(tx.update('users', { name: 'Changed' }, { id: 5 }));
+      unwrap(tx.update('users', { name: 'Changed' }, { id: 2 }));
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('could not be put back');
+    expect(await readFile(baseFile(), 'utf8')).toBe(external);
+    expect(await readFile(localFile(), 'utf8')).toBe(set);
+    expect(unwrap(await db.hasExternalChanges())).toBe(true);
+  });
+
   it('retains source positions when an automatic sync fails, so a retry preserves untouched fields', async () => {
     await db.close();
     const original = '{"id":5,"name":"Base","age":10}\n{"id":1,"name":"First"}\n';
@@ -112,7 +145,7 @@ describe('data set write-back', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const write = JsonlWriter.write.bind(JsonlWriter);
     const failure = vi.spyOn(JsonlWriter, 'write').mockImplementation(async (file, rows) => {
-      if (file === localFile()) throw new Error('disk full');
+      if (file === localFile() || file.startsWith(localFile() + '.')) throw new Error('disk full');
       return write(file, rows);
     });
     unwrap(db.delete('users', { id: 5 }));
