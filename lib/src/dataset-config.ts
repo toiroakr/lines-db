@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { z } from 'zod';
 import type { DatabaseConfig } from './types.js';
@@ -58,8 +58,9 @@ export async function resolveValidationTarget(
   }
 
   const configDir = dirname(configPath);
+  const dataDirs = await Promise.all([...config.base, ...selected].map((dir) => realpath(resolve(configDir, dir))));
   return {
-    dataDir: [...new Set([...config.base, ...selected].map((dir) => resolve(configDir, dir)))],
+    dataDir: [...new Set(dataDirs)],
     schemaDir: resolve(configDir, config.schemaDir),
   };
 }

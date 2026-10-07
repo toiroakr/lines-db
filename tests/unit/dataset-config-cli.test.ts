@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -138,6 +138,19 @@ describe('validate dataset configuration', () => {
       }),
     );
     const { stdout } = await validate(['--dataset', 'baseAgain'], project);
+    expect(stdout).toContain('Item (1 records)');
+  });
+  it('loads a base directory only once when a dataset uses a symlink alias', async () => {
+    await symlink(join(project, 'data'), join(project, 'data-link'), 'dir');
+    await writeFile(
+      config,
+      JSON.stringify({
+        schemaDir: './data',
+        base: ['./data'],
+        datasets: { alias: ['./data-link'] },
+      }),
+    );
+    const { stdout } = await validate(['--dataset', 'alias'], project);
     expect(stdout).toContain('Item (1 records)');
   });
 });
