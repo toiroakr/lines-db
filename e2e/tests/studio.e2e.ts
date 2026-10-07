@@ -210,6 +210,55 @@ test('reloads the table when its file changes on disk', async ({ app, screen, br
   }
 });
 
+test('keeps unsaved edits and the displayed rows until discarded, then reloads and clears the file-change warning', async ({
+  app,
+  screen,
+  browser,
+}) => {
+  await app.open('/');
+  await screen
+    .getByRole('navigation')
+    .getByRole('button', /^users/)
+    .tap();
+  const ada = screen.getByRole('row').filter({ hasText: 'ada@example.test' });
+  const grace = screen.getByRole('row').filter({ hasText: 'grace@example.test' });
+  const adaName = ada.getByRole('button', 'Edit name', { exact: true });
+  const graceName = grace.getByRole('button', 'Edit name', { exact: true });
+  await expect(adaName).toHaveText('Ada Lovelace');
+  await expect(graceName).toHaveText('Grace Hopper');
+
+  const file = join(await dataDirOf(browser), 'users.jsonl');
+  const original = await readFile(file, 'utf8');
+  const changed = original.replace('Ada Lovelace', 'Ada King').replace('Grace Hopper', 'Grace Brewster');
+  const warning = screen.getByRole('alert').filter({ hasText: 'The files changed on disk' });
+  const save = screen.getByRole('button', 'Save 1 change', { exact: true });
+
+  try {
+    await screen.getByRole('button', 'Hide the row form', { exact: true }).tap();
+    await adaName.tap();
+    await screen.getByRole('textbox', 'name', { exact: true }).fill('Ada Byron');
+    await screen.getByRole('button', 'Set', { exact: true }).tap();
+    await expect(save).toBeVisible();
+
+    await writeFile(file, changed);
+    await expect(warning).toBeVisible();
+    await expect(adaName).toHaveText('Ada Byron');
+    await expect(graceName).toHaveText('Grace Hopper');
+    await expect(save).toBeVisible();
+    await app.screenshot('The file-change warning with unsaved edits and the previous rows');
+
+    await screen.getByRole('button', 'Discard', { exact: true }).tap();
+    await expect(adaName).toHaveText('Ada King');
+    await expect(graceName).toHaveText('Grace Brewster');
+    await expect(warning).toBeHidden();
+    await expect(save).toBeHidden();
+    expect(await readFile(file, 'utf8')).toBe(changed);
+    await app.screenshot('The current rows after discarding, with the file-change warning cleared');
+  } finally {
+    await writeFile(file, original);
+  }
+});
+
 test('saves changes begun before the file changed on disk onto its current rows', async ({ app, screen, browser }) => {
   await app.open('/');
   await screen
