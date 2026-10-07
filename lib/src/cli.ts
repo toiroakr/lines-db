@@ -87,8 +87,8 @@ const validateCommand = defineCommand({
     config: arg(z.string().optional(), {
       description: 'Dataset configuration file (default: ./lines-db.config.json)',
     }),
-    dataset: arg(z.string().optional(), {
-      description: 'Named dataset to validate together with base',
+    dataset: arg(z.array(z.string()).optional(), {
+      description: 'Named datasets to validate together with base (repeat to select several)',
     }),
     allDatasets: arg(z.boolean().default(false), {
       description: 'Validate base and all datasets together',

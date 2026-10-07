@@ -13,7 +13,7 @@ const datasetConfigSchema = z.strictObject({
 interface ValidationOptions {
   path?: string;
   config?: string;
-  dataset?: string;
+  dataset?: string[];
   allDatasets?: boolean;
 }
 
@@ -35,7 +35,20 @@ export async function resolveValidationTarget(
     throw new Error(`Invalid path: ${options.path}. Must be a directory or .jsonl file.`);
   }
 
-  const configPath = resolve(options.config ?? 'lines-db.config.json');
+  return loadDatasetConfig(options.config, {
+    datasets: options.allDatasets ? 'all' : options.dataset,
+  });
+}
+
+export interface DatasetConfigOptions {
+  datasets?: string[] | 'all';
+}
+
+export async function loadDatasetConfig(
+  path = 'lines-db.config.json',
+  options: DatasetConfigOptions = {},
+): Promise<DatabaseConfig> {
+  const configPath = resolve(path);
   let config: z.infer<typeof datasetConfigSchema>;
   try {
     config = datasetConfigSchema.parse(JSON.parse(await readFile(configPath, 'utf-8')));
@@ -45,17 +58,15 @@ export async function resolveValidationTarget(
     );
   }
 
-  let selected: string[] = [];
-  if (options.allDatasets) {
-    selected = Object.values(config.datasets).flat();
-  } else if (options.dataset !== undefined) {
-    if (!Object.hasOwn(config.datasets, options.dataset)) {
+  const names = options.datasets === 'all' ? Object.keys(config.datasets) : (options.datasets ?? []);
+  const selected = names.flatMap((name) => {
+    if (!Object.hasOwn(config.datasets, name)) {
       throw new Error(
-        `Unknown dataset '${options.dataset}'. Available datasets: ${Object.keys(config.datasets).join(', ') || '(none)'}`,
+        `Unknown dataset '${name}'. Available datasets: ${Object.keys(config.datasets).join(', ') || '(none)'}`,
       );
     }
-    selected = config.datasets[options.dataset];
-  }
+    return config.datasets[name];
+  });
 
   const configDir = dirname(configPath);
   const dataDirs = await Promise.all([...config.base, ...selected].map((dir) => realpath(resolve(configDir, dir))));

@@ -64,6 +64,13 @@ describe('validate dataset configuration', () => {
     expect(stdout).toContain('ItemValuation (1 records)');
   });
 
+  it('accepts repeated --dataset flags and validates all selected sets', async () => {
+    await writeFile(join(project, 'data/sales/Item.jsonl'), '{"id":3}\n');
+    const { stdout } = await validate(['--dataset', 'sales', '--dataset', 'cogs'], project);
+    expect(stdout).toContain('Item (3 records)');
+    expect(stdout).toContain('ItemValuation (1 records)');
+  });
+
   it('resolves data and schema paths relative to an explicit config from another directory', async () => {
     const { stdout } = await validate(['--config', config, '--dataset', 'cogs'], root);
     expect(stdout).toContain('Item (2 records)');
@@ -141,7 +148,7 @@ describe('validate dataset configuration', () => {
     expect(stdout).toContain('Item (1 records)');
   });
   it('loads a base directory only once when a dataset uses a symlink alias', async () => {
-    await symlink(join(project, 'data'), join(project, 'data-link'), 'dir');
+    await symlink(join(project, 'data'), join(project, 'data-link'), process.platform === 'win32' ? 'junction' : 'dir');
     await writeFile(
       config,
       JSON.stringify({
