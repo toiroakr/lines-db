@@ -69,9 +69,15 @@ export async function loadDatasetConfig(
   });
 
   const configDir = dirname(configPath);
+  const schemaDir = resolve(configDir, config.schemaDir);
+  try {
+    if (!(await stat(schemaDir)).isDirectory()) throw new Error('Expected a directory');
+  } catch (error) {
+    throw new Error(`Invalid schemaDir ${schemaDir}: ${error instanceof Error ? error.message : String(error)}`);
+  }
   const dataDirs = await Promise.all([...config.base, ...selected].map((dir) => realpath(resolve(configDir, dir))));
   return {
     dataDir: [...new Set(dataDirs)],
-    schemaDir: resolve(configDir, config.schemaDir),
+    schemaDir,
   };
 }

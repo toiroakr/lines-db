@@ -154,7 +154,7 @@ Omit `datasets` or pass `[]` for base only. An array combines base and the selec
 `'all'` combines base and every set in configuration order. Each directory is loaded once, including symlink aliases.
 Calling `loadDatasetConfig()` without arguments reads `lines-db.config.json` in the current working directory.
 It returns `Promise<DatabaseConfig>` and rejects unreadable or invalid configuration, unknown set names and missing
-selected data directories. Call `db.initialize()` to load and validate the data.
+selected data directories. A missing `schemaDir` or one pointing to a file is also rejected. Call `db.initialize()` to load and validate the data.
 
 ### Migrate Data
 

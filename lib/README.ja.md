@@ -155,7 +155,7 @@ const db = LinesDB.create(config);
 引数を省略した `loadDatasetConfig()` は、カレントディレクトリの `lines-db.config.json` を読みます。
 戻り値は `Promise<DatabaseConfig>` です。設定ファイルを読み込めない場合、不正な設定や未知のセット名がある場合、
 または選択したデータディレクトリが存在しない場合はPromiseをrejectします。データの読み込み・検証は
-`db.initialize()` で実行します。
+`db.initialize()` で実行します。`schemaDir` が存在しない、またはファイルを指す場合もエラーになります。
 
 ### データのマイグレーション
 

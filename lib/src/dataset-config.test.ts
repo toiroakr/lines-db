@@ -72,4 +72,11 @@ describe('loadDatasetConfig', () => {
     );
     expect((await loadDatasetConfig(path, { datasets: ['alias'] })).dataDir).toEqual([join(root, 'base')]);
   });
+  it.each(['missing', 'lines-db.config.json'])(
+    'rejects invalid schemaDir %s instead of skipping validation',
+    async (schemaDir) => {
+      await writeFile(path, JSON.stringify({ schemaDir, base: ['./base'], datasets: {} }));
+      await expect(loadDatasetConfig(path)).rejects.toThrow('Invalid schemaDir');
+    },
+  );
 });

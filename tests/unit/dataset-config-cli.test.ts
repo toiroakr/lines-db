@@ -160,4 +160,14 @@ describe('validate dataset configuration', () => {
     const { stdout } = await validate(['--dataset', 'alias'], project);
     expect(stdout).toContain('Item (1 records)');
   });
+  it.each(['missing', 'lines-db.config.json'])(
+    'rejects invalid schemaDir %s before validating data',
+    async (schemaDir) => {
+      await writeFile(config, JSON.stringify({ schemaDir, base: ['./data'], datasets: {} }));
+      await expect(validate([], project)).rejects.toMatchObject({
+        code: 1,
+        stderr: expect.stringContaining(`Invalid schemaDir ${join(project, schemaDir)}`),
+      });
+    },
+  );
 });
