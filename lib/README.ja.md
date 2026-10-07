@@ -102,6 +102,42 @@ npx lines-db validate ./data --verbose
 - 各レコードをスキーマに対してバリデーション
 - 詳細なメッセージとともにバリデーションエラーを報告
 
+#### 名前付きデータセットの検証
+
+共通データとシナリオ別のデータを `lines-db.config.json` に定義できます：
+
+```json
+{
+  "schemaDir": "./data",
+  "base": ["./data"],
+  "datasets": {
+    "cogs": ["./data/cogs"],
+    "sales": ["./data/sales"]
+  }
+}
+```
+
+パスを省略すると、カレントディレクトリの `lines-db.config.json` を読み、`base` だけを検証します。
+`--dataset <name>` は `base` に指定したデータセットを追加し、`--all-datasets` は `base` と全データセットを
+一度に結合して検証します。シナリオ間で同じIDを使っている場合、全セットの結合では重複エラーになります。
+
+```bash
+npx lines-db validate
+npx lines-db validate --dataset cogs
+npx lines-db validate --all-datasets
+npx lines-db validate --config ./seed/lines-db.config.json --dataset cogs
+```
+
+`--config <path>` で別の設定ファイルを指定できます。`schemaDir`・`base`・`datasets` は必須で、
+`base` と各データセットは1つ以上のディレクトリを指定します（追加セットが無ければ `datasets: {}`）。
+設定内の相対パスは設定ファイルの場所が基準です。ディレクトリは `base`、選択したセットの順に読み込み、
+同じディレクトリは1回だけ読み込みます。サブディレクトリを自動で探索することはありません。
+スキーマ・ユニーク制約・外部キーは結合したデータ全体に対して検証され、エラーは元のファイルを指します。
+
+`--dataset` と `--all-datasets` の併用、または設定用オプションと位置引数のパスの併用はエラーです。
+不明なセット名や不正な設定もエラーになります。既存の `validate <path>` は設定ファイルを使わず、従来どおり動作します。
+設定ファイルを使うのは `validate` のみです。
+
 ### データのマイグレーション
 
 バリデーション付きでJSONLファイルのデータを変換します：

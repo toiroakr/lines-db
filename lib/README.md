@@ -102,6 +102,42 @@ This command will:
 - Validate each record against the schema
 - Report validation errors with detailed messages
 
+#### Validate named datasets
+
+Define shared data and scenario data in `lines-db.config.json`:
+
+```json
+{
+  "schemaDir": "./data",
+  "base": ["./data"],
+  "datasets": {
+    "cogs": ["./data/cogs"],
+    "sales": ["./data/sales"]
+  }
+}
+```
+
+Omit the positional path to read `lines-db.config.json` in the current working directory and validate only `base`.
+`--dataset <name>` adds the named dataset to `base`. `--all-datasets` combines `base` and every dataset in one
+validation run; IDs shared by different scenarios will cause duplicate errors.
+
+```bash
+npx lines-db validate
+npx lines-db validate --dataset cogs
+npx lines-db validate --all-datasets
+npx lines-db validate --config ./seed/lines-db.config.json --dataset cogs
+```
+
+Use `--config <path>` to select another configuration file. `schemaDir`, `base` and `datasets` are required.
+`base` and each dataset must contain at least one directory; use `datasets: {}` when there are no additional sets.
+Relative paths are resolved from the configuration file's directory. Directories are loaded in base-then-dataset
+order, with each directory loaded only once. Subdirectories are not discovered automatically. Schemas, unique
+constraints and foreign keys are checked across the combined data, and errors identify the original file.
+
+Combining `--dataset` with `--all-datasets`, or using configuration options with a positional path, is an error.
+Unknown dataset names and invalid configurations also fail. Existing `validate <path>` commands keep working
+without reading a configuration file. Only `validate` uses this configuration.
+
 ### Migrate Data
 
 Transform data in JSONL files with validation:
