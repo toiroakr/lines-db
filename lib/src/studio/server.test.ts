@@ -1,10 +1,22 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { chmod, link, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { request } from 'node:http';
 import { startStudioServer, type StudioServer } from './server.js';
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    rename: vi.fn(actual.rename),
+    link: vi.fn(actual.link),
+    rm: vi.fn(actual.rm),
+    readFile: vi.fn(actual.readFile),
+    chmod: vi.fn(actual.chmod),
+  };
+});
 
 describe('studio server', () => {
   let dataDir: string;
@@ -43,6 +55,10 @@ describe('studio server', () => {
   afterEach(async () => {
     await studio.close();
     await rm(dataDir, { recursive: true, force: true });
+    vi.mocked(rename).mockReset();
+    vi.mocked(link).mockReset();
+    vi.mocked(rm).mockReset();
+    vi.mocked(chmod).mockReset();
   });
 
   it('lists each table with its columns and primary key', async () => {
@@ -61,6 +77,357 @@ describe('studio server', () => {
         ]),
       }),
     ]);
+  });
+
+  it('rejects an empty data directory list before starting the server', async () => {
+    await expect(startStudioServer({ dataDir: [], port: 0 })).rejects.toThrow('at least one data directory');
+  });
+
+  it('loads each resolved data directory once and exposes one primary path for copying', async () => {
+    await studio.close();
+    const set = join(dataDir, 'local');
+    await mkdir(set);
+    await writeFile(join(set, 'users.jsonl'), '{"id":3,"name":"Carol"}\n');
+    studio = await startStudioServer({ dataDir: [dataDir, join(dataDir, '.'), set], schemaDir: dataDir, port: 0 });
+    const listing = await bodyOf(await fetch(`${studio.url}/api/tables`));
+    expect(listing.dataDir).toBe(dataDir);
+    expect(listing.dataDirs).toEqual([dataDir, set]);
+    expect(listing.tables[0]).toMatchObject({ rowCount: 3, invalidRows: 0 });
+    expect((await patchJson(rowUrl('users', 3), { changes: { name: 'Changed' } })).status).toBe(200);
+  });
+
+  it('validates and edits a data set using the shared schema directory', async () => {
+    await studio.close();
+    const set = join(dataDir, 'local');
+    await mkdir(set);
+    await writeFile(join(set, 'users.jsonl'), '{"id":3,"name":"Carol"}\n');
+    studio = await startStudioServer({ dataDir: set, schemaDir: dataDir, port: 0 });
+
+    const listing = await bodyOf(await fetch(`${studio.url}/api/tables`));
+    expect(listing.tables[0].schemaFile).toBe('users.schema.ts');
+    const schema = await bodyOf(await fetch(`${studio.url}/api/tables/users/schema`));
+    expect(schema.source).toBe(NAME_REQUIRED_SCHEMA);
+    expect((await patchJson(rowUrl('users', 3), { changes: { name: '' } })).status).toBe(400);
+    expect((await patchJson(rowUrl('users', 3), { changes: { name: 'Caroline' } })).status).toBe(200);
+    expect(await readFile(join(set, 'users.jsonl'), 'utf8')).toBe('{"id":3,"name":"Caroline"}\n');
+    expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toContain('Alice');
+  });
+
+  it('edits composed rows in their source files and inserts into the selected directory', async () => {
+    await studio.close();
+    const set = join(dataDir, 'local');
+    await mkdir(set);
+    await writeFile(join(set, 'users.jsonl'), '{"id":3,"name":"Carol"}\n');
+    studio = await startStudioServer({ dataDir: [dataDir, set], schemaDir: dataDir, port: 0 });
+    const listing = await bodyOf(await fetch(`${studio.url}/api/tables`));
+    expect(listing.tables[0].readOnlyReason).toBeNull();
+    expect((await patchJson(rowUrl('users', 3), { changes: { name: 'Caroline' } })).status).toBe(200);
+    expect(await readFile(join(set, 'users.jsonl'), 'utf8')).toBe('{"id":3,"name":"Caroline"}\n');
+    expect(
+      (
+        await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+          inserts: [{ id: 4, name: 'New' }],
+          insertDataDirs: [set],
+          deletes: [1],
+        })
+      ).status,
+    ).toBe(200);
+    expect(await readFile(join(set, 'users.jsonl'), 'utf8')).toBe(
+      '{"id":3,"name":"Caroline"}\n{"id":4,"name":"New"}\n',
+    );
+    expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).not.toContain('Alice');
+    expect(
+      (
+        await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+          inserts: [{ id: 5, name: 'No target' }],
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+          inserts: [{ id: 5, name: 'Outside' }],
+          insertDataDirs: [tmpdir()],
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  it('rejects an edit after the secondary data file changes on disk', async () => {
+    await studio.close();
+    const set = join(dataDir, 'local');
+    await mkdir(set);
+    const file = join(set, 'users.jsonl');
+    await writeFile(file, '{"id":3,"name":"Carol"}\n');
+    studio = await startStudioServer({ dataDir: [dataDir, set], schemaDir: dataDir, port: 0 });
+    await writeFile(file, '{"id":3,"name":"External"}\n');
+    expect((await patchJson(rowUrl('users', 3), { changes: { name: 'Stale edit' } })).status).toBe(409);
+    expect(await readFile(file, 'utf8')).toBe('{"id":3,"name":"External"}\n');
+  });
+
+  it('shows all composed rows when a table has validation failures in several files', async () => {
+    await studio.close();
+    const set = join(dataDir, 'local');
+    await mkdir(set);
+    await writeFile(join(dataDir, 'users.jsonl'), '{"id":1,"name":""}\n{"id":2,"name":"Bob"}\n');
+    await writeFile(join(set, 'users.jsonl'), '{"id":3,"name":""}\n{"id":4,"name":"Carol"}\n');
+    studio = await startStudioServer({ dataDir: [dataDir, set], schemaDir: dataDir, port: 0 });
+
+    const listing = await bodyOf(await fetch(`${studio.url}/api/tables`));
+    expect(listing.tables[0]).toMatchObject({ rowCount: 4, invalidRows: 2 });
+    const body = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    expect(body.rows).toEqual([
+      { id: 1, name: '' },
+      { id: 2, name: 'Bob' },
+      { id: 3, name: '' },
+      { id: 4, name: 'Carol' },
+    ]);
+    expect(Object.keys(body.issues)).toEqual(['0', '2']);
+    expect(
+      (
+        await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+          updates: [
+            { key: 0, changes: { name: 'Fixed base' } },
+            { key: 2, changes: { name: 'Fixed local' } },
+          ],
+          revision: body.revision,
+        })
+      ).status,
+    ).toBe(200);
+    expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toBe(
+      '{"id":1,"name":"Fixed base"}\n{"id":2,"name":"Bob"}\n',
+    );
+    expect(await readFile(join(set, 'users.jsonl'), 'utf8')).toBe(
+      '{"id":3,"name":"Fixed local"}\n{"id":4,"name":"Carol"}\n',
+    );
+  });
+
+  it('commits a save when only backup cleanup fails', async () => {
+    await studio.close();
+    const local = join(dataDir, 'local');
+    await mkdir(local);
+    studio = await startStudioServer({ dataDir: [dataDir, local], schemaDir: dataDir, port: 0 });
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    vi.mocked(rm).mockImplementation(async (path, options) => {
+      if (String(path).endsWith('.backup')) throw new Error('backup cleanup failed');
+      await actual.rm(path, options);
+    });
+    const result = await patchJson(rowUrl('users', 1), { changes: { name: 'Saved' } });
+    expect(result.status).toBe(200);
+    expect(await readFile(join(dataDir, 'users.jsonl'), 'utf8')).toContain('"name":"Saved"');
+    const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    expect(rows.rows[0]).toMatchObject({ id: 1, name: 'Saved' });
+    vi.mocked(rm).mockReset();
+    vi.mocked(readFile).mockReset();
+  });
+
+  it('describes a stale composed invalid table without naming the wrong source file', async () => {
+    await studio.close();
+    const local = join(dataDir, 'local');
+    await mkdir(local);
+    await writeFile(join(dataDir, 'users.jsonl'), '{"id":1,"name":""}\n');
+    await writeFile(join(local, 'users.jsonl'), '{"id":2,"name":""}\n');
+    studio = await startStudioServer({ dataDir: [dataDir, local], schemaDir: dataDir, port: 0 });
+    const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    let changed = false;
+    vi.mocked(readFile).mockImplementation(async (...args: Parameters<typeof readFile>) => {
+      const content = await actual.readFile(...args);
+      if (!changed && args[0] === join(local, 'users.jsonl')) {
+        changed = true;
+        await writeFile(join(local, 'users.jsonl'), '{"id":2,"name":"External"}\n');
+      }
+      return content;
+    });
+    const result = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+      updates: [{ key: 0, changes: { name: 'Saved' } }],
+      revision: rows.revision,
+    });
+    expect(result.status).toBe(409);
+    expect((await bodyOf(result)).message).toContain('Source files');
+  });
+
+  it.each([false, true])(
+    'returns a conflict and reloads rows changed during staging (multiple directories: %s)',
+    async (multiple) => {
+      await studio.close();
+      const set = join(dataDir, 'local');
+      await mkdir(set);
+      const file = join(dataDir, 'users.jsonl');
+      studio = await startStudioServer({ dataDir: multiple ? [dataDir, set] : dataDir, schemaDir: dataDir, port: 0 });
+      const external = '{"id":1,"name":"External"}\n{"id":2,"name":"Bob"}\n';
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      vi.mocked(chmod).mockImplementationOnce(async (path, mode) => {
+        await actual.chmod(path, mode);
+        await writeFile(file, external);
+      });
+      const result = await patchJson(rowUrl('users', 1), { changes: { name: 'Stale edit' } });
+      expect(result.status).toBe(409);
+      expect((await bodyOf(result)).message).toContain('tables were reloaded');
+      expect(await readFile(file, 'utf8')).toBe(external);
+      const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+      expect(rows.rows[0]).toMatchObject({ id: 1, name: 'External' });
+    },
+  );
+
+  it('preserves an invalid source file edited while repaired rows are staged', async () => {
+    await studio.close();
+    const file = join(dataDir, 'users.jsonl');
+    await writeFile(file, '{"id":1,"name":""}\n');
+    studio = await startStudioServer({ dataDir, port: 0 });
+    const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    const external = '{"id":1,"name":"External"}\n';
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    vi.mocked(chmod).mockImplementationOnce(async (path, mode) => {
+      await actual.chmod(path, mode);
+      await writeFile(file, external);
+    });
+    const result = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+      updates: [{ key: 0, changes: { name: 'Repaired' } }],
+      revision: rows.revision,
+    });
+    expect(result.status).toBe(409);
+    expect(await readFile(file, 'utf8')).toBe(external);
+  });
+
+  it.each([false, true])(
+    'preserves an external replacement at publication, including invalid-row repair (%s)',
+    async (invalid) => {
+      await studio.close();
+      const local = join(dataDir, 'local');
+      await mkdir(local);
+      const file = join(dataDir, 'users.jsonl');
+      await writeFile(file, invalid ? '{"id":1,"name":""}\n' : '{"id":1,"name":"Alice"}\n');
+      studio = await startStudioServer({ dataDir: [dataDir, local], schemaDir: dataDir, port: 0 });
+      const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+      const external = '{"id":1,"name":"External"}\n';
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      vi.mocked(rename).mockImplementation(async (from, to) => {
+        if (to === file) await writeFile(file, external);
+        await actual.rename(from, to);
+      });
+      vi.mocked(link).mockImplementation(async (from, to) => {
+        if (to === file) await writeFile(file, external);
+        await actual.link(from, to);
+      });
+      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+        updates: [{ key: invalid ? 0 : 1, changes: { name: 'Saved' } }],
+        revision: rows.revision,
+      });
+      expect(response.status).toBe(409);
+      expect(await readFile(file, 'utf8')).toBe(external);
+    },
+  );
+
+  it('preserves an external edit of a repaired source when another repair fails', async () => {
+    await studio.close();
+    const set = join(dataDir, 'local');
+    await mkdir(set);
+    const base = join(dataDir, 'users.jsonl');
+    const local = join(set, 'users.jsonl');
+    await writeFile(base, '{"id":1,"name":""}\n');
+    await writeFile(local, '{"id":2,"name":""}\n');
+    studio = await startStudioServer({ dataDir: [dataDir, set], schemaDir: dataDir, port: 0 });
+    const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    const external = '{"id":1,"name":"External"}\n';
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    vi.mocked(link).mockImplementation(async (from, to) => {
+      if (to === local && String(from).endsWith('.tmp')) {
+        await writeFile(base, external);
+        throw new Error('disk full');
+      }
+      await actual.link(from, to);
+    });
+    const response = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+      updates: [
+        { key: 0, changes: { name: 'Fixed base' } },
+        { key: 1, changes: { name: 'Fixed local' } },
+      ],
+      revision: rows.revision,
+    });
+    expect(response.status).toBe(500);
+    expect((await bodyOf(response)).message).toContain('could not restore');
+    expect(await readFile(base, 'utf8')).toBe(external);
+    expect(await readFile(local, 'utf8')).toBe('{"id":2,"name":""}\n');
+  });
+
+  it('preserves an external file created while repaired rows are being rolled back', async () => {
+    await studio.close();
+    const set = join(dataDir, 'local');
+    await mkdir(set);
+    const base = join(dataDir, 'users.jsonl');
+    const local = join(set, 'users.jsonl');
+    await writeFile(base, '{"id":1,"name":""}\n');
+    await writeFile(local, '{"id":2,"name":""}\n');
+    studio = await startStudioServer({ dataDir: [dataDir, set], schemaDir: dataDir, port: 0 });
+    const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    const external = '{"id":1,"name":"External"}\n';
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    let publications = 0;
+    vi.mocked(link).mockImplementation(async (from, to) => {
+      if (to === local && String(from).endsWith('.tmp')) throw new Error('disk full');
+      if (to === base && ++publications === 2) await writeFile(base, external);
+      await actual.link(from, to);
+    });
+    const response = await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+      updates: [
+        { key: 0, changes: { name: 'Fixed base' } },
+        { key: 1, changes: { name: 'Fixed local' } },
+      ],
+      revision: rows.revision,
+    });
+    expect(response.status).toBe(500);
+    expect((await bodyOf(response)).message).toContain('could not restore');
+    const recovery = await Promise.all(
+      (await readdir(dataDir))
+        .filter((file) => file.endsWith('.tmp'))
+        .map((file) => readFile(join(dataDir, file), 'utf8')),
+    );
+    expect(recovery).toContain('{"id":1,"name":""}\n');
+    expect(await readFile(base, 'utf8')).toBe(external);
+    expect(await readFile(local, 'utf8')).toBe('{"id":2,"name":""}\n');
+  });
+
+  it('starts without live reload when the shared schema directory cannot be watched', async () => {
+    await studio.close();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      studio = await startStudioServer({ dataDir, schemaDir: join(dataDir, 'missing-schemas'), port: 0 });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Live reload is off'));
+      const rows = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+      expect(rows.rows[0]).toMatchObject({ id: 1, name: 'Alice' });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('notifies the page when a shared schema changes and validates edits against it', async () => {
+    await studio.close();
+    const set = join(dataDir, 'local');
+    await mkdir(set);
+    await writeFile(join(set, 'users.jsonl'), '{"id":3,"name":"Carol"}\n');
+    studio = await startStudioServer({ dataDir: set, schemaDir: dataDir, port: 0 });
+    const events = await openEvents();
+    try {
+      await rm(join(dataDir, 'users.schema.ts'));
+      await writeFile(
+        join(dataDir, 'users.schema.mts'),
+        NAME_REQUIRED_SCHEMA.replace('data.name.length > 0', 'data.name.length > 5'),
+      );
+      await events.waitFor('changed');
+      expect((await patchJson(rowUrl('users', 0), { changes: { name: 'Short' } })).status).toBe(409);
+      const body = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+      expect(
+        (
+          await sendJsonRequest('POST', `${studio.url}/api/tables/users/changes`, {
+            updates: [{ key: 0, changes: { name: 'Short' } }],
+            revision: body.revision,
+          })
+        ).status,
+      ).toBe(400);
+    } finally {
+      events.close();
+    }
   });
 
   it('returns rows with JSON and boolean columns as they appear in the JSONL file', async () => {

@@ -412,14 +412,16 @@ function ResizeHandle({ width, onResize }: { width: number; onResize: (width: nu
 /** A new row filled in field by field before it joins the unsaved changes; the fields left empty are left to the schema */
 export function NewRecordDialog({
   table,
+  dataDirs = [],
   open,
   onClose,
   onAdd,
 }: {
   table: TableInfo;
+  dataDirs?: string[];
   open: boolean;
   onClose: () => void;
-  onAdd: (row: JsonObject) => void;
+  onAdd: (row: JsonObject, dataDir?: string) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -430,16 +432,31 @@ export function NewRecordDialog({
           changes.
         </DialogDescription>
         {/* Not kept from one opening to the next: each opening is a new row */}
-        {open && <NewRecordFields table={table} onAdd={onAdd} />}
+        {open && <NewRecordFields table={table} dataDirs={dataDirs} onAdd={onAdd} />}
       </DialogContent>
     </Dialog>
   );
 }
 
-function NewRecordFields({ table, onAdd }: { table: TableInfo; onAdd: (row: JsonObject) => void }) {
+function NewRecordFields({
+  table,
+  dataDirs,
+  onAdd,
+}: {
+  table: TableInfo;
+  dataDirs: string[];
+  onAdd: (row: JsonObject, dataDir?: string) => void;
+}) {
+  const [dataDir, setDataDir] = useState('');
+  const needsDestination = dataDirs.length > 1;
   const [draft, setDraft] = useState<JsonObject>({});
   const [unreadable, setUnreadable] = useState<ReadonlySet<string>>(new Set());
-  const preview = (row: JsonObject) => ({ inserts: [row], updates: [], deletes: [] });
+  const preview = (row: JsonObject) => ({
+    inserts: [row],
+    ...(needsDestination ? { insertDataDirs: [dataDir] } : {}),
+    updates: [],
+    deletes: [],
+  });
   const { result } = useLiveCheck(table.name, preview(draft));
   const fields = table.columns
     .filter((column) => !column.unknown)
@@ -475,15 +492,38 @@ function NewRecordFields({ table, onAdd }: { table: TableInfo; onAdd: (row: Json
       className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault();
-        if (unreadable.size === 0) onAdd(draft);
+        if (unreadable.size === 0 && (!needsDestination || dataDir)) {
+          if (needsDestination) onAdd(draft, dataDir);
+          else onAdd(draft);
+        }
       }}
     >
+      {needsDestination && (
+        <label className="grid gap-1 text-xs">
+          Data directory
+          <select
+            aria-label="Data directory"
+            className="h-9 rounded-md border bg-background px-3"
+            value={dataDir}
+            onChange={(event) => setDataDir(event.target.value)}
+          >
+            <option value="" disabled>
+              Choose where to save this row
+            </option>
+            {dataDirs.map((dir) => (
+              <option key={dir} value={dir}>
+                {dir}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {fields.map((model) => (
         <FormField key={model.column.name} model={model} checked={result} />
       ))}
       <RowIssues checked={result} fields={fields} />
       <div className="flex justify-end">
-        <Button type="submit" size="sm" disabled={unreadable.size > 0}>
+        <Button type="submit" size="sm" disabled={unreadable.size > 0 || (needsDestination && !dataDir)}>
           Add
         </Button>
       </div>

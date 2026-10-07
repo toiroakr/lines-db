@@ -199,6 +199,24 @@ const { filled } = unwrap(
 npx lines-db studio <dataDir> [--port 4848] [--open] [--write-filled-values primaryKey|all]
 ```
 
+JSONLファイルだけを持つデータセットを編集するには、`--schema-dir` に共通スキーマのディレクトリを指定します。
+バリデーション、宣言された列、外部キー、Schemaダイアログは共通スキーマを参照し、保存先は選択したデータセットです。
+
+```bash
+npx lines-db studio seed/data/cogs --schema-dir seed/data
+```
+
+複数のデータディレクトリをまとめて閲覧する場合は、`--data-dir` を繰り返し、`--schema-dir` を指定します。
+
+```bash
+npx lines-db studio --data-dir seed/data --data-dir seed/data/cogs --schema-dir seed/data
+```
+
+更新・削除は、行を読み込んだ元のファイルへ反映します。追加時はAdd recordダイアログで保存先の
+データディレクトリを選択します。テーブルのファイルがなければ作成します。外部キーや一意制約は合成した
+データ全体で検証し、外部で変更されたファイルへの保存は競合として拒否します。保存に失敗した場合は、
+書き込み済みのファイルを元に戻します。位置引数と `--data-dir` の組み合わせも可能です。
+
 `http://127.0.0.1:4848` でローカルの Web UI を起動します。`dataDir` のテーブルを行数つきで一覧表示し、
 テーブルを表形式で表示します。セルを押して編集するほか、表の横の行フォームで1行をまとめて編集し、
 列ごとの入力欄が並ぶダイアログで行を追加し、行を選んで削除できます。変更は表の中で色分けされた
@@ -666,7 +684,8 @@ await JsonlWriter.write('./data/users.jsonl', filled);
 ```typescript
 interface DatabaseConfig {
   dataDir: string | readonly string[]; // JSONLファイルが含まれるディレクトリ（複数指定可）
-  schemaDir?: string; // スキーマファイルが含まれるディレクトリ（デフォルト：各JSONLファイルと同じディレクトリ）
+  schemaDir?: string;
+  writeDataSets?: boolean;
   writeBackFields?: readonly string[]; // 同期時に書き戻すフィールド（デフォルト：全フィールド）
 }
 
@@ -702,10 +721,24 @@ const result = unwrap(await db.initialize({ detailedValidate: true }));
 `schemaDir` は単一ディレクトリでも使えます（`{ dataDir: './data/cogs', schemaDir: './data' }`）。
 単一ディレクトリで指定しない場合、スキーマはJSONLファイルと同じディレクトリから探します。
 
-複数のファイルから組み立てたテーブルの行には書き戻し先のファイルが1つに定まらないため、
-`dataDir` に複数のディレクトリを指定したデータベースは読み取り専用になります。`insert` / `update` / `delete`、
-それぞれの `batch*` 版、`sync()`、および `execute()` / `query()` で書き込む SQL は、
-データベースもファイルも変更せずにエラーを返します。
+複数ディレクトリのデータベースはデフォルトでは読み取り専用です。`writeDataSets: true` を指定すると、
+更新・削除を元のファイルへ反映できます。追加時は、設定済みディレクトリを明示します。
+
+```typescript
+const db = LinesDB.create({ dataDir: ['./data', './data/cogs'], schemaDir: './data', writeDataSets: true });
+unwrap(await db.initialize());
+unwrap(
+  await db.transaction((tx) => {
+    const inserted = tx.insert('Item', { id: 'new-item', name: 'New item' }, { dataDir: './data/cogs' });
+    if (!inserted.ok) throw inserted.error;
+  }),
+);
+```
+
+このモードの追加には、保存先を指定した `insert` を使ってください。`batchInsert` には保存先の引数がありません。
+`execute`・`query`・`queryOne`・`getDb` からのSQLは、行の保存先を保持するため読み取り専用です。
+トランザクションは書き込む前に対象ファイルの競合を確認し、途中で失敗すれば書き込み済みのファイルを元に戻します。
+Studioはこのモードを自動で有効にします。
 
 ## 型マッピング
 

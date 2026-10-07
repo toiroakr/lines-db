@@ -92,6 +92,7 @@ export interface DatabaseConfig<_Tables extends TableDefs = TableDefs> {
    * discovering foreign keys. Defaults to the directory of each table's JSONL file.
    */
   schemaDir?: string;
+  writeDataSets?: boolean;
   /**
    * Fields written back to the JSONL files on sync.
    * When set, only these fields are taken from the database; every other field keeps the value

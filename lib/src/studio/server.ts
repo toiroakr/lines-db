@@ -1,17 +1,19 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { watch } from 'node:fs';
-import { chmod, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, extname, join, relative, resolve as resolvePath } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { LinesDB } from '../database.js';
+import { DirectoryScanner } from '../directory-scanner.js';
 import { ErrorFormatter } from '../error-formatter.js';
 import { unwrap } from '../result.js';
 import { JsonlReader, hashJsonlContent } from '../jsonl-reader.js';
 import { findSchemaFile } from '../schema-extensions.js';
 import { readDeclaredColumns } from './declared-columns.js';
 import { replaceRows } from './file-rows.js';
+import { replaceFile } from '../replace-file.js';
 import type {
   ColumnDefinition,
   ForeignKeyDefinition,
@@ -27,7 +29,8 @@ import type {
 } from '../types.js';
 
 export interface StudioServerOptions {
-  dataDir: string;
+  dataDir: string | string[];
+  schemaDir?: string;
   /** Directory holding the built page. Defaults to the one shipped with the package */
   uiDir?: string;
   /** Which values the schema fills in a save writes into the file. Defaults to 'primaryKey' */
@@ -56,17 +59,32 @@ interface Snapshot {
 
 interface InvalidTable {
   file: string;
+  rows?: JsonObject[];
+  sources?: Array<{ file: string; rowIndex: number }>;
+  files?: Array<{ file: string; content: string }>;
+  revision?: string;
   /** The issues of each failing row, by its index among the rows of the file */
   issues: Map<number, StandardSchemaIssue[]>;
 }
 
 export async function startStudioServer(options: StudioServerOptions): Promise<StudioServer> {
-  const { dataDir } = options;
+  const dataDirs: string[] = [];
+  const seen = new Set<string>();
+  for (const dir of [options.dataDir].flat()) {
+    const resolved = resolvePath(dir);
+    const actual = await realpath(resolved);
+    if (seen.has(actual)) continue;
+    seen.add(actual);
+    dataDirs.push(resolved);
+  }
+  if (dataDirs.length === 0) throw new Error('Studio requires at least one data directory');
+  const dataDir = dataDirs[0];
+  const schemaDir = options.schemaDir ?? dataDir;
   const host = options.host ?? '127.0.0.1';
   const uiDir = options.uiDir ?? (await shippedUiDir());
   const token = randomBytes(24).toString('base64url');
   const writeFilledValues = options.writeFilledValues ?? 'primaryKey';
-  const load = () => loadSnapshot(dataDir, writeFilledValues);
+  const load = () => loadSnapshot(dataDirs, options.schemaDir, writeFilledValues);
   let snapshot = await load();
 
   let queue: Promise<unknown> = Promise.resolve();
@@ -110,7 +128,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const referencesFor = async (current: Snapshot, name: string): Promise<References> => {
     const byTable = references.get(current) ?? new Map<string, References>();
     references.set(current, byTable);
-    if (!byTable.has(name)) byTable.set(name, await referencesOf(current.db, dataDir, name));
+    if (!byTable.has(name)) byTable.set(name, await referencesOf(current.db, schemaDir, name));
     return byTable.get(name)!;
   };
   // Not found on each listing either for a table whose rows fail validation: finding it validates rows
@@ -119,8 +137,9 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     const byTable = invalidColumns.get(current) ?? new Map<string, { columns: Columns; rowCount: number }>();
     invalidColumns.set(current, byTable);
     if (!byTable.has(name)) {
-      const { file, issues } = current.invalid.get(name)!;
-      const rows = unwrap(await JsonlReader.read(file));
+      const invalid = current.invalid.get(name)!;
+      const { issues } = invalid;
+      const rows = invalid.rows ?? unwrap(await JsonlReader.read(invalid.file));
       const unknown = unknownFields(current.db, name, rows, issues);
       const inferred = unwrap(JsonlReader.inferSchema(name, rows)).columns;
       // A field no row holds - a required one every row lacks - has no column to fill it in otherwise;
@@ -144,17 +163,25 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
   let watchTimer: NodeJS.Timeout | undefined;
   // Not checking on each event: an editor saving a file fires several (a temporary file, then a rename)
-  const watcher = watch(dataDir, () => {
-    clearTimeout(watchTimer);
-    watchTimer = setTimeout(() => {
-      // Not reporting the error here: the page asks again on 'changed' and shows the error it gets
-      reloadIfChanged().catch(notifyChanged);
-    }, 100);
-  });
-  // Not letting the error end the process: Reload still loads the current files without the watcher
-  watcher.on('error', (error) => {
-    console.warn(`Live reload is off, as the data directory cannot be watched: ${errorMessage(error)}`);
-    watcher.close();
+  const watchers = [...new Set([...dataDirs, resolvePath(schemaDir)])].flatMap((dir) => {
+    try {
+      const watcher = watch(dir, () => {
+        clearTimeout(watchTimer);
+        watchTimer = setTimeout(() => {
+          // Not reporting the error here: the page asks again on 'changed' and shows the error it gets
+          reloadIfChanged().catch(notifyChanged);
+        }, 100);
+      });
+      // Not letting the error end the process: Reload still loads the current files without the watcher
+      watcher.on('error', (error) => {
+        console.warn(`Live reload is off for '${dir}': ${errorMessage(error)}`);
+        watcher.close();
+      });
+      return [watcher];
+    } catch (error) {
+      console.warn(`Live reload is off for '${dir}': ${errorMessage(error)}`);
+      return [];
+    }
   });
   const reloadIfChanged = (): Promise<boolean> => serialize(reloadIfChangedUnlocked);
 
@@ -238,11 +265,17 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           });
         }
         for (const table of tables) {
-          const schemaPath = await findSchemaFile(dataDir, table.name);
+          const schemaPath = await findSchemaFile(schemaDir, table.name);
           table.schemaFile = schemaPath ? basename(schemaPath) : null;
         }
         tables.sort((a, b) => a.name.localeCompare(b.name));
-        return { dataDir: resolvePath(dataDir), tables, problems: current.problems };
+        return {
+          dataDir,
+          dataDirs,
+          schemaDir: resolvePath(schemaDir),
+          tables,
+          problems: current.problems,
+        };
       });
       sendJson(res, 200, listing);
       return;
@@ -257,13 +290,13 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       await reloadIfChanged();
       // Not looked up for a name that is not a table: the name would otherwise reach the file system as is
       const known = Boolean(snapshot.db.getSchema(tableName)) || snapshot.invalid.has(tableName);
-      const schemaPath = known ? await findSchemaFile(dataDir, tableName) : undefined;
+      const schemaPath = known ? await findSchemaFile(schemaDir, tableName) : undefined;
       if (!schemaPath) {
         sendJson(res, 404, { message: `Table '${tableName}' has no schema file` });
         return;
       }
       const loaded = snapshot.invalid.has(tableName) ? undefined : snapshot.db.getSchema(tableName);
-      const declared = loaded && (await readDeclaredColumns(schemaPath, dataDir));
+      const declared = loaded && (await readDeclaredColumns(schemaPath, schemaDir));
       const flagsOf = (name: string) => {
         const column = loaded?.columns.find((candidate) => candidate.name === name);
         return { ...(column?.primaryKey ? { primaryKey: true } : {}), ...(column?.unique ? { unique: true } : {}) };
@@ -306,6 +339,15 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       await reloadIfChanged();
       const invalid = snapshot.invalid.get(tableName);
       if (invalid) {
+        if (invalid.rows) {
+          sendJson(res, 200, {
+            rows: invalid.rows,
+            defaulted: invalid.rows.map(() => []),
+            issues: Object.fromEntries(invalid.issues),
+            revision: invalid.revision,
+          });
+          return;
+        }
         const { rows, contentHash } = unwrap(await JsonlReader.readSnapshot(invalid.file));
         const read = unwrap(rows);
         sendJson(res, 200, {
@@ -354,7 +396,12 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       const body = writeBody(await readJson(req));
       batch =
         write.kind === 'insert'
-          ? { inserts: [body.row ?? {}], updates: [], deletes: [] }
+          ? {
+              inserts: [body.row ?? {}],
+              insertDataDirs: body.dataDir ? [body.dataDir] : undefined,
+              updates: [],
+              deletes: [],
+            }
           : {
               inserts: [],
               updates: [{ key: write.key, changes: body.changes ?? {}, resetToDefault: body.resetToDefault }],
@@ -362,21 +409,42 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
             };
     }
 
+    if (
+      dataDirs.length > 1 &&
+      batch.inserts.some((_, index) => {
+        const dir = batch.insertDataDirs?.[index];
+        return !dir || !dataDirs.includes(resolvePath(dir));
+      })
+    )
+      throw new BadRequestError('Choose a data directory for each inserted row');
+
     type Outcome = { status: number; body: unknown; changed?: boolean };
     /** Apply the updates to the rows of the file, and write them only once every edited row passes */
-    const writeInvalidTable = async ({ file }: InvalidTable): Promise<Outcome> => {
+    const writeInvalidTable = async (invalid: InvalidTable): Promise<Outcome> => {
+      const { file } = invalid;
       if (batch.inserts.length > 0 || batch.deletes.length > 0) {
         const message = 'Fix the rows that fail validation before adding or deleting rows of this table';
         return { status: 409, body: { message } };
       }
-      const content = await readFile(file, 'utf8');
+      const files = await Promise.all(
+        (invalid.files ?? [{ file }]).map(async ({ file }) => ({
+          file,
+          content: await readFile(file, 'utf8'),
+        })),
+      );
+      const content = files[0].content;
+      const revision =
+        files.length > 1 || invalid.files ? hashJsonlContent(JSON.stringify(files)) : hashJsonlContent(content);
       // Not left to the watcher: once it reloads, the file it compares against is the changed one, while
       // the page still addresses rows by where they stood when it read them
-      if (batch.revision !== hashJsonlContent(content)) {
-        const message = `${relative(dataDir, file)} changed since its rows were read; reload the table to see them`;
+      if (batch.revision !== revision) {
+        const message =
+          files.length > 1
+            ? 'Source files changed since their rows were read; reload the table to see them'
+            : `${relative(dataDir, file)} changed since its rows were read; reload the table to see them`;
         return { status: 409, body: { message } };
       }
-      const rows = unwrap(await JsonlReader.read(file));
+      const rows = invalid.rows ?? unwrap(await JsonlReader.read(file));
       const replaced = new Map<number, JsonObject>();
       for (const [index, { key, changes, resetToDefault }] of batch.updates.entries()) {
         // An earlier update of the same row in the batch is built on, as a transaction would apply it
@@ -396,15 +464,33 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         replaced.set(key as number, next);
       }
       if (write.kind === 'check') return { status: 200, body: { ok: true } };
-      // Not written over the file in place: a write that fails partway would leave it truncated
-      const temporary = `${file}.${randomBytes(6).toString('hex')}.tmp`;
+      const plans = files
+        .map(({ file, content }) => {
+          const changes = new Map<number, JsonObject>();
+          for (const [index, row] of replaced) {
+            const source = invalid.sources?.[index] ?? { file: invalid.file, rowIndex: index };
+            if (source.file === file) changes.set(source.rowIndex, row);
+          }
+          return { file, content, next: replaceRows(content, changes), changed: changes.size > 0 };
+        })
+        .filter((plan) => plan.changed);
+      const written: typeof plans = [];
       try {
-        await writeFile(temporary, replaceRows(content, replaced), 'utf8');
-        // Not left to the umask: the file replaced would otherwise lose a mode such as 0600
-        await chmod(temporary, (await stat(file)).mode & 0o7777);
-        await rename(temporary, file);
+        for (const plan of plans) {
+          await replaceUnchangedFile(plan.file, plan.next, plan.content);
+          written.push(plan);
+        }
       } catch (error) {
-        await rm(temporary, { force: true });
+        const unrestored: string[] = [];
+        for (const plan of written) {
+          await replaceUnchangedFile(plan.file, plan.content, plan.next).catch(() => unrestored.push(plan.file));
+        }
+        if (unrestored.length)
+          throw new Error(`${errorMessage(error)}; could not restore ${unrestored.join(', ')}`, { cause: error });
+        if (error instanceof Error && error.name === 'JsonlConflictError') {
+          await reloadUnlocked();
+          return { status: 409, body: { message: error.message }, changed: true };
+        }
         throw error;
       }
       await reloadUnlocked();
@@ -430,7 +516,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         // A changed schema file of the edited table counts too: its primary key may name another column
         const ownFile = changedFiles.find(
           (file) =>
-            resolvePath(file) === resolvePath(dataDir, `${tableName}.jsonl`) ||
+            dataDirs.some((dir) => resolvePath(file) === resolvePath(dir, `${tableName}.jsonl`)) ||
             basename(file).startsWith(`${tableName}.schema.`),
         );
         if (ownFile) {
@@ -461,7 +547,9 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
             key,
           }),
         );
-        batch.inserts.forEach((row, index) => check(tx.insert(tableName, row), { kind: 'insert', index }));
+        batch.inserts.forEach((row, index) =>
+          check(tx.insert(tableName, row, { dataDir: batch.insertDataDirs?.[index] }), { kind: 'insert', index }),
+        );
         // Not committed when only checking: throwing rolls the transaction back before anything is written
         if (write.kind === 'check') throw DRY_RUN;
       });
@@ -512,7 +600,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       });
     });
   } catch (error) {
-    watcher.close();
+    watchers.forEach((watcher) => watcher.close());
     await snapshot.db.close();
     throw error;
   }
@@ -523,7 +611,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     url,
     token,
     close: async () => {
-      watcher.close();
+      watchers.forEach((watcher) => watcher.close());
       clearTimeout(watchTimer);
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -532,8 +620,17 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   };
 }
 
-async function loadSnapshot(dataDir: string, writeFilledValues: WriteFilledValues): Promise<Snapshot> {
-  const db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues });
+async function replaceUnchangedFile(file: string, next: string, expected: string): Promise<void> {
+  await replaceFile(file, (temporary) => writeFile(temporary, next, 'utf8'), expected);
+}
+
+async function loadSnapshot(
+  dataDir: string | string[],
+  schemaDir: string | undefined,
+  writeFilledValues: WriteFilledValues,
+): Promise<Snapshot> {
+  const db = LinesDB.create<TableDefs>({ dataDir, schemaDir, writeFilledValues, writeDataSets: true });
+  const baseDir = [dataDir].flat()[0];
   // Not the bulk insert: a foreign key or NOT NULL violation would fail the whole load instead of
   // marking the row, which the studio then cannot show to be fixed
   const loaded = await db.initialize({ detailedValidate: true });
@@ -541,14 +638,17 @@ async function loadSnapshot(dataDir: string, writeFilledValues: WriteFilledValue
     await db.close();
     if (loaded.error.name === 'JsonlParseError') {
       const { file, line, message } = loaded.error as JsonlParseError;
-      throw new Error(`${relative(dataDir, file) || file}:${line}: ${message}`, { cause: loaded.error });
+      throw new Error(`${relative(baseDir, file) || file}:${line}: ${message}`, { cause: loaded.error });
     }
     throw loaded.error;
   }
   return {
     db,
-    problems: describeProblems(dataDir, loaded.value.errors),
-    invalid: invalidTables(loaded.value.errors),
+    problems: describeProblems(baseDir, loaded.value.errors),
+    invalid:
+      typeof dataDir !== 'string' && dataDir.length > 1
+        ? await composedInvalidTables(dataDir, loaded.value.errors)
+        : invalidTables(loaded.value.errors),
   };
 }
 
@@ -837,6 +937,36 @@ function invalidTables(errors: ValidationErrorDetail[]): Map<string, InvalidTabl
   return new Map([...tables].filter((entry): entry is [string, InvalidTable] => entry[1] !== null));
 }
 
+async function composedInvalidTables(
+  dataDirs: string[],
+  errors: ValidationErrorDetail[],
+): Promise<Map<string, InvalidTable>> {
+  const tables = await DirectoryScanner.scanDirectory(dataDirs);
+  const invalid = new Map<string, InvalidTable>();
+  for (const name of new Set(errors.map((error) => error.tableName))) {
+    const config = tables.get(name)!;
+    const rows: JsonObject[] = [];
+    const adjusted: ValidationErrorDetail[] = [];
+    const files: Array<{ file: string; content: string }> = [];
+    const sources: Array<{ file: string; rowIndex: number }> = [];
+    for (const file of config.jsonlPaths ?? [config.jsonlPath]) {
+      const offset = rows.length;
+      const read = unwrap(await JsonlReader.read(file));
+      files.push({ file, content: await readFile(file, 'utf8') });
+      sources.push(...read.map((_, rowIndex) => ({ file, rowIndex })));
+      rows.push(...read);
+      adjusted.push(
+        ...errors
+          .filter((error) => error.tableName === name && error.file === file)
+          .map((error) => ({ ...error, file: config.jsonlPath, rowIndex: offset + error.rowIndex })),
+      );
+    }
+    const table = invalidTables(adjusted).get(name)!;
+    invalid.set(name, { ...table, rows, files, sources, revision: hashJsonlContent(JSON.stringify(files)) });
+  }
+  return invalid;
+}
+
 function describeProblems(dataDir: string, errors: ValidationErrorDetail[]): string[] {
   const formatter = new ErrorFormatter();
   return errors.map((error) => {
@@ -963,6 +1093,7 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 /** The rows a save inserts, the changes it makes by primary key, and the keys it deletes */
 interface ChangeBatch {
   inserts: JsonObject[];
+  insertDataDirs?: string[];
   updates: Array<{ key: JsonValue; changes: JsonObject; resetToDefault?: string[] }>;
   deletes: JsonValue[];
   /** For a table with failing rows, whose rows are addressed by index: the file the page read them from */
@@ -987,7 +1118,14 @@ function isJsonMediaType(contentType: string | undefined): boolean {
 
 function changeBatch(body: unknown): ChangeBatch {
   if (!isJsonObject(body)) throw new BadRequestError('The request body must be a JSON object');
-  const { inserts = [], updates = [], deletes = [] } = body;
+  const { inserts = [], updates = [], deletes = [], insertDataDirs } = body;
+  if (
+    insertDataDirs !== undefined &&
+    (!Array.isArray(insertDataDirs) ||
+      !insertDataDirs.every((dir) => typeof dir === 'string') ||
+      insertDataDirs.length !== (Array.isArray(inserts) ? inserts.length : 0))
+  )
+    throw new BadRequestError('`insertDataDirs` must name a directory for each insert');
   if (!Array.isArray(inserts) || !inserts.every(isJsonObject))
     throw new BadRequestError('`inserts` must be a list of rows');
   if (!Array.isArray(deletes)) throw new BadRequestError('`deletes` must be a list of primary keys');
@@ -1007,6 +1145,7 @@ function changeBatch(body: unknown): ChangeBatch {
     throw new BadRequestError('`revision` must be a string');
   return {
     inserts,
+    insertDataDirs: insertDataDirs as string[] | undefined,
     updates: updates as unknown as ChangeBatch['updates'],
     deletes,
     revision: body.revision,
@@ -1014,6 +1153,7 @@ function changeBatch(body: unknown): ChangeBatch {
 }
 
 interface WriteBody {
+  dataDir?: string;
   row?: JsonObject;
   changes?: JsonObject;
   resetToDefault?: string[];
@@ -1021,13 +1161,14 @@ interface WriteBody {
 
 function writeBody(body: unknown): WriteBody {
   if (!isJsonObject(body)) throw new BadRequestError('The request body must be a JSON object');
-  const { row, changes, resetToDefault } = body;
+  const { row, changes, resetToDefault, dataDir } = body;
+  if (dataDir !== undefined && typeof dataDir !== 'string') throw new BadRequestError('`dataDir` must be a string');
   if (row !== undefined && !isJsonObject(row)) throw new BadRequestError('`row` must be an object');
   if (changes !== undefined && !isJsonObject(changes)) throw new BadRequestError('`changes` must be an object');
   if (resetToDefault !== undefined && !isFieldList(resetToDefault)) {
     throw new BadRequestError('`resetToDefault` must be a list of field names');
   }
-  return { row, changes, resetToDefault };
+  return { row, changes, resetToDefault, dataDir };
 }
 
 /** Thrown at the end of a checked batch, so its transaction rolls back */

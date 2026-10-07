@@ -202,6 +202,26 @@ not JSON objects (`unreadableLines`), and the named fields no table produced a v
 npx lines-db studio <dataDir> [--port 4848] [--open] [--write-filled-values primaryKey|all]
 ```
 
+To edit a data set containing only JSONL files, point `--schema-dir` at the shared schema directory.
+Validation, declared columns, foreign keys, and the Schema dialog use those shared files; saves go
+back to the selected data set.
+
+```bash
+npx lines-db studio seed/data/cogs --schema-dir seed/data
+```
+
+To browse several data directories together, repeat `--data-dir` and supply `--schema-dir`:
+
+```bash
+npx lines-db studio --data-dir seed/data --data-dir seed/data/cogs --schema-dir seed/data
+```
+
+Updates and deletes go back to the file each row came from. For a new record, choose its data
+directory in the Add record dialog; Studio creates the table file there if needed. Foreign keys and
+unique constraints are checked across the composed data. Files changed outside Studio cause a
+conflict, and a failed save rolls back its file writes. A positional directory can also be combined
+with `--data-dir`.
+
 Starts a local web UI at `http://127.0.0.1:4848` that lists the tables of `dataDir` with their row
 counts and shows a table as a grid. Click a cell to edit it, edit a whole row in the row form beside
 the grid, add records from a dialog of their fields, or select rows to delete; the changes stay pending - highlighted in the grid - until **Save N changes** writes them all in one
@@ -680,7 +700,8 @@ fields in the order the schema declares them.
 ```typescript
 interface DatabaseConfig {
   dataDir: string | readonly string[]; // Directory (or directories) containing JSONL files
-  schemaDir?: string; // Directory containing the schema files (default: next to each JSONL file)
+  schemaDir?: string;
+  writeDataSets?: boolean;
   writeBackFields?: readonly string[]; // Fields written back on sync (default: every field)
 }
 
@@ -716,10 +737,24 @@ the schemas of its tables, so without it they would be loaded unvalidated. It al
 directory - `{ dataDir: './data/cogs', schemaDir: './data' }` - and without it a single directory's
 schemas are looked up next to its JSONL files.
 
-Rows of a table composed from several files have no single file to be written back to, so a database
-whose `dataDir` lists several directories is read-only: `insert`, `update`, `delete`, their `batch*`
-forms, `sync()`, and SQL that writes through `execute()` or `query()` return an error without changing
-the database or the files.
+Databases with several data directories are read-only by default. Set `writeDataSets: true` to
+route updates and deletes back to their source files. Insert with an explicit configured directory:
+
+```typescript
+const db = LinesDB.create({ dataDir: ['./data', './data/cogs'], schemaDir: './data', writeDataSets: true });
+unwrap(await db.initialize());
+unwrap(
+  await db.transaction((tx) => {
+    const inserted = tx.insert('Item', { id: 'new-item', name: 'New item' }, { dataDir: './data/cogs' });
+    if (!inserted.ok) throw inserted.error;
+  }),
+);
+```
+
+Use `insert` with a destination for new rows in this mode; `batchInsert` has no destination argument.
+Raw SQL through `execute`, `query`, `queryOne`, and `getDb` stays read-only to preserve source routing.
+Transactions check all affected source files before writing, and restore earlier file writes if a
+later write fails. Studio enables this mode automatically.
 
 ## Type Mapping
 

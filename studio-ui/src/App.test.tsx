@@ -71,6 +71,35 @@ describe('App', () => {
   const showForm = async () => userEvent.click(await screen.findByRole('button', { name: 'Show the row form' }));
   const nameCells = () => screen.findAllByRole('button', { name: 'Edit name' });
 
+  it('keeps failing rows read-only when several data directories are composed', async () => {
+    vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+      if (String(input) === '/api/tables')
+        return json({
+          dataDir: '/base, /local',
+          tables: [
+            {
+              ...users,
+              columns: users.columns.map((column) => ({ ...column, unknown: column.name === 'name' })),
+              invalidRows: 1,
+              readOnlyReason: 'This view combines several data directories and is read-only.',
+            },
+          ],
+          problems: [],
+        });
+      return json({
+        ...(rows.users as object),
+        issues: { 0: [{ message: 'Name required', path: ['name'] }] },
+        revision: 'revision',
+      });
+    });
+    render(<App />);
+
+    await screen.findByText('This view combines several data directories and is read-only.');
+    expect(screen.queryAllByRole('button', { name: /^Edit name/ })).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: 'Remove name from every row' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add record' })).toHaveProperty('disabled', true);
+  });
+
   it('edits a cell from a click while the form is hidden', async () => {
     render(<App />);
 

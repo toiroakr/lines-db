@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
@@ -14,7 +14,7 @@ async function dataDirOf(browser: Browser): Promise<string> {
     });
     if (!response.ok) throw new Error(`Could not read studio metadata: ${response.status}`);
     const metadata = await response.json();
-    return metadata.dataDir as string;
+    return metadata.dataDirs[0] as string;
   });
 }
 
@@ -23,6 +23,28 @@ const linesOf = async (file: string) =>
     .trim()
     .split('\n')
     .map((line) => JSON.parse(line));
+
+test('opens JSONL-only data with shared schemas for validation, declared columns and foreign keys', async ({
+  app,
+  screen,
+  browser,
+}) => {
+  await app.open('/');
+  const dataDir = await dataDirOf(browser);
+  expect((await readdir(dataDir)).some((file) => file.includes('.schema.'))).toBe(false);
+  await screen
+    .getByRole('navigation')
+    .getByRole('button', /^orders/)
+    .tap();
+  await screen.getByRole('button', 'Edit customerId', { exact: true }).tap();
+  await screen.getByRole('button', 'Open users where id is 2', { exact: true }).tap();
+  await expect(screen.getByRole('heading', 'users', { exact: true })).toBeVisible();
+  await screen.getByRole('button', 'Schema', { exact: true }).tap();
+  const dialog = screen.getByRole('dialog', 'users.schema.ts');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('email');
+  await app.screenshot('Shared schema of a JSONL-only data set');
+});
 
 test('lists the fixture tables and filters the sidebar', async ({ app, screen }) => {
   await app.open('/');
@@ -659,6 +681,7 @@ test('adds a row filled in the new row dialog, and saves it to the JSONL file', 
   try {
     await screen.getByRole('button', 'Add record', { exact: true }).tap();
     const dialog = screen.getByRole('dialog', 'New row in users', { exact: true });
+    await dialog.getByRole('combobox', 'Data directory', { exact: true }).selectOption(await dataDirOf(browser));
     await dialog.getByRole('textbox', 'id', { exact: true }).fill('3');
     await dialog.getByRole('textbox', 'name', { exact: true }).fill('Linus');
     await expect(dialog).toContainText('email:');
@@ -737,4 +760,49 @@ test('offers removing a key only where the schema lets it be left out, in the ro
   await screen.getByRole('button', 'Edit note', { exact: true }).tap();
   await expect(screen.getByRole('button', 'Remove field', { exact: true })).toBeVisible();
   await app.screenshot('Remove field offered in the cell editor of note');
+});
+
+test('inserts into the selected data set, then updates and deletes the row in that file', async ({
+  app,
+  screen,
+  browser,
+}) => {
+  await app.open('/');
+  await screen
+    .getByRole('navigation')
+    .getByRole('button', /^users/)
+    .tap();
+  const baseDir = await dataDirOf(browser);
+  const baseFile = join(baseDir, 'users.jsonl');
+  const localDir = join(baseDir, 'local');
+  const localFile = join(localDir, 'users.jsonl');
+  const original = await readFile(baseFile, 'utf8');
+  try {
+    await screen.getByRole('button', 'Add record', { exact: true }).tap();
+    const dialog = screen.getByRole('dialog', 'New row in users', { exact: true });
+    await dialog.getByRole('combobox', 'Data directory', { exact: true }).selectOption(localDir);
+    await dialog.getByRole('textbox', 'id', { exact: true }).fill('4');
+    await dialog.getByRole('textbox', 'name', { exact: true }).fill('Local person');
+    await dialog.getByRole('textbox', 'email', { exact: true }).fill('local@example.test');
+    await app.screenshot('The insert destination selected');
+    await dialog.getByRole('button', 'Add', { exact: true }).tap();
+    await screen.getByRole('button', 'Save 1 change', { exact: true }).tap();
+    await expect.poll(() => linesOf(localFile)).toEqual([{ id: 4, name: 'Local person', email: 'local@example.test' }]);
+    const row = screen.getByRole('row').filter({ hasText: 'local@example.test' });
+    await row.getByRole('button', 'Edit name', { exact: true }).tap();
+    const form = screen.getByRole('complementary', 'users · id 4', { exact: true });
+    await form.getByRole('textbox', 'name', { exact: true }).fill('Local updated');
+    await screen.getByRole('button', 'Save 1 change', { exact: true }).tap();
+    await expect
+      .poll(() => linesOf(localFile))
+      .toEqual([{ id: 4, name: 'Local updated', email: 'local@example.test' }]);
+    await row.getByRole('checkbox', 'Select row', { exact: true }).tap();
+    await screen.getByRole('button', /^Delete\s*1$/).tap();
+    await screen.getByRole('button', 'Save 1 change', { exact: true }).tap();
+    await expect(row).toBeHidden();
+    expect((await readFile(localFile, 'utf8')).trim()).toBe('');
+    expect(await readFile(baseFile, 'utf8')).toBe(original);
+  } finally {
+    await rm(localFile, { force: true });
+  }
 });

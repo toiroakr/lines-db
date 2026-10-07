@@ -4,6 +4,7 @@ import { authorized } from './session';
 
 export interface TablesResponse {
   dataDir: string;
+  dataDirs?: string[];
   tables: TableInfo[];
   problems: string[];
 }
