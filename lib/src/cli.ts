@@ -18,6 +18,7 @@ import { runInNewContext } from 'node:vm';
 import { spawn } from 'node:child_process';
 import { startStudioServer, type StudioServer } from './studio/server.js';
 import { fillFields } from './fill.js';
+import { resolveValidationTarget } from './dataset-config.js';
 
 const originalEmitWarning = process.emitWarning;
 process.emitWarning = (warning, ...args) => {
@@ -79,9 +80,18 @@ const validateCommand = defineCommand({
   name: 'validate',
   description: 'Validate JSONL file(s) against schema',
   args: z.object({
-    path: arg(z.string(), {
+    path: arg(z.string().optional(), {
       positional: true,
-      description: 'File or directory path to validate',
+      description: 'File or directory path to validate (omit to use lines-db.config.json)',
+    }),
+    config: arg(z.string().optional(), {
+      description: 'Dataset configuration file (default: ./lines-db.config.json)',
+    }),
+    dataset: arg(z.array(z.string()).optional(), {
+      description: 'Named datasets to validate together with base (repeat to select several)',
+    }),
+    allDatasets: arg(z.boolean().default(false), {
+      description: 'Validate base and all datasets together',
     }),
     verbose: arg(z.boolean().default(false), {
       alias: 'v',
@@ -90,20 +100,8 @@ const validateCommand = defineCommand({
   }),
   run: async (args) => {
     try {
-      const stats = await stat(args.path);
-      let dataDir: string;
-      let tableName: string | undefined;
-
-      if (stats.isDirectory()) {
-        dataDir = args.path;
-      } else if (stats.isFile() && args.path.endsWith('.jsonl')) {
-        dataDir = dirname(args.path);
-        tableName = basename(args.path, '.jsonl');
-      } else {
-        throw new Error(`Invalid path: ${args.path}. Must be a directory or .jsonl file.`);
-      }
-
-      const db = LinesDB.create({ dataDir });
+      const { tableName, ...config } = await resolveValidationTarget(args);
+      const db = LinesDB.create(config);
       let result;
       try {
         result = unwrap(await db.initialize({ tableName, detailedValidate: true }));

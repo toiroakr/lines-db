@@ -102,6 +102,60 @@ This command will:
 - Validate each record against the schema
 - Report validation errors with detailed messages
 
+#### Validate named datasets
+
+Define shared data and scenario data in `lines-db.config.json`:
+
+```json
+{
+  "schemaDir": "./data",
+  "base": ["./data"],
+  "datasets": {
+    "cogs": ["./data/cogs"],
+    "sales": ["./data/sales"]
+  }
+}
+```
+
+Omit the positional path to read `lines-db.config.json` in the current working directory and validate only `base`.
+`--dataset <name>` adds the named dataset to `base`; repeat the flag to combine several sets in the specified order. `--all-datasets` combines `base` and every dataset in one
+validation run; IDs shared by different scenarios will cause duplicate errors.
+
+```bash
+npx lines-db validate
+npx lines-db validate --dataset cogs
+npx lines-db validate --dataset cogs --dataset sales
+npx lines-db validate --all-datasets
+npx lines-db validate --config ./seed/lines-db.config.json --dataset cogs
+```
+
+Use `--config <path>` to select another configuration file. `schemaDir`, `base` and `datasets` are required.
+`base` and each dataset must contain at least one directory; use `datasets: {}` when there are no additional sets.
+Relative paths are resolved from the configuration file's directory. Directories are loaded in base-then-dataset
+order, with each directory loaded only once. Subdirectories are not discovered automatically. Schemas, unique
+constraints and foreign keys are checked across the combined data, and errors identify the original file.
+
+Combining `--dataset` with `--all-datasets`, or using configuration options with a positional path, is an error.
+Unknown dataset names and invalid configurations also fail. Existing `validate <path>` commands keep working
+without reading a configuration file. Only the `validate` CLI command uses this configuration.
+
+Programs can load the same configuration with `loadDatasetConfig()`:
+
+```typescript
+import { LinesDB, loadDatasetConfig } from '@toiroakr/lines-db';
+
+const config = await loadDatasetConfig('./lines-db.config.json', {
+  datasets: ['cogs', 'sales'],
+});
+const db = LinesDB.create(config);
+```
+
+Omit `datasets` or pass `[]` for base only. An array combines base and the selected sets in array order;
+`'all'` combines base and every set in configuration order. Each directory is loaded once, including symlink aliases.
+Calling `loadDatasetConfig()` without arguments reads `lines-db.config.json` in the current working directory.
+It returns `Promise<DatabaseConfig>` and rejects unreadable or invalid configuration, unknown set names and missing
+selected data directories. A missing `schemaDir` or one pointing to a file is also rejected. Call `db.initialize()` to load and validate the data.
+
 ### Migrate Data
 
 Transform data in JSONL files with validation:

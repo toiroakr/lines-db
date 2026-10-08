@@ -55,3 +55,5 @@ export type {
   IndexDefinition,
 } from './types.js';
 export type { BiDirectionalSchema, SchemaOptions } from './schema.js';
+export { loadDatasetConfig } from './dataset-config.js';
+export type { DatasetConfigOptions } from './dataset-config.js';
