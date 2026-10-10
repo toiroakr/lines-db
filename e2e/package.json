@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@ai-sdk/openai": "^4.0.84",
+    "@ai-sdk/openai": "^4.0.86",
     "@e2e-dev/web": "^0.13.0",
     "@types/node": "^24.19.1",
     "ai": "^7.0.128",
