@@ -76,37 +76,37 @@ export async function activate(context: vscode.ExtensionContext) {
   console.log(`LinesDB extension is now active (v${version})`);
   context.subscriptions.push(outputChannel);
 
-  // Load @toiroakr/lines-db and tsx from workspace
+  // Load lines-db and tsx from workspace
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (workspaceFolders && workspaceFolders.length > 0) {
     const workspaceRoot = workspaceFolders[0].uri.fsPath;
 
-    // Try to load @toiroakr/lines-db from workspace
+    // Try to load lines-db from workspace
     try {
       const nodeRequire = require;
       const { pathToFileURL: toFileURL } = await import('node:url');
-      const linesDbPath = nodeRequire.resolve('@toiroakr/lines-db', { paths: [workspaceRoot] });
-      outputChannel.appendLine(`Found @toiroakr/lines-db at: ${linesDbPath}`);
+      const linesDbPath = nodeRequire.resolve('lines-db', { paths: [workspaceRoot] });
+      outputChannel.appendLine(`Found lines-db at: ${linesDbPath}`);
 
       global.__linesDbModule = await import(toFileURL(linesDbPath).href);
-      outputChannel.appendLine('@toiroakr/lines-db loaded successfully');
+      outputChannel.appendLine('lines-db loaded successfully');
     } catch (linesDbError) {
-      outputChannel.appendLine(`@toiroakr/lines-db not found in workspace: ${linesDbError}`);
+      outputChannel.appendLine(`lines-db not found in workspace: ${linesDbError}`);
       vscode.window.showWarningMessage(
-        'LinesDB extension requires @toiroakr/lines-db to be installed in your workspace. Please run: pnpm add @toiroakr/lines-db',
+        'LinesDB extension requires lines-db to be installed in your workspace. Please run: pnpm add lines-db',
       );
     }
 
     // Register amaro for TypeScript schema file support
-    // amaro is a dependency of @toiroakr/lines-db, so we resolve it from there
+    // amaro is a dependency of lines-db, so we resolve it from there
     try {
       const { register } = await import('node:module');
       const { pathToFileURL } = await import('node:url');
       const path = await import('node:path');
       const nodeRequire = require;
 
-      // Resolve amaro from @toiroakr/lines-db's location (it's a dependency)
-      const linesDbPath = nodeRequire.resolve('@toiroakr/lines-db', { paths: [workspaceRoot] });
+      // Resolve amaro from lines-db's location (it's a dependency)
+      const linesDbPath = nodeRequire.resolve('lines-db', { paths: [workspaceRoot] });
       const linesDbDir = path.dirname(linesDbPath);
       const amaroTransformPath = nodeRequire.resolve('amaro/transform', { paths: [linesDbDir] });
       outputChannel.appendLine(`Found amaro/transform at: ${amaroTransformPath}`);

@@ -17,6 +17,6 @@
     "zod": "^4.6.5"
   },
   "dependencies": {
-    "@toiroakr/lines-db": "workspace:*"
+    "lines-db": "workspace:*"
   }
 }

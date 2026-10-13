@@ -24,4 +24,4 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - run: pnpm dlx pkg-pr-new publish --pnpm --bin "lib"
+      - run: pnpm dlx pkg-pr-new publish --pnpm --bin "lib" "studio"

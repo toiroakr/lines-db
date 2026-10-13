@@ -1,6 +1,6 @@
 import * as v from 'valibot';
-import { defineSchema } from '@toiroakr/lines-db';
-import type { InferOutput } from '@toiroakr/lines-db';
+import { defineSchema } from 'lines-db';
+import type { InferOutput } from 'lines-db';
 
 // Define product schema using Valibot
 const productSchema = v.object({

@@ -57,7 +57,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
 
       try {
         if (!global.__linesDbModule?.LinesDB) {
-          vscode.window.showErrorMessage('LinesDB: @toiroakr/lines-db not found in workspace. Please install it.');
+          vscode.window.showErrorMessage('LinesDB: lines-db not found in workspace. Please install it.');
           return;
         }
 
@@ -221,7 +221,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
       const { transform, filter } = await MigrationValidator.parseMigrationFile(migrationContent);
 
       if (!global.__linesDbModule?.JsonlReader) {
-        vscode.window.showErrorMessage('LinesDB: @toiroakr/lines-db not found in workspace. Please install it.');
+        vscode.window.showErrorMessage('LinesDB: lines-db not found in workspace. Please install it.');
         return;
       }
 

@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, afterEach, expect } from 'vitest';
-import { LinesDB, unwrap, type DatabaseConfig, type TableDefs } from '@toiroakr/lines-db';
+import { LinesDB, unwrap, type DatabaseConfig, type TableDefs } from 'lines-db';
 import { join } from 'node:path';
 import { mkdir, rm, cp, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -191,7 +191,7 @@ describe('Schema Constraints (Primary Keys, Foreign Keys, Indexes)', () => {
         await writeFile(
           join(fkTestDir, 'parent.schema.ts'),
           `import * as v from 'valibot';
-import { defineSchema } from '@toiroakr/lines-db';
+import { defineSchema } from 'lines-db';
 const schema = v.object({
   id: v.pipe(v.number(), v.integer(), v.minValue(1)),
   email: v.pipe(v.string(), v.email()),
@@ -205,7 +205,7 @@ export default defineSchema(schema, { primaryKey: 'id' });
         await writeFile(
           join(fkTestDir, 'child.schema.ts'),
           `import * as v from 'valibot';
-import { defineSchema } from '@toiroakr/lines-db';
+import { defineSchema } from 'lines-db';
 const schema = v.object({
   id: v.pipe(v.number(), v.integer(), v.minValue(1)),
   parentId: v.pipe(v.number(), v.integer(), v.minValue(1)),

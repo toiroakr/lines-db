@@ -16,3 +16,4 @@ extension/*.vsix
 tests/**/.test-tmp/
 lefthook-local.yml
 .e2e/
+studio/ui/

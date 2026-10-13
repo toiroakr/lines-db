@@ -19,12 +19,11 @@ const studioToken = (): Plugin => ({
   },
 });
 
-// The studio serves the build from lib/studio, so the CLI ships it without a runtime dependency
 export default defineConfig({
   plugins: [react(), tailwindcss(), studioToken()],
   base: './',
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
-  build: { outDir: '../lib/studio', emptyOutDir: true },
+  build: { outDir: '../studio/ui', emptyOutDir: true },
   server: {
     proxy: {
       // Not passing the browser's Host and Origin through: the studio server refuses requests not addressed to it
