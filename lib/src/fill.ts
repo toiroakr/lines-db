@@ -106,7 +106,7 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
   const produced = new Set<string>();
   const unreadableLines: FillFieldsResult['unreadableLines'] = [];
   const filled: FilledFile[] = [];
-  const writes: Array<{ file: string; read: string; content: string }> = [];
+  const writes: Array<{ file: string; target: string; read: string; content: string }> = [];
   for (const { table, file, target, fields, fill } of tables) {
     const read = await readFile(target, 'utf-8');
     const bom = read.startsWith('\u{feff}') ? '\u{feff}' : '';
@@ -138,14 +138,14 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
 
     if (unreadable.length > 0) unreadableLines.push({ file, lines: unreadable });
     if (count === 0) continue;
-    writes.push({ file: target, read, content: bom + lines.map((line) => `${line.text}${line.eol}`).join('') });
+    writes.push({ file, target, read, content: bom + lines.map((line) => `${line.text}${line.eol}`).join('') });
     filled.push({ table, file, fields: [...written], count });
   }
 
   // Not checking each file as it is written: a change found in a later file would leave the earlier
   // ones already filled
-  for (const { file, read } of writes) {
-    if ((await readFile(file, 'utf-8')) !== read) {
+  for (const { file, target, read } of writes) {
+    if ((await readFile(target, 'utf-8')) !== read) {
       const error = new Error(
         `JSONL file '${file}' was changed after it was read, so no file was filled. Run the fill again.`,
       ) as JsonlConflictError;
@@ -169,26 +169,28 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
  * Write every file or none: each content goes to a temporary file first, the temporaries replace the
  * files once all are written, and the files already replaced are put back when a later one fails
  */
-async function replaceAll(writes: Array<{ file: string; read: string; content: string }>): Promise<void> {
+async function replaceAll(
+  writes: Array<{ file: string; target: string; read: string; content: string }>,
+): Promise<void> {
   const staged = writes.map((write) => ({
     ...write,
-    temporary: `${write.file}.${randomBytes(6).toString('hex')}.tmp`,
+    temporary: `${write.target}.${randomBytes(6).toString('hex')}.tmp`,
   }));
   const replaced: typeof staged = [];
   try {
-    for (const { file, temporary, content } of staged) {
+    for (const { target, temporary, content } of staged) {
       await writeFile(temporary, content, 'utf-8');
       // Not left to the umask: the file replaced would otherwise lose a mode such as 0600
-      await chmod(temporary, (await stat(file)).mode & 0o7777);
+      await chmod(temporary, (await stat(target)).mode & 0o7777);
     }
     for (const write of staged) {
-      await rename(write.temporary, write.file);
+      await rename(write.temporary, write.target);
       replaced.push(write);
     }
   } catch (error) {
     const notRestored: string[] = [];
-    for (const { file, read } of replaced) {
-      await writeFile(file, read, 'utf-8').catch(() => notRestored.push(file));
+    for (const { file, target, read } of replaced) {
+      await writeFile(target, read, 'utf-8').catch(() => notRestored.push(file));
     }
     await Promise.all(staged.map(({ temporary }) => rm(temporary, { force: true })));
     if (notRestored.length === 0) throw error;

@@ -421,6 +421,40 @@ describe('fillFields', () => {
     expect(await readlink(alias)).toBe(file);
   });
 
+  it.each(['conflict', 'rollback'])('reports the supplied alias on %s failure', async (failure) => {
+    const first = await writeTable('Alpha', ['{"name":"a"}']);
+    const second = await writeTable('Beta', ['{"name":"b"}']);
+    const dataset = join(dataDir, 'dataset');
+    await mkdir(dataset);
+    const alias = join(dataset, 'Alpha.jsonl');
+    await symlink(first, alias);
+    if (failure === 'rollback') {
+      failing.renameTo = second;
+      failing.writeTo = first;
+    }
+    try {
+      const result = await fillFields({
+        path: [alias, second],
+        schemaDir: dataDir,
+        loadFiller:
+          (_, { tableName }) =>
+          (row) => {
+            if (failure === 'conflict' && tableName === 'Beta') writeFileSync(first, '{"name":"edited"}\n');
+            return { id: 'filled', ...row };
+          },
+      });
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.error.message).toContain(alias);
+      if (failure === 'conflict') {
+        expect(!result.ok && result.error).toMatchObject({ name: 'JsonlConflictError', file: alias });
+      }
+    } finally {
+      failing.renameTo = undefined;
+      failing.writeTo = undefined;
+    }
+  });
+
   it('writes nothing in earlier directories when a later filler throws', async () => {
     const first = await writeTable('Alpha', ['{"name":"a"}']);
     const second = await moveToDataset(await writeTable('Beta', ['{"name":"b"}']));
