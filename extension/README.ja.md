@@ -34,19 +34,16 @@ JSONLファイルの先頭にあるCodeLensでレコード数を確認し、検�
 
 ## マイグレーション
 
-JSONLファイルを開き、コマンドパレットから**LinesDB: Migrate Data**を実行します。以下のような変換関数を入力してください。
+JSONLファイルを開き、コマンドパレットから**LinesDB: Migrate Data**を実行します。生成されたTypeScriptファイルが開くので、`migration`の`filter`と`transform`を編集してください。例えば、25歳より上の行の年齢を1増やす場合は、以下のように指定します。生成された型定義は残してください。
 
-```js
-(row) => ({ ...row, updated: true });
+```typescript
+export const migration: Migration = {
+  filter: (row) => row.age > 25,
+  transform: (row) => ({ ...row, age: row.age + 1 }),
+};
 ```
 
-変更する行を絞るフィルターも指定できます。
-
-```js
-{
-  age: (age) => age > 25;
-}
-```
+保存すると変更を検証します。**Show Preview**で結果を確認し、**Execute Migration**で元のJSONLファイルに適用します。取りやめる場合は**Cancel Migration**を選んでください。
 
 コマンドパレットはmacOSではCmd+Shift+P、WindowsとLinuxではCtrl+Shift+Pで開きます。
 

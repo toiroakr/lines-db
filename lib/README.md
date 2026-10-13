@@ -451,7 +451,7 @@ The database records each JSONL file's contents when reading or writing it. If a
 const result = await db.transaction((tx) => unwrap(tx.update('users', { age: 31 }, { id: 1 })));
 
 if (!result.ok && result.error.name === 'JsonlConflictError') {
-  console.log(`${(result.error as JsonlConflictError).file} がディスク上で変更されています`);
+  console.log(`${(result.error as JsonlConflictError).file} has changed on disk`);
 }
 ```
 

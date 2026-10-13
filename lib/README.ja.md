@@ -561,11 +561,11 @@ const db = LinesDB.create({ dataDir: './data' });
 
 ```
 data/
-  Item.schema.ts   Item.jsonl              # schemas and base data
+  Item.schema.ts   Item.jsonl              # スキーマと基本データ
   ItemValuation.schema.ts
   cogs/
-    Item.jsonl                             # additional Item rows
-    ItemValuation.jsonl                    # references Item rows from both sets
+    Item.jsonl                             # 追加のItem行
+    ItemValuation.jsonl                    # 両方のデータセットのItem行を参照
 ```
 
 ```typescript

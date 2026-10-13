@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "generate": "lines-db generate --dataDir fixtures",
-    "test": "vitest run --typecheck"
+    "test": "pnpm --filter lines-db build && pnpm --filter @lines-db/studio build && vitest run --typecheck"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

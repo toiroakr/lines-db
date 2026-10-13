@@ -34,19 +34,16 @@ Large files can take longer to validate.
 
 ## Migration
 
-Open a JSONL file and run **LinesDB: Migrate Data** from the Command Palette. Enter a transformation function, for example:
+Open a JSONL file and run **LinesDB: Migrate Data** from the Command Palette. The extension opens a generated TypeScript file. Edit the `filter` and `transform` properties of `migration`, keeping the generated type definitions. For example, to increase the age of rows older than 25 by one:
 
-```js
-(row) => ({ ...row, updated: true });
+```typescript
+export const migration: Migration = {
+  filter: (row) => row.age > 25,
+  transform: (row) => ({ ...row, age: row.age + 1 }),
+};
 ```
 
-You can also enter a filter to limit the rows being changed.
-
-```js
-{
-  age: (age) => age > 25;
-}
-```
+Save the file to validate the changes. Use **Show Preview** to inspect the result, then **Execute Migration** to apply it to the original JSONL file. Choose **Cancel Migration** to discard the migration.
 
 Open the Command Palette with Cmd+Shift+P on macOS or Ctrl+Shift+P on Windows and Linux.
 
