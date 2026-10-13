@@ -256,7 +256,7 @@ export async function readDeclaredColumns(
     const { version } = require('typescript/package.json') as { version: string };
     let reading: Reading;
     if (Number.parseInt(version, 10) >= 7) {
-      const { API } = (await import(pathToFileURL(require.resolve('typescript/unstable/sync')).href)) as {
+      const { API } = (await import(pathToFileURL(require.resolve('typescript/sync')).href)) as {
         API: new (options: { cwd: string }) => CorsaApi;
       };
       reading = readWithCorsa(new API({ cwd: dirname(schemaFile) }), schemaFile);

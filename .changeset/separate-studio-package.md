@@ -8,3 +8,5 @@ Move the Studio server and browser assets into @lines-db/studio. Install the new
 Rename the core package from @toiroakr/lines-db to lines-db. Update imports and installation commands to use lines-db.
 
 Update CLI imports, generated types, editor integration, and documentation for the new package names. Publish both packages from the release workflow.
+
+Use the current TypeScript 7.1 synchronous API for Studio schema inspection and verify declared columns with TypeScript 5 and 7.1 in CI.
