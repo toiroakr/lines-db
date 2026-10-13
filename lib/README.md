@@ -167,10 +167,10 @@ Rows are matched by primary key, or by position when the file has no primary key
 ### Fill missing values
 
 ```bash
-npx lines-db fill <path> [--fields id,createdAt]
+npx lines-db fill <path...> [--schema-dir ./schemas] [--fields id,createdAt]
 ```
 
-Set `path` to a data directory or a JSONL file. The command fills missing fields with values supplied by the validation schema. Without `--fields`, it fills each table's primary key.
+Pass one or more data directories or JSONL files. Use `--schema-dir` for shared schemas; otherwise schemas are loaded next to each JSONL file. The command fills missing fields with values supplied by the validation schema. Without `--fields`, it fills each table's primary key.
 
 Existing values are never replaced. Lines that gain no values remain unchanged, including line endings. Updated lines use the schema's key order. Rows that fail validation are not written. All values are computed before writing any files. If another tool changed a file after it was read, the command writes nothing and stops with a `JsonlConflictError` naming that file.
 
@@ -194,6 +194,17 @@ const { filled } = unwrap(
 ```
 
 The result's `tablesWithoutSchema` lists tables without schemas, `unreadableLines` lists lines that are not JSON objects, and `unproducedFields` lists fields for which no table produced a value.
+
+`fillFields()` accepts a string or a non-empty readonly array of strings for `path`. Across all paths, every value is computed and every pending write is checked for outside changes before writing. If a write fails, files already written are restored. Overlapping paths process each file only once. Unreadable lines are still reported and left unchanged.
+
+```typescript
+unwrap(
+  await fillFields({
+    path: ['./data/dataset-a', './data/dataset-b'],
+    schemaDir: './data',
+  }),
+);
+```
 
 ### Browse and Edit in the Browser
 

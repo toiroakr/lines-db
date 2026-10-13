@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { chmod, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { type Result, ok, err, toError } from './result.js';
@@ -11,11 +11,11 @@ import type { JsonlConflictError, JsonObject, JsonValue, StandardSchema, Table }
 export type RowFiller = (row: JsonObject) => Record<string, unknown>;
 
 export interface FillFieldsOptions {
-  /** A data directory, or one `.jsonl` file in it */
-  path: string;
+  /** One or more data directories or `.jsonl` files */
+  path: string | readonly string[];
   /** Fields to fill. Defaults to each table's primary key: `primaryKey` in its schema file, or `id` */
   fields?: readonly string[];
-  /** Directory the `<Table>.schema.{ts,mts,cts}` files are looked up in. Defaults to the data directory */
+  /** Directory the `<Table>.schema.{ts,mts,cts}` files are looked up in. Defaults to each file's data directory */
   schemaDir?: string;
   /**
    * Builds the function that computes a table's row values from its schema module. Defaults to the
@@ -72,21 +72,32 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
   if (options.fields && options.fields.length === 0) {
     throw new Error('No fields to fill. Name at least one field.');
   }
-  const { dataDir, tableNames } = await resolveTables(options.path);
-  const schemaDir = options.schemaDir ?? dataDir;
+  const paths = typeof options.path === 'string' ? [options.path] : options.path;
+  if (paths.length === 0) throw new Error('No paths to fill. Name at least one path.');
+  const sources = new Map<string, { table: string; file: string; target: string; schemaDir: string }>();
+  for (const path of paths) {
+    const { dataDir, tableNames } = await resolveTables(path);
+    for (const table of tableNames) {
+      const file = join(dataDir, `${table}.jsonl`);
+      const key = await realpath(file);
+      if (!sources.has(key)) sources.set(key, { table, file, target: key, schemaDir: options.schemaDir ?? dataDir });
+    }
+  }
   const loadFiller = options.loadFiller ?? fillerFromValidationSchema;
 
   const tablesWithoutSchema: string[] = [];
-  const tables: Array<{ table: string; fields: readonly string[]; fill: RowFiller }> = [];
-  for (const table of tableNames) {
+  const tables: Array<{ table: string; file: string; target: string; fields: readonly string[]; fill: RowFiller }> = [];
+  for (const { table, file, target, schemaDir } of sources.values()) {
     const schemaPath = await findSchemaFile(schemaDir, table);
     if (!schemaPath) {
-      tablesWithoutSchema.push(table);
+      if (!tablesWithoutSchema.includes(table)) tablesWithoutSchema.push(table);
       continue;
     }
     const schemaModule = (await import(`${pathToFileURL(schemaPath).href}?t=${Date.now()}`)) as Record<string, unknown>;
     tables.push({
       table,
+      file,
+      target,
       fields: options.fields ?? [primaryKeyOf(schemaModule)],
       fill: loadFiller(schemaModule, { tableName: table, schemaPath }),
     });
@@ -95,10 +106,9 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
   const produced = new Set<string>();
   const unreadableLines: FillFieldsResult['unreadableLines'] = [];
   const filled: FilledFile[] = [];
-  const writes: Array<{ file: string; read: string; content: string }> = [];
-  for (const { table, fields, fill } of tables) {
-    const file = join(dataDir, `${table}.jsonl`);
-    const read = await readFile(file, 'utf-8');
+  const writes: Array<{ file: string; target: string; read: string; content: string }> = [];
+  for (const { table, file, target, fields, fill } of tables) {
+    const read = await readFile(target, 'utf-8');
     const bom = read.startsWith('\u{feff}') ? '\u{feff}' : '';
     const lines = splitLines(read.slice(bom.length));
     const written = new Set<string>();
@@ -128,14 +138,14 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
 
     if (unreadable.length > 0) unreadableLines.push({ file, lines: unreadable });
     if (count === 0) continue;
-    writes.push({ file, read, content: bom + lines.map((line) => `${line.text}${line.eol}`).join('') });
+    writes.push({ file, target, read, content: bom + lines.map((line) => `${line.text}${line.eol}`).join('') });
     filled.push({ table, file, fields: [...written], count });
   }
 
   // Not checking each file as it is written: a change found in a later file would leave the earlier
   // ones already filled
-  for (const { file, read } of writes) {
-    if ((await readFile(file, 'utf-8')) !== read) {
+  for (const { file, target, read } of writes) {
+    if ((await readFile(target, 'utf-8')) !== read) {
       const error = new Error(
         `JSONL file '${file}' was changed after it was read, so no file was filled. Run the fill again.`,
       ) as JsonlConflictError;
@@ -151,7 +161,7 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
     filled,
     tablesWithoutSchema,
     unreadableLines,
-    unproducedFields: tableNames.length > 0 ? named.filter((field) => !produced.has(field)) : [],
+    unproducedFields: sources.size > 0 ? named.filter((field) => !produced.has(field)) : [],
   };
 }
 
@@ -159,26 +169,28 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
  * Write every file or none: each content goes to a temporary file first, the temporaries replace the
  * files once all are written, and the files already replaced are put back when a later one fails
  */
-async function replaceAll(writes: Array<{ file: string; read: string; content: string }>): Promise<void> {
+async function replaceAll(
+  writes: Array<{ file: string; target: string; read: string; content: string }>,
+): Promise<void> {
   const staged = writes.map((write) => ({
     ...write,
-    temporary: `${write.file}.${randomBytes(6).toString('hex')}.tmp`,
+    temporary: `${write.target}.${randomBytes(6).toString('hex')}.tmp`,
   }));
   const replaced: typeof staged = [];
   try {
-    for (const { file, temporary, content } of staged) {
+    for (const { target, temporary, content } of staged) {
       await writeFile(temporary, content, 'utf-8');
       // Not left to the umask: the file replaced would otherwise lose a mode such as 0600
-      await chmod(temporary, (await stat(file)).mode & 0o7777);
+      await chmod(temporary, (await stat(target)).mode & 0o7777);
     }
     for (const write of staged) {
-      await rename(write.temporary, write.file);
+      await rename(write.temporary, write.target);
       replaced.push(write);
     }
   } catch (error) {
     const notRestored: string[] = [];
-    for (const { file, read } of replaced) {
-      await writeFile(file, read, 'utf-8').catch(() => notRestored.push(file));
+    for (const { file, target, read } of replaced) {
+      await writeFile(target, read, 'utf-8').catch(() => notRestored.push(file));
     }
     await Promise.all(staged.map(({ temporary }) => rm(temporary, { force: true })));
     if (notRestored.length === 0) throw error;

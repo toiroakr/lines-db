@@ -1,7 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { writeFileSync } from 'node:fs';
-import { chmod, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  readlink,
+  realpath,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fillFields } from './fill.js';
 import { unwrap } from './result.js';
@@ -56,10 +69,17 @@ describe('fillFields', () => {
     await writeFile(jsonlPath, lines.length > 0 ? `${lines.join('\n')}\n` : '');
     return jsonlPath;
   };
+  const moveToDataset = async (file: string): Promise<string> => {
+    const dir = join(dataDir, 'dataset');
+    await mkdir(dir);
+    const destination = join(dir, basename(file));
+    await rename(file, destination);
+    return destination;
+  };
   const readLines = async (jsonlPath: string) => (await readFile(jsonlPath, 'utf-8')).split('\n');
 
   beforeEach(async () => {
-    dataDir = await mkdtemp(join(tmpdir(), 'linesdb-fill-'));
+    dataDir = await realpath(await mkdtemp(join(tmpdir(), 'linesdb-fill-')));
   });
 
   afterEach(async () => {
@@ -77,6 +97,26 @@ describe('fillFields', () => {
       '{"id":"generated-2","name":"first","note":"kept"}',
       '',
     ]);
+  });
+
+  it('fills multiple directories against shared schemas in one call', async () => {
+    const first = join(dataDir, 'first');
+    const second = join(dataDir, 'second');
+    await mkdir(first);
+    await mkdir(second);
+    await writeFile(join(dataDir, 'Widget.schema.ts'), HOOK_SCHEMA);
+    const files = [join(first, 'Widget.jsonl'), join(second, 'Widget.jsonl')];
+    for (const file of files) await writeFile(file, '{"name":"widget"}\n');
+
+    const result = await fillFields({ path: [first, second] as const, schemaDir: dataDir, loadFiller: useHook });
+
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.value.filled).toEqual(
+      files.map((file) => ({ table: 'Widget', file, fields: ['id'], count: 1 })),
+    );
+    for (const file of files) {
+      expect(JSON.parse((await readLines(file))[0])).toMatchObject({ name: 'widget', id: expect.any(String) });
+    }
   });
 
   it('keeps the values of a line its filler changed in place, writing only the fields it fills', async () => {
@@ -101,21 +141,29 @@ describe('fillFields', () => {
     expect(await readFile(jsonlPath, 'utf-8')).toBe('\u{feff}{"id":"generated-1","name":"a"}\n');
   });
 
-  it('puts back the files already filled when replacing a later one fails, and leaves no temporary file', async () => {
-    const first = await writeTable('Alpha', ['{"name":"a"}']);
-    const second = await writeTable('Beta', ['{"name":"b"}']);
-    failing.renameTo = second;
-    try {
-      const result = await fillFields({ path: dataDir, loadFiller: useHook });
+  it.each([false, true])(
+    'restores earlier files after a replacement fails (multiple directories: %s)',
+    async (multiple) => {
+      const first = await writeTable('Alpha', ['{"name":"a"}']);
+      const original = await writeTable('Beta', ['{"name":"b"}']);
+      const second = multiple ? await moveToDataset(original) : original;
+      failing.renameTo = second;
+      try {
+        const result = await fillFields({
+          path: multiple ? [dataDir, join(dataDir, 'dataset')] : dataDir,
+          schemaDir: dataDir,
+          loadFiller: useHook,
+        });
 
-      expect(result.ok).toBe(false);
-    } finally {
-      failing.renameTo = undefined;
-    }
-    expect(await readLines(first)).toEqual(['{"name":"a"}', '']);
-    expect(await readLines(second)).toEqual(['{"name":"b"}', '']);
-    expect((await readdir(dataDir)).filter((entry) => entry.endsWith('.tmp'))).toEqual([]);
-  });
+        expect(result.ok).toBe(false);
+      } finally {
+        failing.renameTo = undefined;
+      }
+      expect(await readLines(first)).toEqual(['{"name":"a"}', '']);
+      expect(await readLines(second)).toEqual(['{"name":"b"}', '']);
+      expect((await readdir(dataDir)).filter((entry) => entry.endsWith('.tmp'))).toEqual([]);
+    },
+  );
 
   it('names a file it could not put back after a later replacement failed', async () => {
     const first = await writeTable('Alpha', ['{"name":"a"}']);
@@ -222,26 +270,35 @@ describe('fillFields', () => {
     expect(Object.keys(JSON.parse((await readLines(jsonlPath))[0]))).toEqual(['id', 'name', 'toString', '__proto__']);
   });
 
-  it('writes nothing anywhere when the filler of one table cannot be built', async () => {
-    const widgetPath = await writeTable('Widget', ['{"name":"widget"}']);
-    const gadgetPath = await writeTable(
-      'Gadget',
-      ['{"name":"gadget"}'],
-      HOOK_SCHEMA.replace('export const hook', 'const hook'),
-    );
-    const widgetBefore = await readFile(widgetPath, 'utf-8');
+  it.each([false, true])(
+    'writes nothing when a filler cannot be built (multiple directories: %s)',
+    async (multiple) => {
+      const widgetPath = await writeTable('Widget', ['{"name":"widget"}']);
+      const gadgetPath = await writeTable(
+        'Gadget',
+        ['{"name":"gadget"}'],
+        HOOK_SCHEMA.replace('export const hook', 'const hook'),
+      );
+      const target = multiple ? await moveToDataset(gadgetPath) : gadgetPath;
+      const widgetBefore = await readFile(widgetPath, 'utf-8');
 
-    const result = await fillFields({ path: dataDir, loadFiller: useHook });
+      const result = await fillFields({
+        path: multiple ? [dataDir, join(dataDir, 'dataset')] : dataDir,
+        schemaDir: dataDir,
+        loadFiller: useHook,
+      });
 
-    expect(result.ok).toBe(false);
-    expect(!result.ok && result.error.message).toMatch(/Gadget\.schema\.ts does not export `hook`/);
-    expect(await readFile(widgetPath, 'utf-8')).toBe(widgetBefore);
-    expect(await readFile(gadgetPath, 'utf-8')).toBe('{"name":"gadget"}\n');
-  });
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.error.message).toMatch(/Gadget\.schema\.ts does not export `hook`/);
+      expect(await readFile(widgetPath, 'utf-8')).toBe(widgetBefore);
+      expect(await readFile(target, 'utf-8')).toBe('{"name":"gadget"}\n');
+    },
+  );
 
-  it('writes nothing anywhere when a file changed on disk after it was read, naming the file', async () => {
+  it.each([false, true])('writes nothing after an outside change (multiple directories: %s)', async (multiple) => {
     const gadgetPath = await writeTable('Gadget', ['{"name":"gadget"}']);
     const widgetPath = await writeTable('Widget', ['{"name":"widget"}']);
+    const target = multiple ? await moveToDataset(widgetPath) : widgetPath;
     const editedInEditor = '{"name":"gadget","note":"saved in an editor"}\n';
     const loadFiller = (schemaModule: Record<string, unknown>, context: { tableName: string; schemaPath: string }) => {
       const hook = useHook(schemaModule, context);
@@ -254,12 +311,16 @@ describe('fillFields', () => {
         : hook;
     };
 
-    const result = await fillFields({ path: dataDir, loadFiller });
+    const result = await fillFields({
+      path: multiple ? [dataDir, join(dataDir, 'dataset')] : dataDir,
+      schemaDir: dataDir,
+      loadFiller,
+    });
 
     expect(result.ok).toBe(false);
     expect(!result.ok && result.error).toMatchObject({ name: 'JsonlConflictError', file: gadgetPath });
     expect(await readFile(gadgetPath, 'utf-8')).toBe(editedInEditor);
-    expect(await readFile(widgetPath, 'utf-8')).toBe('{"name":"widget"}\n');
+    expect(await readFile(target, 'utf-8')).toBe('{"name":"widget"}\n');
   });
 
   it('leaves an empty object the line holds as it is, as it is a value the file already has', async () => {
@@ -320,6 +381,115 @@ describe('fillFields', () => {
     unwrap(await fillFields({ path: dataDir, fields: ['id'] }));
 
     expect(await readLines(jsonlPath)).toEqual(['{"id":"generated-1","name":"first"}', '{"note":"no name yet"}', '']);
+  });
+
+  it('fills an overlapping directory and file only once', async () => {
+    const file = await writeTable('Widget', ['{"name":"widget"}']);
+    let calls = 0;
+
+    const result = unwrap(
+      await fillFields({
+        path: [dataDir, file, join(dataDir, '.')],
+        loadFiller: () => (row) => ({ id: `generated-${++calls}`, ...row }),
+      }),
+    );
+
+    expect(calls).toBe(1);
+    expect(result.filled).toEqual([{ table: 'Widget', file, fields: ['id'], count: 1 }]);
+    expect(await readFile(file, 'utf-8')).toBe('{"id":"generated-1","name":"widget"}\n');
+  });
+
+  it('fills the shared target once without replacing a JSONL symlink', async () => {
+    const file = await writeTable('Widget', ['{"name":"widget"}']);
+    const dataset = join(dataDir, 'dataset');
+    await mkdir(dataset);
+    const alias = join(dataset, 'Widget.jsonl');
+    await symlink(file, alias);
+    let calls = 0;
+
+    const result = unwrap(
+      await fillFields({
+        path: [dataset, dataDir],
+        schemaDir: dataDir,
+        loadFiller: () => (row) => ({ id: `generated-${++calls}`, ...row }),
+      }),
+    );
+
+    expect(result.filled).toEqual([{ table: 'Widget', file: alias, fields: ['id'], count: 1 }]);
+    expect(calls).toBe(1);
+    expect(await readFile(file, 'utf-8')).toBe('{"id":"generated-1","name":"widget"}\n');
+    expect(await readlink(alias)).toBe(file);
+  });
+
+  it.each(['conflict', 'rollback'])('reports the supplied alias on %s failure', async (failure) => {
+    const first = await writeTable('Alpha', ['{"name":"a"}']);
+    const second = await writeTable('Beta', ['{"name":"b"}']);
+    const dataset = join(dataDir, 'dataset');
+    await mkdir(dataset);
+    const alias = join(dataset, 'Alpha.jsonl');
+    await symlink(first, alias);
+    if (failure === 'rollback') {
+      failing.renameTo = second;
+      failing.writeTo = first;
+    }
+    try {
+      const result = await fillFields({
+        path: [alias, second],
+        schemaDir: dataDir,
+        loadFiller:
+          (_, { tableName }) =>
+          (row) => {
+            if (failure === 'conflict' && tableName === 'Beta') writeFileSync(first, '{"name":"edited"}\n');
+            return { id: 'filled', ...row };
+          },
+      });
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.error.message).toContain(alias);
+      if (failure === 'conflict') {
+        expect(!result.ok && result.error).toMatchObject({ name: 'JsonlConflictError', file: alias });
+      }
+    } finally {
+      failing.renameTo = undefined;
+      failing.writeTo = undefined;
+    }
+  });
+
+  it('writes nothing in earlier directories when a later filler throws', async () => {
+    const first = await writeTable('Alpha', ['{"name":"a"}']);
+    const second = await moveToDataset(await writeTable('Beta', ['{"name":"b"}']));
+
+    const result = await fillFields({
+      path: [dataDir, join(dataDir, 'dataset')],
+      schemaDir: dataDir,
+      loadFiller:
+        (_, { tableName }) =>
+        (row) => {
+          if (tableName === 'Beta') throw new Error('Cannot compute Beta');
+          return { id: 'filled', ...row };
+        },
+    });
+
+    expect(!result.ok && result.error.message).toBe('Cannot compute Beta');
+    expect(await readFile(first, 'utf-8')).toBe('{"name":"a"}\n');
+    expect(await readFile(second, 'utf-8')).toBe('{"name":"b"}\n');
+  });
+
+  it('finds schemas next to each file when no shared schema directory is given', async () => {
+    const first = await writeTable('Alpha', ['{"name":"a"}']);
+    const second = await moveToDataset(await writeTable('Beta', ['{"name":"b"}']));
+    await writeFile(join(dataDir, 'dataset', 'Beta.schema.ts'), HOOK_SCHEMA);
+
+    const result = unwrap(await fillFields({ path: [first, second], loadFiller: useHook }));
+
+    expect(result.filled.map(({ file }) => file)).toEqual([first, second]);
+    expect(result.tablesWithoutSchema).toEqual([]);
+  });
+
+  it('refuses an empty list of paths', async () => {
+    const result = await fillFields({ path: [] });
+
+    expect(!result.ok && result.error.message).toBe('No paths to fill. Name at least one path.');
   });
 
   it('refuses an empty list of fields', async () => {
