@@ -192,7 +192,7 @@ importers:
         version: 4.0.91(zod@4.6.5)
       '@e2e-dev/web':
         specifier: ^0.14.0
-        version: 0.14.0(e2e@0.18.0(@ai-sdk/openai@4.0.91(zod@4.6.5))(ai@7.0.137(zod@4.6.5)))
+        version: 0.14.0(e2e@0.19.0(@ai-sdk/openai@4.0.91(zod@4.6.5))(ai@7.0.137(zod@4.6.5)))
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
@@ -200,8 +200,8 @@ importers:
         specifier: ^7.0.137
         version: 7.0.137(zod@4.6.5)
       e2e:
-        specifier: ^0.18.0
-        version: 0.18.0(@ai-sdk/openai@4.0.91(zod@4.6.5))(ai@7.0.137(zod@4.6.5))
+        specifier: ^0.19.0
+        version: 0.19.0(@ai-sdk/openai@4.0.91(zod@4.6.5))(ai@7.0.137(zod@4.6.5))
       playwright:
         specifier: ^1.63.0
         version: 1.63.0
@@ -2980,8 +2980,8 @@ packages:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
     engines: {node: '>= 0.4'}
 
-  e2e@0.18.0:
-    resolution: {integrity: sha512-mVIJtGXYBMLRK12CESeOowuh86nDDBhjfHIuyELuSFbaEmzl4EC4tVhm3T4Y6jidEGnGexZOATzlQ7tM/xw8JA==}
+  e2e@0.19.0:
+    resolution: {integrity: sha512-tTWgVR9tQTeESXkAxCh8H/gR4bGxbSbidw07/GngKT5P5tAPdsJ+bW5bQwIaAL/LUTwIG106V64/oiWLXkS29Q==}
     engines: {node: ^22.22.3 || >=24.8.0}
     hasBin: true
     peerDependencies:
@@ -3054,6 +3054,9 @@ packages:
   expect-type@1.4.0:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
+
+  fast-png@8.0.0:
+    resolution: {integrity: sha512-gCysNasJ8KEMgfdYIKd/wTDo6ENK1PWT0RJO7O+0pgmuHPw2O6tA1WvdxFRJoLf9V8yFYpG0FA1YgI8X97OhJA==}
 
   fast-string-truncated-width@3.0.3:
     resolution: {integrity: sha512-0jjjIEL6+0jag3l2XWWizO64/aZVtpiGE3t0Zgqxv0DPuxiMjvB3M24fCyhZUO4KomJQPj3LTSUnDP3GpdwC0g==}
@@ -3154,6 +3157,9 @@ packages:
   import-without-cache@0.4.0:
     resolution: {integrity: sha512-NkJQA7oZ4YHQhd2+H3BoRFKF3d/XNsiKpHZCQEMH9pDX27hQQLsTyOocyRgaIVtf8gHX3Nt3LPkR4e5EdtPAGQ==}
     engines: {node: ^22.18.0 || >=24.0.0}
+
+  iobuffer@6.0.1:
+    resolution: {integrity: sha512-SZWYkWNfjIXIBYSDpXDYIgshqtbOPsi4lviawAEceR1Kqk+sHDlcQjWrzNQsii80AyBY0q5c8HCTNjqo74ul+Q==}
 
   is-docker@3.0.0:
     resolution: {integrity: sha512-eljcgEDlEns/7AXFosB5K/2nCM4P7FQPkGc/DWLy5rmFEWvZayGrik1d9/QIY5nJ4f9YsVvBkA6kJpHn9rISdQ==}
@@ -3568,6 +3574,10 @@ packages:
   picomatch@4.0.7:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
+
+  pixelmatch@8.0.0:
+    resolution: {integrity: sha512-cIqOLfh5k52us715qf3B3+kTOxZv+WDv77HN7xokLScYQGYQHi4m/ynoDIPpvF2LvCyUJGyvzY64i0QCXtzu1g==}
+    hasBin: true
 
   playwright-core@1.63.0:
     resolution: {integrity: sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==}
@@ -4503,9 +4513,9 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.2': {}
 
-  '@e2e-dev/web@0.14.0(e2e@0.18.0(@ai-sdk/openai@4.0.91(zod@4.6.5))(ai@7.0.137(zod@4.6.5)))':
+  '@e2e-dev/web@0.14.0(e2e@0.19.0(@ai-sdk/openai@4.0.91(zod@4.6.5))(ai@7.0.137(zod@4.6.5)))':
     dependencies:
-      e2e: 0.18.0(@ai-sdk/openai@4.0.91(zod@4.6.5))(ai@7.0.137(zod@4.6.5))
+      e2e: 0.19.0(@ai-sdk/openai@4.0.91(zod@4.6.5))(ai@7.0.137(zod@4.6.5))
       playwright-core: 1.63.0
 
   '@esbuild/aix-ppc64@0.28.2':
@@ -6309,7 +6319,7 @@ snapshots:
       es-errors: 1.3.0
       gopd: 1.2.0
 
-  e2e@0.18.0(@ai-sdk/openai@4.0.91(zod@4.6.5))(ai@7.0.137(zod@4.6.5)):
+  e2e@0.19.0(@ai-sdk/openai@4.0.91(zod@4.6.5))(ai@7.0.137(zod@4.6.5)):
     dependencies:
       '@ai-sdk/provider': 4.0.21
       '@clack/prompts': 1.8.1
@@ -6318,11 +6328,12 @@ snapshots:
       '@oxc-project/runtime': 0.152.0
       '@vitest/expect': 5.0.3
       commander: 15.0.0
+      fast-png: 8.0.0
       get-tsconfig: 4.14.3
       oxc-parser: 0.152.0
       oxc-transform: 0.152.0
       picocolors: 1.1.1
-      pngjs: 7.0.0
+      pixelmatch: 8.0.0
       zod: 4.6.1
     optionalDependencies:
       '@ai-sdk/openai': 4.0.91(zod@4.6.5)
@@ -6391,6 +6402,11 @@ snapshots:
   eventsource-parser@3.1.1: {}
 
   expect-type@1.4.0: {}
+
+  fast-png@8.0.0:
+    dependencies:
+      fflate: 0.8.3
+      iobuffer: 6.0.1
 
   fast-string-truncated-width@3.0.3: {}
 
@@ -6487,6 +6503,8 @@ snapshots:
   import-meta-resolve@4.2.0: {}
 
   import-without-cache@0.4.0: {}
+
+  iobuffer@6.0.1: {}
 
   is-docker@3.0.0: {}
 
@@ -6885,6 +6903,10 @@ snapshots:
   picocolors@1.1.1: {}
 
   picomatch@4.0.7: {}
+
+  pixelmatch@8.0.0:
+    dependencies:
+      pngjs: 7.0.0
 
   playwright-core@1.63.0: {}
 
