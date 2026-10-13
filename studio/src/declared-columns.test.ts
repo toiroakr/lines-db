@@ -111,16 +111,24 @@ describe('isProjectSource', () => {
 
 // A directory with another TypeScript installed next to zod and valibot: 5, whose flags differ from 6, or 7.1 and later, which has the Corsa API
 describe.skipIf(!process.env.LINES_DB_TS_DIR)('readDeclaredColumns with the TypeScript of LINES_DB_TS_DIR', () => {
-  it('reads the same columns as it does with TypeScript 6', async () => {
+  it.each([
+    ['zod.schema.ts', ZOD_COLUMNS],
+    ['valibot.schema.ts', VALIBOT_COLUMNS],
+    ['reexport.schema.ts', VALIBOT_COLUMNS],
+    [
+      'union.schema.ts',
+      [
+        { name: 'a', type: 'string', optional: true, nullable: false },
+        { name: 'b', type: 'number', optional: true, nullable: false },
+        { name: 'kind', type: '"a" | "b"', optional: false, nullable: false },
+        { name: 'note', type: 'string', optional: true, nullable: false },
+      ],
+    ],
+  ])('reads the declared columns of %s with the installed TypeScript', async (file, expected) => {
     const dir = await mkdtemp(join(process.env.LINES_DB_TS_DIR!, 'run-'));
     try {
       await cp(fixtures, dir, { recursive: true });
-      expect(byName(await readDeclaredColumns(join(dir, 'zod.schema.ts'), dir))).toEqual(byName(ZOD_COLUMNS));
-      expect(byName(await readDeclaredColumns(join(dir, 'valibot.schema.ts'), dir))).toEqual(byName(VALIBOT_COLUMNS));
-      expect(
-        (await readDeclaredColumns(join(dir, 'union.schema.ts'), dir))?.map((column) => column.name).sort(),
-      ).toEqual(['a', 'b', 'kind', 'note']);
-      expect(byName(await readDeclaredColumns(join(dir, 'reexport.schema.ts'), dir))).toEqual(byName(VALIBOT_COLUMNS));
+      expect(byName(await readDeclaredColumns(join(dir, file), dir))).toEqual(byName(expected));
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

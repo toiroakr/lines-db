@@ -4,6 +4,7 @@ export default defineConfig([
   // CLI build (ESM only)
   {
     entry: ['src/cli.ts'],
+    external: ['@lines-db/studio'],
     format: ['esm'],
     platform: 'node',
     target: 'node22',
@@ -15,7 +16,7 @@ export default defineConfig([
   },
   // Library build (ESM only)
   {
-    entry: ['src/index.ts'],
+    entry: ['src/index.ts', 'src/internal.ts'],
     format: ['esm'],
     platform: 'node',
     target: 'node22',

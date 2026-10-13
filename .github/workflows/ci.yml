@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install deps
         uses: ./.github/actions/install-deps
@@ -24,17 +26,50 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Type check
-        run: pnpm typecheck
-
       - name: Build
         run: pnpm build
 
+      - name: Type check
+        run: pnpm typecheck
+
       - name: Publint
-        run: pnpm --filter @toiroakr/lines-db publint
+        run: pnpm --filter lines-db --filter @lines-db/studio publint
 
       - name: Run tests
         run: pnpm test
+
+  schema-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    name: Schema inspection - TypeScript ${{ matrix.typescript }}
+    strategy:
+      fail-fast: false
+      matrix:
+        typescript: ['5.9.3', '7.1.0-dev.20261012.1']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install deps
+        uses: ./.github/actions/install-deps
+
+      - name: Install the schema compiler
+        env:
+          TYPESCRIPT_VERSION: ${{ matrix.typescript }}
+        run: |
+          compiler_dir="$RUNNER_TEMP/studio-typescript"
+          npm install --prefix "$compiler_dir" --ignore-scripts --no-package-lock --no-audit --no-fund "typescript@$TYPESCRIPT_VERSION"
+          ln -s "$GITHUB_WORKSPACE/studio/node_modules/zod" "$compiler_dir/node_modules/zod"
+          ln -s "$GITHUB_WORKSPACE/studio/node_modules/valibot" "$compiler_dir/node_modules/valibot"
+
+      - name: Verify declared schema columns
+        env:
+          LINES_DB_TS_DIR: ${{ runner.temp }}/studio-typescript
+        run: pnpm --filter @lines-db/studio exec vitest run src/declared-columns.test.ts
 
   # Cross-platform tests to catch platform-specific issues
   # (e.g., file system ordering differences affecting foreign key resolution)
@@ -63,6 +98,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0

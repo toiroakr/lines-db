@@ -1,187 +1,100 @@
 # lines-db
 
-[日本語版 README](./README.ja.md) | [English README](./README.md)
+[日本語](./README.ja.md)
 
-A lightweight database implementation that treats JSONL (JSON Lines) files as tables using SQLite. Perfect for managing application seed data and testing.
+lines-db loads JSONL files into SQLite tables. Use it to validate seed data, query test fixtures, and write changes back to the source files. Schemas can use any Standard Schema library, including Valibot and Zod.
 
-## Features
+## Getting started
 
-- 📝 Load JSONL files as database tables
-- 🔄 Automatic schema inference
-- 💾 In-memory or file-based SQLite storage
-- 🚀 Full SQL query support
-- 🔍 Simple query API
-- 📦 **JSON column support** with automatic serialization/deserialization
-- ✅ Built-in validation using StandardSchema (supports Valibot, Zod, and more)
-- 🎯 **Automatic type inference from table names** (no type arguments needed!)
-- 🔄 **Bidirectional schema transformations** with automatic backward conversion
-- 💾 **Auto-sync to JSONL files** - persist database changes back to files
-- 🛡️ Type-safe with TypeScript
-- 🧪 Minimal dependencies (uses built-in SQLite in Node.js)
-
-## Quick Start
+Requires Node.js 22.12.0 or later.
 
 ```bash
-npm install @toiroakr/lines-db
+npm install lines-db
+```
+
+Create `data/users.jsonl` with one JSON object per line.
+
+```text
+{"id":1,"name":"Alice"}
+{"id":2,"name":"Bob"}
 ```
 
 ```typescript
-import { LinesDB } from '@toiroakr/lines-db';
+import { LinesDB, unwrap } from 'lines-db';
 
 const db = LinesDB.create({ dataDir: './data' });
-await db.initialize();
-
-const users = db.find('users');
-await db.close();
+unwrap(await db.initialize());
+const users = unwrap(db.find('users'));
+console.log(users);
+unwrap(await db.close());
 ```
 
-**For full documentation, see [lib/README.md](./lib/README.md)**
+For schema definitions, type generation, queries, and write-back options, see the [library documentation](./lib/README.md).
 
-## Repository Structure
+## Studio
 
-This repository is organized as a monorepo:
+Install `@lines-db/studio` to browse and edit the data in a browser.
 
-```
-lines-db/
-├── lib/                 # Core library package (@toiroakr/lines-db)
-│   ├── src/            # Source code
-│   ├── dist/           # Build output (ESM)
-│   ├── bin/            # CLI executable
-│   └── README.md       # 📚 User documentation (published to npm)
-├── tests/              # Integration tests
-│   └── unit/          # Unit tests
-├── examples/           # Usage examples
-└── extension/          # VSCode extension
+```bash
+npm install -D @lines-db/studio
+npx lines-db studio ./data --open
 ```
 
-## Packages
+Changes are staged until you save. Studio validates them against the schema before writing to the JSONL files. See the [Studio documentation](./studio/README.md) for editing, shared schemas, and data sets.
 
-### 📦 Core Library: [@toiroakr/lines-db](./lib)
+## VS Code extension
 
-The main npm package that provides the database functionality.
-
-**[→ Full documentation](./lib/README.md)**
-
-**Features:**
-
-- JSONL file loading and parsing
-- SQLite database abstraction
-- Schema inference and validation
-- Type-safe query APIs
-- Node.js 22.12+ support
-- CLI tools for validation and type generation
-- Browser UI to browse and edit tables (`lines-db studio`)
-
-### 🔌 VSCode Extension: [lines-db-vscode](./extension)
-
-VSCode extension for lines-db with real-time validation and development tools.
-
-**[→ Extension documentation](./extension/README.md)**
-
-**Features:**
-
-- Command palette integration (validate, migrate)
-- Real-time validation diagnostics
-- CodeLens showing record counts
-- Hover information for schema files
-- JSONL syntax highlighting
+The [VS Code extension](./extension/README.md) validates JSONL files in the editor and provides commands for validation and migration. Install it from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=toiroakr.lines-db-vscode).
 
 ## Development
 
-### Prerequisites
-
-- Node.js 22.12.0 or later
-- pnpm 10.x or later
-
-### Setup
+Use the pnpm version specified in `package.json`. Run these commands from the repository root.
 
 ```bash
-# Install dependencies
 pnpm install
-
-# Build the library
-cd lib
-pnpm run build
-```
-
-### Testing
-
-```bash
-# Run unit tests
+pnpm build
 pnpm test
-```
-
-The studio has end-to-end tests in `e2e/`, run with [TesterArmy e2e](https://e2e.tester.army). CI runs the scripted ones (`pnpm e2e:deterministic`) on each pull request, uploads the report as `studio-e2e-report.html`, an artifact that opens in the browser as it is, and comments it on the pull request. `pnpm e2e:report:html` writes the same file locally, to `e2e/.e2e/report.html`. The agent tests are run locally only, as they drive the browser through a ChatGPT subscription.
-
-```bash
-# Once: install Chromium for the tests and sign in to ChatGPT
-pnpm e2e:setup
-
-# Build, then run every test, only the scripted ones, or only the agent ones
-pnpm e2e
-pnpm e2e:deterministic
-pnpm e2e:agent
-
-# Show the result of the latest run (screenshots and traces are in e2e/.e2e/artifacts/)
-pnpm e2e:report
-```
-
-### Other Commands
-
-```bash
-# Type checking
 pnpm typecheck
-
-# Linting
 pnpm lint
-pnpm lint:fix
-
-# Formatting
-pnpm format
 pnpm format:check
-
-# Run examples
-pnpm example
-pnpm example:validation
-pnpm example:json
-pnpm example:datadir
 ```
 
-## Contributing
+`pnpm build` builds the library and Studio. To build the library alone, run `pnpm --filter lines-db build`. Run the examples with `pnpm example`, `pnpm example:validation`, `pnpm example:json`, or `pnpm example:datadir`.
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+| Directory     | Contents                                                    |
+| ------------- | ----------------------------------------------------------- |
+| `lib/`        | `lines-db`, including the database API and CLI              |
+| `studio/`     | `@lines-db/studio`, including the local server and built UI |
+| `studio-ui/`  | Studio's React source                                       |
+| `extension/`  | VS Code extension                                           |
+| `tests/unit/` | Integration and type tests                                  |
+| `e2e/`        | Studio browser tests                                        |
+| `examples/`   | Usage examples                                              |
 
-### Workflow
+### Browser tests
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Publishing
-
-This project uses [changesets](https://github.com/changesets/changesets) for version management:
+Studio's browser tests use [TesterArmy e2e](https://e2e.tester.army). Install Chromium and sign in to ChatGPT before the first local run.
 
 ```bash
-# Create a changeset
-pnpm changeset
-
-# Version packages
-pnpm version
-
-# Publish to npm
-pnpm release
+pnpm e2e:setup
+pnpm e2e:deterministic
 ```
+
+`pnpm e2e` runs all browser tests. `pnpm e2e:agent` runs the agent tests, which use a ChatGPT subscription and run locally. CI runs the scripted tests on pull requests and attaches an HTML report.
+
+To read the latest result or export the HTML report, run:
+
+```bash
+pnpm e2e:report
+pnpm --filter @toiroakr/lines-db-e2e e2e:report:html
+```
+
+The HTML report is written to `e2e/.e2e/report.html`. Screenshots and traces are in `e2e/.e2e/artifacts/`.
+
+### Releases
+
+Add a changeset with `pnpm changeset` for changes to published packages. [Changesets](https://github.com/changesets/changesets) tracks the versions of `lines-db` and `@lines-db/studio`. CI creates a release PR; merging it publishes the packages to npm.
 
 ## License
 
-MIT
-
-## Links
-
-- **npm**: [@toiroakr/lines-db](https://www.npmjs.com/package/@toiroakr/lines-db)
-- **GitHub**: [toiroakr/lines-db](https://github.com/toiroakr/lines-db)
-- **Issues**: [github.com/toiroakr/lines-db/issues](https://github.com/toiroakr/lines-db/issues)
-- **Documentation**: [lib/README.md](./lib/README.md)
-- **Extension**: [extension/README.md](./extension/README.md)
+[MIT](./LICENSE)

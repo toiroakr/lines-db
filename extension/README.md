@@ -1,142 +1,76 @@
-# LinesDB VS Code Extension
+# LinesDB for VS Code
 
-VS Code extension for [@toiroakr/lines-db](https://github.com/toiroakr/lines-db/tree/main/lib#readme) - JSONL database utilities with schema validation.
+[日本語](./README.ja.md)
 
-## Features
+This extension validates JSONL files using [lines-db](https://github.com/toiroakr/lines-db/tree/main/lib#readme). It also provides record counts, schema information, and commands for validation and migration.
 
-### 🔍 Real-time Validation
+## Setup
 
-Automatically validates JSONL files as you edit them:
+Requires VS Code 1.134.0 or later. Install `lines-db` in the workspace project; the library requires Node.js 22.12.0 or later.
 
-- **Inline error highlighting** - See validation errors directly in your editor
-- **Detailed error messages** - Understand what's wrong with specific fields
-- **Instant feedback** - Catch data quality issues before runtime
+```bash
+npm install lines-db
+```
 
-### 💻 Command Palette Integration
+Place JSONL files and their schemas in the data directory.
 
-Execute lines-db CLI commands without leaving VS Code:
+```text
+data/
+  users.jsonl
+  users.schema.ts
+  products.jsonl
+  products.schema.ts
+```
 
-- **LinesDB: Validate Files** - Validate all JSONL files in your data directory
-- **LinesDB: Migrate Data** - Transform data with validation
+The default data directory is `./data`. To use another directory, change `lines-db.dataDir` in the workspace settings.
 
-Access via `Cmd+Shift+P` (Mac) or `Ctrl+Shift+P` (Windows/Linux).
+## Validation and schema information
 
-### 📊 CodeLens Information
+Open a JSONL file to see validation errors in the editor. Diagnostics identify the affected fields and explain the errors. To validate the full data directory, run **LinesDB: Validate Files** from the Command Palette.
 
-See data statistics at a glance:
+CodeLens shows the record count at the top of each JSONL file and provides a validation action. Hover over a `schema` export in a `.schema.ts` file to see the table name, corresponding file, record count, and validation status.
 
-- **Record count** displayed at the top of JSONL files
-- **Quick validation** access with one click
+Large files can take longer to validate.
 
-### 💡 Hover Information
+## Migration
 
-Hover over `schema` exports in `.schema.ts` files to see:
+Open a JSONL file and run **LinesDB: Migrate Data** from the Command Palette. The extension opens a generated TypeScript file. Edit the `filter` and `transform` properties of `migration`, keeping the generated type definitions. For example, to increase the age of rows older than 25 by one:
 
-- Table name and corresponding JSONL file
-- Number of records
-- File validation status
+```typescript
+export const migration: Migration = {
+  filter: (row) => row.age > 25,
+  transform: (row) => ({ ...row, age: row.age + 1 }),
+};
+```
 
-## Requirements
+Save the file to validate the changes. Use **Show Preview** to inspect the result, then **Execute Migration** to apply it to the original JSONL file. Choose **Cancel Migration** to discard the migration.
 
-- **VS Code** 1.85.0 or later
-- **@toiroakr/lines-db** installed in your project
-- **Node.js** 22.5.0 or later
+Open the Command Palette with Cmd+Shift+P on macOS or Ctrl+Shift+P on Windows and Linux.
 
-## Extension Settings
+## Settings
 
-Configure the extension in VS Code settings (search for "LinesDB"):
+Search for “LinesDB” in VS Code settings.
 
 | Setting                      | Description                                 | Default  |
 | ---------------------------- | ------------------------------------------- | -------- |
 | `lines-db.dataDir`           | Directory containing JSONL and schema files | `./data` |
-| `lines-db.enableDiagnostics` | Enable real-time validation diagnostics     | `true`   |
-
-## Usage
-
-### Quick Start
-
-**1. Install lines-db in your project:**
-
-```bash
-npm install @toiroakr/lines-db
-# or
-pnpm add @toiroakr/lines-db
-```
-
-**2. Create your data directory:**
-
-```
-data/
-  ├── users.jsonl
-  ├── users.schema.ts
-  ├── products.jsonl
-  └── products.schema.ts
-```
-
-**3. Open a JSONL file** - The extension will automatically start validating!
-
-### Validate Files
-
-**Automatic validation:**
-
-- Open any `.jsonl` file and see real-time validation errors
-
-**Manual validation:**
-
-- Command Palette → "LinesDB: Validate Files"
-- Validates all JSONL files in your data directory
-
-### Migrate Data
-
-**Transform data with validation:**
-
-1. Open a JSONL file
-2. Command Palette → "LinesDB: Migrate Data"
-3. Enter transformation: `(row) => ({ ...row, updated: true })`
-4. (Optional) Enter filter: `{ age: (age) => age > 25 }`
-
-### View Schema Info
-
-Hover over `schema` exports in `.schema.ts` files to see:
-
-- Table name and file path
-- Record count
-- Validation status
+| `lines-db.enableDiagnostics` | Enable validation diagnostics while editing | `true`   |
 
 ## Development
 
-**Build from source:**
+From the repository root:
 
 ```bash
-# Install dependencies
 pnpm install
-
-# Build the extension
 pnpm --filter lines-db-vscode build
-
-# Watch mode
-pnpm --filter lines-db-vscode watch
 ```
 
-**Test the extension:**
+Use `pnpm --filter lines-db-vscode watch` to rebuild on changes. To try the extension, open the `extension` folder in VS Code and press F5 to launch an Extension Development Host.
 
-1. Open `extension` folder in VS Code
-2. Press `F5` to launch Extension Development Host
-3. Test features in the new window
+## Release notes
 
-## Known Issues
-
-- Real-time validation may be slow for large JSONL files (10,000+ records)
-- Migration requires manual transformation function input
-
-## Release Notes
-
-See [CHANGELOG.md](./CHANGELOG.md) for detailed release notes and version history.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+See [CHANGELOG.md](./CHANGELOG.md).
 
 ## License
 
-MIT
+[MIT](../LICENSE)

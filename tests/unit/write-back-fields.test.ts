@@ -17,7 +17,7 @@ const cliPath = join(__dirname, '../../lib/bin/cli.mjs');
  * Schema that mimics a generated seed schema: no `backward`, and validation fills in
  * fields the JSONL file never carried (an id and a hook-computed value).
  */
-const HOOK_SCHEMA = `import { defineSchema } from '@toiroakr/lines-db';
+const HOOK_SCHEMA = `import { defineSchema } from 'lines-db';
 
 let counter = 0;
 
@@ -44,7 +44,7 @@ export const schema = defineSchema(
 `;
 
 /** Integer primary key, so SQLite makes it the rowid and returns rows in id order */
-const ITEM_SCHEMA = `import { defineSchema } from '@toiroakr/lines-db';
+const ITEM_SCHEMA = `import { defineSchema } from 'lines-db';
 
 export const schema = defineSchema(
   {
@@ -244,7 +244,7 @@ describe('write-back fields', () => {
     await writeFile(join(testDir, 'Event.jsonl'), `{"id":"e1","note":"keep"}\n{"id":"e2","note":"stale"}\n`);
     await writeFile(
       join(testDir, 'Event.schema.ts'),
-      `import { defineSchema } from '@toiroakr/lines-db';
+      `import { defineSchema } from 'lines-db';
 
 export const schema = defineSchema(
   {
@@ -279,7 +279,7 @@ export const schema = defineSchema(
     await writeFile(join(testDir, 'Log.jsonl'), `{"msg":"a"}\n`);
     await writeFile(
       join(testDir, 'Log.schema.ts'),
-      `import { defineSchema } from '@toiroakr/lines-db';
+      `import { defineSchema } from 'lines-db';
 
 export const schema = defineSchema({
   '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) },
@@ -326,7 +326,7 @@ export const schema = defineSchema({
     await writeFile(join(testDir, 'Log.jsonl'), `{"msg":"a"}\n{"msg":"b"}\n`);
     await writeFile(
       join(testDir, 'Log.schema.ts'),
-      `import { defineSchema } from '@toiroakr/lines-db';
+      `import { defineSchema } from 'lines-db';
 
 export const schema = defineSchema({
   '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) },
@@ -402,7 +402,7 @@ export const schema = defineSchema({
     await writeFile(join(testDir, 'Event.jsonl'), `{"date":"2024-01-01T00:00:00.000Z","note":"kickoff"}\n`);
     await writeFile(
       join(testDir, 'Event.schema.ts'),
-      `import { defineSchema } from '@toiroakr/lines-db';
+      `import { defineSchema } from 'lines-db';
 
 export const schema = defineSchema(
   {
@@ -472,7 +472,7 @@ export const schema = defineSchema(
     await writeFile(join(testDir, 'Account.jsonl'), `{"email":"john@example.com","password":"secret"}\n`);
     await writeFile(
       join(testDir, 'Account.schema.ts'),
-      `import { defineSchema } from '@toiroakr/lines-db';
+      `import { defineSchema } from 'lines-db';
 
 export const schema = defineSchema(
   {

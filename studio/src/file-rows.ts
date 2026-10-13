@@ -1,4 +1,4 @@
-import type { JsonObject } from '../types.js';
+import type { JsonObject } from 'lines-db';
 
 /**
  * The content with the rows at the given indexes - counting the lines that hold a row, as reading

@@ -1,44 +1,28 @@
 # lines-db
 
-A data management library that treats JSONL (JSON Lines) files as tables. Perfect for managing application seed data and testing.
+[日本語](./README.ja.md)
 
-## Features
+lines-db loads JSONL files into SQLite tables and writes changes back to their source files. Use it for seed data and test fixtures that you keep in files.
 
-- 📝 Load JSONL files as database tables
-- ✅ **CLI tools for validation and data migration**
-- 🖥️ **Browser UI to browse and edit tables** (`lines-db studio`)
-- 🔄 Automatic schema inference
-- 📦 **JSON column support** with automatic serialization/deserialization
-- ✅ Built-in validation using StandardSchema (Valibot, Zod, etc.)
-- 🎯 **Automatic type inference from table names**
-- 🔄 **Bidirectional schema transformations**
-- 💾 **Auto-sync to JSONL files**
-- 🛡️ Type-safe with TypeScript
-- Node.js 22.5+ support
+Columns are inferred from the rows. Define a schema with a Standard Schema library such as Valibot or Zod to validate rows and generate TypeScript types. Objects and arrays are stored as JSON columns. Schemas can transform values on load and convert them back when saving.
 
-## VS Code Extension
-
-A VS Code extension is available that provides syntax highlighting and validation for JSONL files with schema support.
-
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/toiroakr.lines-db-vscode?label=VS%20Code%20Marketplace&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=toiroakr.lines-db-vscode)
-
-[Install from VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=toiroakr.lines-db-vscode)
+The CLI validates, migrates, fills missing values, and generates types. Install `@lines-db/studio` to edit data in a browser, or use the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=toiroakr.lines-db-vscode) for validation in the editor.
 
 ## Installation
 
+Requires Node.js 22.12.0 or later.
+
 ```bash
-npm install @toiroakr/lines-db
-# or
-pnpm add @toiroakr/lines-db
+npm install lines-db
 ```
 
-## CLI Usage
+With pnpm, use `pnpm add lines-db`.
 
-### Setting Up Schemas
+## CLI usage
 
-Create schema files alongside your JSONL files:
+### Define schemas
 
-**Directory structure:**
+Place a schema file next to the JSONL file, using the same table name.
 
 ```
 data/
@@ -48,11 +32,11 @@ data/
   └── products.schema.ts
 ```
 
-**Example schema (users.schema.ts):**
+The following `users.schema.ts` uses Valibot. Add it with `npm install valibot`.
 
 ```typescript
 import * as v from 'valibot';
-import { defineSchema } from '@toiroakr/lines-db';
+import { defineSchema } from 'lines-db';
 
 export const schema = defineSchema(
   v.object({
@@ -65,42 +49,27 @@ export const schema = defineSchema(
 export default schema;
 ```
 
-**Supported validation libraries:**
+Any library implementing [Standard Schema](https://standardschema.dev/) can be used.
 
-- Any library implementing [StandardSchema](https://standardschema.dev/)
+`initialize()` fails if a schema file cannot be imported or does not export a Standard Schema as `schema` or `default`. The error includes the file and the reason.
 
-A table whose schema file cannot be loaded - it fails to import, or exports no Standard Schema as
-`schema` or `default` - makes `initialize()` fail with the file and the reason, rather than loading the
-table without validation.
+### Validate JSONL files
 
-### Validate JSONL Files
-
-Validate your JSONL files against their schemas:
+Validate a file, or all JSONL files in a directory, against their schemas.
 
 ```bash
 npx lines-db validate <path>
 ```
 
-**Example:**
-
 ```bash
-# Validate all JSONL files in ./data directory
 npx lines-db validate ./data
 
-# Validate a specific file
 npx lines-db validate ./data/users.jsonl
 
-# Verbose output
 npx lines-db validate ./data --verbose
 ```
 
-This command will:
-
-- For directories: Find all `.jsonl` files in the directory
-- For files: Validate the specified `.jsonl` file
-- Load corresponding `.schema.ts` files
-- Validate each record against the schema
-- Report validation errors with detailed messages
+The command loads the corresponding schema files and checks each row. Validation errors include the file and details of the failure.
 
 #### Validate named datasets
 
@@ -142,7 +111,7 @@ without reading a configuration file. Only the `validate` CLI command uses this 
 Programs can load the same configuration with `loadDatasetConfig()`:
 
 ```typescript
-import { LinesDB, loadDatasetConfig } from '@toiroakr/lines-db';
+import { LinesDB, loadDatasetConfig } from 'lines-db';
 
 const config = await loadDatasetConfig('./lines-db.config.json', {
   datasets: ['cogs', 'sales'],
@@ -156,88 +125,66 @@ Calling `loadDatasetConfig()` without arguments reads `lines-db.config.json` in 
 It returns `Promise<DatabaseConfig>` and rejects unreadable or invalid configuration, unknown set names and missing
 selected data directories. A missing `schemaDir` or one pointing to a file is also rejected. Call `db.initialize()` to load and validate the data.
 
-### Migrate Data
+### Migrate data
 
-Transform data in JSONL files with validation:
+Apply a function to each row, validate the result, and save it to the JSONL file.
 
 ```bash
 npx lines-db migrate <file> <transform> [options]
 ```
 
-**Example:**
-
 ```bash
-# Update all ages by adding 1
 npx lines-db migrate ./data/users.jsonl "(row) => ({ ...row, age: row.age + 1 })"
 
-# Migrate with filter
 npx lines-db migrate ./data/users.jsonl "(row) => ({ ...row, active: true })" --filter "{ age: (age) => age > 18 }"
 
-# Save transformed data on error
 npx lines-db migrate ./data/users.jsonl "(row) => ({ ...row, age: row.age + 1 })" --errorOutput ./migrated.jsonl
 
-# Backfill ids without rewriting anything else
-npx lines-db migrate ./data "(row) => ({ ...row, id: row.id ?? crypto.randomUUID() })" --fields id
+npx lines-db migrate ./data "(row) => row" --fields id
 ```
 
-**Options:**
+Available options:
 
-- `--filter, -f <expr>` - Filter expression to select rows
-- `--fields <list>` - Comma-separated fields to write back; every other field keeps the value the JSONL file already had (default: write every field)
-- `--errorOutput, -e <path>` - Save transformed data to file if migration fails
-- `--verbose, -v` - Show detailed error messages
+- `--filter, -f <expr>`: Select rows with a filter expression.
+- `--fields <list>`: Write back only the comma-separated fields. Other values remain as stored in the JSONL file. If omitted, write every field.
+- `--errorOutput, -e <path>`: Save the transformed data to this path if migration fails.
+- `--verbose, -v`: Show detailed error messages.
 
 The migration runs in a transaction and validates all transformed rows before committing.
 
-#### Writing back only some fields
+#### Write back selected fields
 
-By default a migration writes each row back in full, so values a validation schema computed and
-fields the JSONL file omitted end up materialized in the file. `--fields` narrows the write-back to
-the fields you name - everything else in the line is left exactly as it was:
+A normal migration writes whole rows back to the file, including schema defaults and fields that were omitted. Use `--fields` to keep other values as they were.
 
 ```bash
-# users.jsonl before: {"name":"John"}
 npx lines-db migrate ./data/users.jsonl "(row) => row" --fields id
-# users.jsonl after:  {"id":"...","name":"John"}
 ```
 
-Rows are matched to their existing line by primary key, or by position when the file does not carry
-one yet (the case when the primary key itself is being backfilled). Lines keep the order the file
-has them in, and rows the file never had are appended, since there is nothing to preserve for them.
-When rows cannot be matched to their lines - the file has no usable primary key _and_ the row count
-changed - the migration fails instead of guessing.
+Rows are matched by primary key, or by position when the file has no primary key yet, such as when filling in that key. Existing row order is preserved, and new rows are appended. If the file has no primary key and the row count has changed, the migration fails because the rows cannot be matched.
 
-One list covers every table the migration touches. A table that does not have a named field simply
-has nothing written back to it, so a directory holding tables that do not all share an `id` works
-with a single `--fields id`. A field _no_ table has is a typo, and the migration stops.
+`--fields` applies to all target tables. Tables without the named fields are not written back, so one list can cover tables with different columns. A field absent from every table causes an error.
 
-### Fill Missing Values
+### Fill missing values
 
 ```bash
 npx lines-db fill <path> [--fields id,createdAt]
 ```
 
-Fills the named fields - by default each table's primary key - into the rows of the JSONL files under
-`path` (a data directory, or one `.jsonl` file) that have no value for them, with the value each
-table's validation schema gives the row. A value already in the file is never replaced, and a line
-that gains nothing is left byte for byte, its line separator included; a line that does gain a value
-is written with its keys in the order the schema lists them. Every value is computed before any file
-is written, and a row the schema rejects gains nothing. A file saved by another tool after the fill
-read it stops the fill with a `JsonlConflictError` naming the file, before any file is written.
-Fields are named as the file holds them: for a schema whose `backward` renames the primary key, name
-the file's field with `--fields`, since the default is the primary key as the database calls it.
+Set `path` to a data directory or a JSONL file. The command fills missing fields with values supplied by the validation schema. Without `--fields`, it fills each table's primary key.
 
-The same runs from code with `fillFields()`, which also takes the function that computes a row's
-values, for a table whose create-time values come from something other than its validation schema:
+Existing values are never replaced. Lines that gain no values remain unchanged, including line endings. Updated lines use the schema's key order. Rows that fail validation are not written. All values are computed before writing any files. If another tool changed a file after it was read, the command writes nothing and stops with a `JsonlConflictError` naming that file.
+
+Use field names as stored in the file. When a `backward` transformation renames a primary key, the default target is the database's primary key name; pass the file's field name with `--fields`.
+
+`fillFields()` accepts a function to compute values. This example uses a `hook` exported by the schema file. If the function throws, nothing is written.
 
 ```typescript
-import { fillFields, unwrap } from '@toiroakr/lines-db';
+import { fillFields, unwrap } from 'lines-db';
 
 const { filled } = unwrap(
   await fillFields({
     path: './data',
     fields: ['id'],
-    // Computes the values from the `hook` the schema file exports; throwing stops the fill
     loadFiller: (schemaModule, { schemaPath }) => {
       if (typeof schemaModule.hook !== 'function') throw new Error(`${schemaPath} does not export \`hook\``);
       return schemaModule.hook;
@@ -246,166 +193,88 @@ const { filled } = unwrap(
 );
 ```
 
-The result also lists the tables without a schema file (`tablesWithoutSchema`), the lines that are
-not JSON objects (`unreadableLines`), and the named fields no table produced a value for
-(`unproducedFields`).
+The result's `tablesWithoutSchema` lists tables without schemas, `unreadableLines` lists lines that are not JSON objects, and `unproducedFields` lists fields for which no table produced a value.
 
 ### Browse and Edit in the Browser
 
-```bash
-npx lines-db studio <dataDir> [--port 4848] [--open] [--write-filled-values primaryKey|all]
-```
-
-To edit a data set containing only JSONL files, point `--schema-dir` at the shared schema directory.
-Validation, declared columns, foreign keys, and the Schema dialog use those shared files; saves go
-back to the selected data set.
+Install Studio in the project and start it with the CLI.
 
 ```bash
-npx lines-db studio seed/data/cogs --schema-dir seed/data
+npm install -D @lines-db/studio
+npx lines-db studio ./data --open
 ```
 
-To browse several data directories together, repeat `--data-dir` and supply `--schema-dir`:
+The default URL is `http://127.0.0.1:4848`. Changes are validated and written to the JSONL files when you save. See the [Studio documentation](https://github.com/toiroakr/lines-db/blob/main/studio/README.md) for editing, shared schemas, and multiple data directories.
 
-```bash
-npx lines-db studio --data-dir seed/data --data-dir seed/data/cogs --schema-dir seed/data
-```
+## TypeScript usage
 
-Updates and deletes go back to the file each row came from. For a new record, choose its data
-directory in the Add record dialog; Studio creates the table file there if needed. Foreign keys and
-unique constraints are checked across the composed data. Files changed outside Studio cause a
-conflict, and a failed save rolls back its file writes. A positional directory can also be combined
-with `--data-dir`.
+### Generate types
 
-Starts a local web UI at `http://127.0.0.1:4848` that lists the tables of `dataDir` with their row
-counts and shows a table as a grid. Click a cell to edit it, edit a whole row in the row form beside
-the grid, add records from a dialog of their fields, or select rows to delete; the changes stay pending - highlighted in the grid - until **Save N changes** writes them all in one
-transaction through `db.update()` / `db.insert()` / `db.delete()`, or **Discard** drops them. A value
-the schema rejects writes nothing: the issues are shown with the change they came from, and the
-pending changes stay for you to fix. A save changes the values of the rows it edits only, but
-rewrites the table's JSONL file as a whole, so the formatting of the other lines can change too.
-
-- The server generates a token at start-up and hands it to the page it serves, which keeps it in
-  `sessionStorage` and sends it with each request; a request without it is refused with 401. Another
-  site cannot read the page, so it cannot get the token either.
-- A save writes the fields you wrote and leaves the values the schema fills in out of the file
-  (`writeFilledValues: 'primaryKey'`, see [Values the Schema Fills In](#values-the-schema-fills-in));
-  `--write-filled-values all` writes them as a sync does by default.
-- A value the schema filled in rather than the file is shown dimmed with a **default** mark. **Remove
-  field** in a cell's editor removes the field from the line and leaves its value to the schema; a new
-  row's empty field is left to the schema too. **Remove field** and **Set null** are offered only where
-  the schema takes them: the studio validates a sample row with the field removed and with it set to
-  null, and inside a JSON value with a key added or removed, to find which a schema allows.
-- A cell's editor checks the value as you type, against the schema as a save would
-  (`POST /api/tables/:name/check`, which validates the change without writing it), and lists the
-  issues under the field. A JSON value is edited as fields of its own: a map as a field per key, a
-  list as a field per item and a list of maps as a block per item, with an issue shown under the key it
-  is about. Each block switches to a JSON editor with syntax highlighting, where a syntax error is
-  marked where it is; comments and trailing commas are accepted there and dropped when the value is
-  set, as it is saved as plain JSON. A text field grows with its lines, and Shift+Enter breaks a line.
-  **Set** (Enter, or Cmd/Ctrl+Enter for JSON) puts the value among the pending changes; nothing is
-  written until you save.
-- The row form, shown beside the grid from the button at the right of the header, edits every field of
-  a row at once, and its changes join the pending ones. While it is shown, a click on a row shows that
-  row in it and a double click edits the cell; while it is hidden, a double click on a row shows it. A
-  foreign key field opens the row it refers to. Drag the edge of the form to widen it.
-- **Add record** opens a dialog with a field for each column, the primary key among them. The fields
-  left empty are left out of the row, and the whole row is checked as it is filled in.
-- The header also switches the colors between those of the system, light and dark.
-- **Schema** opens on the table's declared definition: its columns, foreign keys and indexes. The columns are read from the types of the schema file (its Standard Schema `types`) with the TypeScript installed in your project: the compiler API of TypeScript 5 and 6, or the Corsa API of TypeScript 7.1 and later, whichever the project has; each column shows its type and whether it is optional or nullable. Without TypeScript, or when the schema declares no types, the columns are inferred from the values in the rows instead, and the page says so. A foreign key links to the schema of the table it references, and the address (`#orders?schema=customers`) names the schema that is open. The **Code** tab shows the schema file (`<table>.schema.ts` and the like) as it is on disk, highlighted. A table with failing rows has only the code.
-- A table needs a primary key (an `id` column, or `primaryKey` in its schema file) with a value on every row to be edited; one
-  without is shown read-only.
-- A table whose rows fail validation on load is shown as its JSONL file holds it, with the failing
-  rows and cells marked and their issues listed. Fix a cell and save: the fix is checked against the
-  schema with `validateRow()` and written to that row's line only, the other lines staying as they
-  were, and the table is loaded as usual once every row passes. Adding and deleting rows is off until
-  then. A field the schema refuses as a key is marked **not in schema**, and its column header removes it
-  from every row at once.
-- When the files change on disk while the studio is open, the page reloads the rows on its own, or,
-  with changes pending, says so. A save checks the files first: a changed schema file is loaded so the
-  save is validated against it, and a change to the edited table's own file stops the save with the
-  name of that file, writes nothing, and reloads the tables. A save writes back the table it edits and
-  any table a foreign-key action (`CASCADE` or `SET NULL`) can change from it, so a change to one of
-  those files stops it too; a change to an unrelated table's file does not.
-- The server only answers requests addressed to the local host, and only accepts writes sent as
-  `application/json` from its own page.
-
-## TypeScript Usage
-
-### Generate Types
-
-Generate TypeScript types from your schemas for type-safe database access:
+Generate a database config and types from the schemas. The default output is `<dataDir>/db.ts`.
 
 ```bash
 npx lines-db generate <dataDir>
 ```
 
-**Example:**
-
 ```bash
-# Generate types (creates ./data/db.ts by default)
 npx lines-db generate ./data
 ```
 
-**Add to package.json:**
+To run these commands through `package.json`:
 
 ```json
-"scripts": {
-  "db:validate": "lines-db validate ./data",
-  "db:generate": "lines-db generate ./data"
+{
+  "scripts": {
+    "db:validate": "lines-db validate ./data",
+    "db:generate": "lines-db generate ./data"
+  }
 }
 ```
 
-### Quick Start
+### Load data
 
-**1. Create a JSONL file (./data/users.jsonl):**
+Create `data/users.jsonl`.
 
-```jsonl
+```text
 {"id":1,"name":"Alice","age":30,"email":"alice@example.com"}
 {"id":2,"name":"Bob","age":25,"email":"bob@example.com"}
 {"id":3,"name":"Charlie","age":35,"email":"charlie@example.com"}
 ```
 
-**2. Use in TypeScript:**
+Load the directory from TypeScript.
 
 ```typescript
-import { LinesDB, unwrap } from '@toiroakr/lines-db';
+import { LinesDB, unwrap } from 'lines-db';
 
 const db = LinesDB.create({ dataDir: './data' });
 unwrap(await db.initialize());
 
-// Find all users
 const users = unwrap(db.find('users'));
 console.log(users); // [{ id: 1, name: "Alice", ... }, ...]
 
-// Find a specific user
 const user = unwrap(db.findOne('users', { id: 1 }));
 console.log(user); // { id: 1, name: "Alice", age: 30, ... }
 
-// Find with conditions
 const adults = unwrap(db.find('users', { age: (age) => age >= 30 }));
 
 unwrap(await db.close());
 ```
 
-> Most `LinesDB`/`JsonlReader` methods return a `Result<T, Error>` instead of throwing — see
-> [Error Handling](#error-handling) below. `unwrap()` reads the value or throws the error, which is
-> convenient at the top of a script but not the only way to consume a `Result`.
+`unwrap()` returns the value from a successful `Result` or throws its error. See [Error handling](#error-handling) for handling failures explicitly.
 
-### Using Generated Types
+### Use generated types
 
-After running `npx lines-db generate ./data`:
+The generated config infers row types from table names.
 
 ```typescript
-import { LinesDB, unwrap } from '@toiroakr/lines-db';
+import { LinesDB, unwrap } from 'lines-db';
 import { config } from './data/db.js';
 
 const db = LinesDB.create(config);
 unwrap(await db.initialize());
 
-// ✨ Type is automatically inferred!
 const users = unwrap(db.find('users'));
 
-// ✨ Type-safe operations
 unwrap(
   db.insert('users', {
     id: 10,
@@ -418,14 +287,12 @@ unwrap(
 unwrap(await db.close());
 ```
 
-## Error Handling
+## Error handling
 
-`LinesDB` and `JsonlReader` methods that can fail return a `Result<T, Error>` — a discriminated union
-`{ ok: true; value: T } | { ok: false; error: Error }` — instead of throwing. `getSchema`,
-`getTableNames`, and `getDb` can't fail, so they still return their value directly.
+Methods in `LinesDB` and `JsonlReader` that can fail return `Result<T, Error>`. A successful result is `{ ok: true, value }`; a failed result is `{ ok: false, error }`. `getSchema`, `getTableNames`, and `getDb` return their values directly.
 
 ```typescript
-const result = db.insert('users', { id: 2, name: '' }); // fails a validation schema
+const result = db.insert('users', { id: 2, name: '' });
 
 if (result.ok) {
   console.log(result.value.changes);
@@ -434,67 +301,55 @@ if (result.ok) {
 }
 ```
 
-`unwrap(result)` reads `result.value`, or throws `result.error` when `result.ok` is `false` — useful
-at the top of a script, or anywhere a failure should propagate like an exception:
+`unwrap(result)` returns the value on success and throws the error on failure. Use it when a failure should stop the current operation.
 
 ```typescript
-import { unwrap } from '@toiroakr/lines-db';
+import { unwrap } from 'lines-db';
 
-const users = unwrap(db.find('users')); // throws if db.find() returned an error
+const users = unwrap(db.find('users'));
 ```
 
-Inside `db.transaction(async (tx) => { ... })`, `tx` is the same Result-returning API as `db` — a
-failed `tx.insert()`/`tx.update()`/etc. does not throw on its own and therefore does not roll back the
-transaction by itself. Check the Result and `throw result.error` (or call `unwrap`) to abort the
-transaction on such a failure; only a thrown error inside the callback rolls it back.
+Inside a transaction, `tx` also returns Results. A failed `insert()` or `update()` does not roll back the transaction by itself. To abort on failure, use `unwrap()` or check the Result and throw with `throw result.error`.
 
-Write through `tx`, not `db`, inside the callback: while a transaction is open, a write made through `db` itself
-(for example from other code running while the callback awaits) is refused, since it would otherwise be committed or
-rolled back with the transaction. SQL run through `db` (`getDb()`, `execute()`, `query()`) may only read while it
-runs: a `SELECT`, `VALUES`, `WITH` or `EXPLAIN`, or a pragma that reads such as `PRAGMA table_info(...)`. Anything else,
-including transaction control and a `PRAGMA` that sets something, is refused; run it through `tx`.
+Write through `tx` inside the transaction. Writes through `db` from other code would become part of the same transaction, so they are refused while it is open. SQL through `db.getDb()`, `db.execute()`, and `db.query()` is read-only during the transaction. `SELECT`, `VALUES`, `WITH`, `EXPLAIN`, and read-only pragmas such as `PRAGMA table_info(...)` are accepted. Run transaction control or pragmas that set values through `tx`.
 
-### Core API
+## API
 
-All operations below return `Result<T, Error>` unless noted otherwise; `getSchema`, `getTableNames`,
-and `getDb` return their value directly since they cannot fail.
+The operations below return `Result<T, Error>` unless noted otherwise. `getSchema`, `getTableNames`, and `getDb` return their values directly.
 
-**Query Operations:**
+### Queries
 
-- `find(table, where?)` - Find all matching records
-- `findOne(table, where?)` - Find a single record
-- `query(sql, params?)` - Execute raw SQL query
+- `find(table, where?)`: Find all matching records.
+- `findOne(table, where?)`: Find one record.
+- `query(sql, params?)`: Run a raw SQL query.
 
-**Modify Operations:**
+### Changes
 
-- `insert(table, data)` - Insert a single record
-- `update(table, data, where)` - Update matching records
-- `delete(table, where)` - Delete matching records
+- `insert(table, data)`: Insert one record.
+- `update(table, data, where)`: Update matching records.
+- `delete(table, where)`: Delete matching records.
 
-**Batch Operations:**
+### Batch operations
 
-- `batchInsert(table, data[])` - Insert multiple records
-- `batchUpdate(table, updates[])` - Update multiple records
-- `batchDelete(table, where)` - Delete multiple records
+- `batchInsert(table, data[])`: Insert several records.
+- `batchUpdate(table, updates[])`: Update several records.
+- `batchDelete(table, where)`: Delete several records.
 
-**Transaction & Schema:**
+### Transactions and schemas
 
-- `transaction(fn)` - Execute operations in a transaction
-- `sync(table?, options?)` - Write changes back to the JSONL file(s)
-- `getSchema(table)` - Get table schema (returns `TableSchema | undefined`, not a `Result`)
-- `validateRow(table, row)` - Validate a row against the table's schema, also for a table left out on load because rows failed validation (returns `Result<JsonObject, ValidationError>`)
-- `getTableNames()` - Get all table names (returns `string[]`, not a `Result`)
+- `transaction(fn)`: Run operations in a transaction.
+- `sync(table?, options?)`: Write changes back to the JSONL files.
+- `getSchema(table)`: Get the schema. Returns `TableSchema | undefined` directly.
+- `validateRow(table, row)`: Validate a row, including a row from a table excluded on load due to validation errors. Returns `Result<JsonObject, ValidationError>`.
+- `getTableNames()`: Get all table names. Returns `string[]` directly.
 
-**Where Conditions:**
+### Query conditions
 
 ```typescript
-// Simple equality
 unwrap(db.find('users', { age: 30 }));
 
-// Multiple conditions (AND)
 unwrap(db.find('users', { age: 30, name: 'Alice' }));
 
-// Advanced conditions
 unwrap(
   db.find('users', {
     age: (age) => age > 25,
@@ -503,9 +358,9 @@ unwrap(
 );
 ```
 
-### JSON Columns
+### JSON columns
 
-Objects and arrays are automatically handled as JSON columns:
+Objects and arrays are stored as JSON columns and returned as their original values.
 
 ```typescript
 unwrap(
@@ -520,22 +375,17 @@ const order = unwrap(db.findOne('orders', { id: 1 }));
 console.log(order.items[0].name); // "Laptop"
 ```
 
-### Schema Transformations
+### Schema transformations
 
-When your schema transforms data types (e.g., parsing date strings into Date objects), you need to provide a backward transformation to save data back to JSONL files.
-
-**Why?** JSONL files store strings like `"2024-01-01"`, but your app works with `Date` objects. You need to convert both ways.
-
-**Example:**
+If a schema converts date strings to `Date` objects on load, define a `backward` transformation to convert them to strings when saving. JSONL stores the strings; the application works with `Date` objects.
 
 ```typescript
 import * as v from 'valibot';
-import { defineSchema } from '@toiroakr/lines-db';
+import { defineSchema } from 'lines-db';
 
 const eventSchema = v.pipe(
   v.object({
     id: v.number(),
-    // Transform: string → Date (when reading)
     date: v.pipe(
       v.string(),
       v.isoDate(),
@@ -544,23 +394,21 @@ const eventSchema = v.pipe(
   }),
 );
 
-// Provide backward transformation: Date → string (when writing)
-export const schema = defineSchema(eventSchema, (output) => ({
-  ...output,
-  date: output.date.toISOString(), // Convert Date back to string
-}));
+export const schema = defineSchema(eventSchema, {
+  backward: (output) => ({
+    ...output,
+    date: output.date.toISOString().slice(0, 10),
+  }),
+});
 ```
 
-**In your JSONL file (events.jsonl):**
+Store the date as a string in `events.jsonl`.
 
-```jsonl
-{
-  "id": 1,
-  "date": "2024-01-01T00:00:00.000Z"
-}
+```text
+{"id":1,"date":"2024-01-01"}
 ```
 
-**In your TypeScript code:**
+The loaded row exposes the date as a `Date`.
 
 ```typescript
 const event = unwrap(db.findOne('events', { id: 1 }));
@@ -570,71 +418,50 @@ console.log(event.date.getFullYear()); // 2024
 
 ### Transactions
 
-Operations outside transactions are auto-synced:
+Changes outside a transaction are automatically synced to the JSONL file.
 
 ```typescript
 unwrap(db.insert('users', { id: 10, name: 'Alice', age: 30 }));
-// ↑ Automatically synced to users.jsonl
 ```
 
-A sync keeps the order the file lists its rows in and appends rows the file did not have, so the
-diff stays limited to what actually changed.
+Sync preserves the original row order and appends new rows.
 
-Batch operations with transactions:
+Use a transaction to save several changes together.
 
 ```typescript
 unwrap(
   await db.transaction(async (tx) => {
     unwrap(tx.insert('users', { id: 10, name: 'Alice', age: 30 }));
     unwrap(tx.update('users', { age: 31 }, { id: 1 }));
-    // Written back together, then committed
   }),
 );
 ```
 
-`unwrap()` inside the callback turns a failed `tx.insert()`/`tx.update()` into a thrown error, which
-`transaction()` catches and rolls back on - see [Error Handling](#error-handling).
+Use `unwrap()` inside the callback to throw on a failed operation and roll back the transaction.
 
-Once the callback is done, `transaction()` writes back the tables it changed through
-`tx.insert()`/`tx.update()`/`tx.delete()` and their batch variants, before it commits. Every file is
-checked before the first one is written, and a write-back that fails rolls the transaction back and
-puts the files it already wrote back to what they held, so the database keeps matching its files.
-Putting a file back is a write too; when that write fails as well, the file keeps the change. Tables the transaction did not change are left as they are; raw
-SQL through `tx.execute()` or `tx.query()` that changes rows writes back every table, since the
-tables it changed are unknown. `sync()` inside the callback fails: the transaction writes the files
-itself once the callback is done.
+After the callback finishes, changed tables are written back before committing. All target files are checked before the first write. If write-back fails, the transaction is rolled back and files already written are restored. If restoration also fails, that file keeps its changes.
 
-### Files Changed After Loading
+Unchanged tables are not written back. However, SQL that changes rows through `tx.execute()` or `tx.query()` writes back every table because the changed tables cannot be identified. Calling `sync()` inside the callback returns an error; the transaction handles write-back at the end.
 
-The database remembers what each JSONL file held when `initialize()` read it, and what it last wrote
-there. A sync that finds the file changed since - a line added in an editor, a value edited by hand,
-the file deleted - leaves the file alone instead of writing over those changes, and fails with a
-`JsonlConflictError` naming the file:
+### Files changed after loading
+
+The database records each JSONL file's contents when reading or writing it. If an editor or another tool has changed or deleted the file since then, sync leaves it untouched and returns a `JsonlConflictError` naming the file.
 
 ```typescript
 const result = await db.transaction((tx) => unwrap(tx.update('users', { age: 31 }, { id: 1 })));
 
 if (!result.ok && result.error.name === 'JsonlConflictError') {
-  console.log(`${(result.error as JsonlConflictError).file} changed on disk`);
+  console.log(`${(result.error as JsonlConflictError).file} has changed on disk`);
 }
 ```
 
-To pick up the changes, create the database again and call `initialize()`, then retry the write. A
-failed `transaction()` has rolled its change back and writes back only the tables it changed, so only
-a change to one of those files fails it. `sync()` and the auto-sync after a write outside a transaction
-have nothing to roll back - the database keeps the change the file did not get - and `sync()` without a
-table name writes back every table, so a change to any table's file fails it. An auto-sync reports the
-error through `console.error`.
+To load external changes, recreate the database, call `initialize()`, and retry the write. A transaction writes back only changed tables and rolls back the database changes if a conflict occurs.
 
-The file is checked right before it is written, with no lock held in between, so a change saved in
-the instant between the check and the write - by an editor or by another process writing the same
-file - is still overwritten. The check is meant for a single user editing files on their own
-machine, where a change landing in that window is unlikely.
+With `sync()` or automatic sync outside a transaction, database changes remain after a failed write-back. A `sync()` without a table name targets every table, so a change to any file causes it to fail. Automatic sync reports errors through `console.error`.
 
-To find out before writing, `hasExternalChanges()` tells whether the files changed since the database
-last read or wrote them: a JSONL file edited, added or removed, or a table's schema file edited, added
-or removed. `findExternalChanges()` lists those files, for telling which table an outside edit
-touched. A long-running process can call either to reload when something else touched the files:
+Files are not locked between checking their contents and writing. Changes saved by another process during that interval are overwritten. This is intended for one person editing local files; it does not coordinate concurrent writers.
+
+`hasExternalChanges()` detects changes, additions, and deletions of JSONL and schema files since the last read or write. `findExternalChanges()` lists the affected files. Use them to detect edits made by other tools and reload data in a long-running process.
 
 ```typescript
 if (unwrap(await db.hasExternalChanges())) {
@@ -646,55 +473,37 @@ if (unwrap(await db.hasExternalChanges())) {
 
 ### Values the Schema Fills In
 
-A sync writes each row back in full by default, so a value the validation schema fills in - a default,
-or a field it computes - is written into the line. Set `writeFilledValues: 'primaryKey'` to write back
-only the fields a user wrote instead: the ones a row's line holds, the ones an `insert()` was given,
-and the ones an `update()` changed. Every other value the schema fills in stays out of the file, so a
-line keeps leaving it to the schema. A primary key the schema generates is still written, so the row
-keeps the same key the next time it is loaded.
+Normal sync writes whole rows, including schema defaults and computed values. With `writeFilledValues: 'primaryKey'`, it writes fields present in the file, passed to `insert()`, or changed by `update()`. Other defaults remain omitted. Generated primary keys are saved so the row keeps its identity on the next load.
 
 ```typescript
 const db = LinesDB.create({ dataDir: './data', writeFilledValues: 'primaryKey' });
-// people.jsonl: {"id":1,"name":"Alice"}   (the schema defaults age to 20)
+// people.jsonl: {"id":1,"name":"Alice"}
 unwrap(await db.transaction((tx) => unwrap(tx.update('people', { name: 'Alicia' }, { id: 1 }))));
-// people.jsonl: {"id":1,"name":"Alicia"}  (age is still left to the schema)
+// people.jsonl: {"id":1,"name":"Alicia"}
 ```
 
-A single sync can choose for itself with `sync(tableName, { writeFilledValues })`. Setting a field to
-the value it already holds is not a change, so a field the schema filled in stays out of the line
-when it is set to that same value. Fields named in `writeBackFields` or `sync(..., { fields })` are
-written even when the schema filled them in.
+Use `sync(tableName, { writeFilledValues })` to override the setting for one sync. Setting a field to its existing value is not a change, so setting a defaulted field to that same value does not write it to the file. Fields explicitly named in `writeBackFields` or `sync(..., { fields })` are written even when the schema supplied them.
 
-To hand a field the line holds back to the schema, reset it; the row then holds the value the schema
-fills in, and with `writeFilledValues: 'primaryKey'` its line loses the field:
+`resetToDefault` restores a field's schema default. With `writeFilledValues: 'primaryKey'`, that field is removed from the file.
 
 ```typescript
 unwrap(db.update('people', {}, { id: 1 }, { resetToDefault: ['age'] }));
 ```
 
-`findWithDefaults()` lists the rows with the fields the schema filled in on each - the ones the file
-does not hold - for showing them apart from the values in the file:
+`findWithDefaults()` returns each row and the names of fields supplied by the schema. Use it to distinguish defaults from values stored in the file.
 
 ```typescript
 unwrap(await db.findWithDefaults('people'));
 // [{ row: { id: 1, name: 'Alicia', age: 20 }, defaulted: ['age'] }]
 ```
 
-A row whose backward transformation renames fields, a row with neither a line nor a recorded
-write (one added with raw SQL), and every row of a table after raw SQL through `execute()` or
-`query()` changed rows, are written whole, since there is no way to tell which of their fields a user
-wrote. A field a migration `transform` set on a row while loading counts as written on that row.
+Rows whose `backward` transformation renames fields, or rows added by SQL with no original row or write record, are written in full because explicitly supplied fields cannot be identified. A table changed through SQL also has all rows written back. Fields set by a migration `transform` on load count as explicitly supplied.
 
-A field a line holds that the table has no column for - a validation schema that strips unknown
-keys, such as valibot's `v.object()`, lets it through - is kept where the line holds it when the
-table is written back. Use a schema that refuses unknown keys, such as `v.strictObject()`, to have
-such a line reported as failing validation instead.
+Unknown fields from the original row retain their position on write-back. Schemas that strip unknown keys, such as Valibot's `v.object()`, allow those rows to pass validation. Use `v.strictObject()` or another schema that rejects unknown keys to report them as errors.
 
-### Writing Back Only Some Fields
+### Write back selected fields
 
-A sync writes each row back in full by default, which materializes values a validation schema
-computed and fields the JSONL file omitted. Name the fields to write back to keep the rest of every
-line exactly as the file had it:
+When fields are specified, their database values are written even if the schema supplied them. Other values remain as stored in the file.
 
 ```typescript
 // users.jsonl: {"name":"Alice"}
@@ -702,40 +511,26 @@ unwrap(await db.sync('users', { fields: ['id'] }));
 // users.jsonl: {"id":"...","name":"Alice"}
 ```
 
-Use `writeBackFields` on the config to apply the same rule to every sync, including the automatic
-sync after an insert, update, or transaction:
+Set `writeBackFields` in the config to apply the rule to every sync, including automatic sync after inserts, updates, and transactions.
 
 ```typescript
 const db = LinesDB.create({ dataDir: './data', writeBackFields: ['id'] });
 ```
 
-Rows are matched to their existing line by primary key, or by position when the file does not carry
-one yet (the case when the primary key itself is being backfilled). Lines keep the order the file
-has them in, and rows the file never had are appended. A field you name is always taken from the
-database - including when it is `null` there - and `sync` returns an error Result when rows cannot
-be matched to their lines, rather than guessing.
+Rows are matched by primary key, or by position when the file has no primary key yet. Row order is preserved, and new rows are appended. Selected fields use the database value, including null. If rows cannot be matched, `sync()` returns a failed Result.
 
-A field a line did not have is inserted where the schema declares it rather than appended, so a
-backfilled `id` lands at the front of the line the way a hand-written row has it. Keys the schema
-does not declare stay behind the declared ones, and no key a line already had moves.
+New fields are inserted in schema order. For example, an `id` declared first is inserted at the beginning of the row when filled later. Existing keys do not move, and unknown keys stay after declared keys.
 
-The order is read off the rows the schema computes, since that is where a schema states it: a field
-it fills in first is ranked first. A field only some rows carry is ranked after the ones already seen,
-and `mergeFields` takes a `keyOrder` for stating the order outright.
+Key order is read from the rows produced by the schema. Fields produced first are ordered first; fields first encountered in later rows follow them. Set `mergeFields`'s `keyOrder` to specify the order explicitly.
 
-`sync('users', { fields })` names one table, so a field that table does not have is rejected. A sync
-covering every table - `sync()` or the config option - leaves such a field out of the tables without
-it instead, so one list can serve a directory of tables that do not all share it.
+A `sync()` for a specific table rejects fields that the table does not have. Sync across all tables and the config's `writeBackFields` skip tables without those fields, so the same list works for different column sets.
 
-### Editing a Line Yourself
+### Edit rows without a database
 
-`mergeFields` is the write-back merge on its own, without a database: give it a line and the row a
-schema computed from it, and it hands back the line with the named fields written into it. Reach for it
-when the values come from somewhere other than a query - a hook that fills in ids, say - and loading the
-file into SQLite would only get in the way:
+`mergeFields` takes the original row and a computed row and returns a row with only the selected fields updated. Use it to edit files without loading them into SQLite, such as when a hook supplies IDs.
 
 ```typescript
-import { JsonlReader, JsonlWriter, mergeFields, unwrap } from '@toiroakr/lines-db';
+import { JsonlReader, JsonlWriter, mergeFields, unwrap } from 'lines-db';
 
 const rows = unwrap(await JsonlReader.read('./data/users.jsonl'));
 const filled = rows.map((row) => mergeFields(row, fillIds(row), { fields: ['id'] }));
@@ -744,36 +539,32 @@ await JsonlWriter.write('./data/users.jsonl', filled);
 // {"name":"Alice"}  ->  {"id":"018f...","name":"Alice"}
 ```
 
-Nothing else in the line is read or checked, so a field in a format a schema would reject cannot keep
-the named ones from being written. A field the computed row has no value for is left alone rather than
-nulled out, and `keyOrder` overrides where a new key lands when the computed row does not list its
-fields in the order the schema declares them.
+Fields outside the selection are not validated. Even if their values would fail the schema, selected fields can still be updated. Fields absent from the computed row keep their original values. If computed key order differs from schema order, use `keyOrder` to set the position of new keys.
 
 ## Configuration
 
 ```typescript
 interface DatabaseConfig {
-  dataDir: string | readonly string[]; // Directory (or directories) containing JSONL files
+  dataDir: string | readonly string[];
   schemaDir?: string;
   writeDataSets?: boolean;
-  writeBackFields?: readonly string[]; // Fields written back on sync (default: every field)
+  writeBackFields?: readonly string[];
 }
 
 const db = LinesDB.create({ dataDir: './data' });
 ```
 
-### Data Sets
+### Data sets
 
-Seed data can be split into sets that are validated together - a `base` set every environment needs,
-plus a set that only one scenario loads:
+Split shared seed data from scenario-specific data and load the directories you need together.
 
 ```
 data/
-  Item.schema.ts   Item.jsonl              # schemas + base set
+  Item.schema.ts   Item.jsonl              # schemas and base data
   ItemValuation.schema.ts
   cogs/
-    Item.jsonl                             # more Item rows, no schema here
-    ItemValuation.jsonl                    # references Item rows of both sets
+    Item.jsonl                             # additional Item rows
+    ItemValuation.jsonl                    # references Item rows from both sets
 ```
 
 ```typescript
@@ -781,18 +572,11 @@ const db = LinesDB.create({ dataDir: ['./data', './data/cogs'], schemaDir: './da
 const result = unwrap(await db.initialize({ detailedValidate: true }));
 ```
 
-A table found in several directories has the rows of each file, in the order `dataDir` lists them.
-Validation, unique indexes and foreign keys run over those rows together, so `cogs/ItemValuation.jsonl`
-can reference an `Item` from `data/Item.jsonl`, and an id defined in both sets is reported as a
-violation. Every error names the file the row came from and its line in that file.
+Rows for the same table are concatenated in `dataDir` order. Validation, unique constraints, and foreign keys are checked across all rows. `cogs/ItemValuation.jsonl` can reference rows from `data/Item.jsonl`. Duplicate IDs across sets cause a constraint violation. Errors identify the source file and row within it.
 
-`schemaDir` is required when `dataDir` lists several directories: a data set directory does not hold
-the schemas of its tables, so without it they would be loaded unvalidated. It also works with a single
-directory - `{ dataDir: './data/cogs', schemaDir: './data' }` - and without it a single directory's
-schemas are looked up next to its JSONL files.
+Multiple directories require `schemaDir` to locate shared schemas. It can also be used with one directory. If omitted for a single directory, schemas are looked up next to the JSONL files.
 
-Databases with several data directories are read-only by default. Set `writeDataSets: true` to
-route updates and deletes back to their source files. Insert with an explicit configured directory:
+Databases with multiple directories are read-only by default. Set `writeDataSets: true` to write updates and deletions back to their source files. Inserts require an explicit configured directory.
 
 ```typescript
 const db = LinesDB.create({ dataDir: ['./data', './data/cogs'], schemaDir: './data', writeDataSets: true });
@@ -805,14 +589,13 @@ unwrap(
 );
 ```
 
-Use `insert` with a destination for new rows in this mode; `batchInsert` has no destination argument.
-Raw SQL through `execute`, `query`, `queryOne`, and `getDb` stays read-only to preserve source routing.
-Transactions check all affected source files before writing, and restore earlier file writes if a
-later write fails. Studio enables this mode automatically.
+Use `insert()` with a destination to add rows across multiple directories. `batchInsert()` has no destination argument. SQL through `execute()`, `query()`, `queryOne()`, and `getDb()` remains read-only to preserve each row's source location.
 
-## Type Mapping
+Transactions check target files before writing and restore files already written if a later write fails. Studio enables `writeDataSets` automatically.
 
-| JSON Type        | Column Type | SQLite Storage |
+## Type mapping
+
+| JSON type        | Column type | SQLite storage |
 | ---------------- | ----------- | -------------- |
 | number (integer) | INTEGER     | INTEGER        |
 | number (float)   | REAL        | REAL           |

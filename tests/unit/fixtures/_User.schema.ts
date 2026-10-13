@@ -1,6 +1,6 @@
 import * as v from 'valibot';
-import { defineSchema } from '@toiroakr/lines-db';
-import type { InferOutput } from '@toiroakr/lines-db';
+import { defineSchema } from 'lines-db';
+import type { InferOutput } from 'lines-db';
 
 const underscoreUserSchema = v.object({
   name: v.pipe(v.string(), v.email()),

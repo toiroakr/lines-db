@@ -26,7 +26,7 @@ describe('Validation adds column (e.g., auto-generated ID)', () => {
     // Create schema that adds id column during validation
     await writeFile(
       schemaPath,
-      `import { defineSchema } from '@toiroakr/lines-db';
+      `import { defineSchema } from 'lines-db';
 
 export const schema = defineSchema(
   {

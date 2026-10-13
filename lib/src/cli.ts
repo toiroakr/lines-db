@@ -16,7 +16,7 @@ import { writeFile, stat, readdir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { spawn } from 'node:child_process';
-import { startStudioServer, type StudioServer } from './studio/server.js';
+import type { StudioServer } from '@lines-db/studio';
 import { fillFields } from './fill.js';
 import { resolveValidationTarget } from './dataset-config.js';
 
@@ -341,6 +341,22 @@ const fillCommand = defineCommand({
   },
 });
 
+async function loadStudio(): Promise<typeof import('@lines-db/studio')> {
+  try {
+    return await import('@lines-db/studio');
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      'code' in error &&
+      error.code === 'ERR_MODULE_NOT_FOUND' &&
+      error.message.includes("Cannot find package '@lines-db/studio'")
+    ) {
+      throw new Error('Studio requires @lines-db/studio. Install it with: npm install -D @lines-db/studio');
+    }
+    throw error;
+  }
+}
+
 let studio: StudioServer | undefined;
 
 const studioCommand = defineCommand({
@@ -372,6 +388,7 @@ const studioCommand = defineCommand({
     try {
       const dataDirs = [...(args.path ? [args.path] : []), ...args.dataDir];
       if (dataDirs.length === 0) throw new Error('Pass a data directory or --data-dir');
+      const { startStudioServer } = await loadStudio();
       studio = await startStudioServer({
         dataDir: dataDirs.length === 1 ? dataDirs[0] : dataDirs,
         schemaDir: args.schemaDir,
@@ -409,7 +426,7 @@ function openInBrowser(url: string): void {
 }
 
 const program = defineCommand({
-  name: '@toiroakr/lines-db',
+  name: 'lines-db',
   description: 'Database utilities for JSONL files',
   subCommands: {
     generate: generateCommand,

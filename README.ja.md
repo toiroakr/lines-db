@@ -1,187 +1,100 @@
 # lines-db
 
-[日本語版 README](./README.ja.md) | [English README](./README.md)
+[English](./README.md)
 
-JSONLファイルをテーブルとして扱う軽量なデータベース実装です。SQLiteを使用し、アプリケーションのシードデータ管理やテストに最適です。
+lines-dbはJSONLファイルをSQLiteのテーブルとして読み込むライブラリです。シードデータの検証、テスト用データの検索、変更内容のファイルへの書き戻しに使えます。スキーマにはValibotやZodなど、Standard Schemaに対応したライブラリを使えます。
 
-## 機能
+## 使い始める
 
-- 📝 JSONLファイルをデータベーステーブルとして読み込み
-- 🔄 自動スキーマ推論
-- 💾 インメモリまたはファイルベースのSQLiteストレージ
-- 🚀 フルSQLクエリサポート
-- 🔍 シンプルなクエリAPI
-- 📦 **JSON型カラムサポート** - 自動シリアライズ/デシリアライズ
-- ✅ StandardSchemaによる組み込みバリデーション（Valibot、Zodなど対応）
-- 🎯 **テーブル名からの自動型推論**（型引数不要！）
-- 🔄 **双方向スキーマ変換**とバックワード変換の自動適用
-- 💾 **JSONLファイルへの自動同期** - データベースの変更をファイルに永続化
-- 🛡️ TypeScriptによる型安全性
-- 🧪 最小限の依存関係（Node.jsの組み込みSQLiteを使用）
-
-## クイックスタート
+Node.js 22.12.0以降が必要です。
 
 ```bash
-npm install @toiroakr/lines-db
+npm install lines-db
+```
+
+`data/users.jsonl`に、1行につき1つのJSONオブジェクトを記述します。
+
+```text
+{"id":1,"name":"Alice"}
+{"id":2,"name":"Bob"}
 ```
 
 ```typescript
-import { LinesDB } from '@toiroakr/lines-db';
+import { LinesDB, unwrap } from 'lines-db';
 
 const db = LinesDB.create({ dataDir: './data' });
-await db.initialize();
-
-const users = db.find('users');
-await db.close();
+unwrap(await db.initialize());
+const users = unwrap(db.find('users'));
+console.log(users);
+unwrap(await db.close());
 ```
 
-**完全なドキュメントは [lib/README.ja.md](./lib/README.ja.md) をご覧ください**
+スキーマの定義、型生成、検索、書き戻しの設定は[ライブラリのドキュメント](./lib/README.ja.md)を参照してください。
 
-## リポジトリ構成
+## Studio
 
-このリポジトリはモノレポとして構成されています：
+ブラウザでデータを閲覧・編集するには、`@lines-db/studio`を追加します。
 
-```
-lines-db/
-├── lib/                 # コアライブラリパッケージ（@toiroakr/lines-db）
-│   ├── src/            # ソースコード
-│   ├── dist/           # ビルド出力（ESM）
-│   ├── bin/            # CLI実行ファイル
-│   └── README.ja.md    # 📚 ユーザー向けドキュメント（npmに公開）
-├── tests/              # 統合テスト
-│   └── unit/          # ユニットテスト
-├── examples/           # 使用例
-└── extension/          # VSCode拡張
+```bash
+npm install -D @lines-db/studio
+npx lines-db studio ./data --open
 ```
 
-## パッケージ
+変更内容は保存するまでファイルに反映されません。保存時にスキーマで検証し、JSONLファイルへ書き込みます。画面の操作、共通スキーマ、データセットの扱いは[Studioのドキュメント](./studio/README.ja.md)にまとめています。
 
-### 📦 コアライブラリ: [@toiroakr/lines-db](./lib)
+## VS Code拡張
 
-データベース機能を提供するメインのnpmパッケージです。
-
-**[→ 完全なドキュメント](./lib/README.ja.md)**
-
-**機能:**
-
-- JSONLファイルの読み込みとパース
-- SQLiteデータベース抽象化
-- スキーマ推論とバリデーション
-- 型安全なクエリAPI
-- Node.js 22.12+サポート
-- バリデーションと型生成のためのCLIツール
-- ブラウザでテーブルを閲覧・編集できる UI（`lines-db studio`）
-
-### 🔌 VSCode拡張: [lines-db-vscode](./extension)
-
-リアルタイムバリデーションと開発ツールを備えたlines-db用のVSCode拡張機能です。
-
-**[→ 拡張機能のドキュメント](./extension/README.md)**
-
-**機能:**
-
-- コマンドパレット統合（検証、マイグレーション）
-- リアルタイムバリデーション診断
-- レコード数を表示するCodeLens
-- スキーマファイルのホバー情報
-- JSONLシンタックスハイライト
+[VS Code拡張](./extension/README.ja.md)はエディタ上でJSONLファイルを検証し、検証やマイグレーションのコマンドを提供します。[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=toiroakr.lines-db-vscode)からインストールできます。
 
 ## 開発
 
-### 前提条件
-
-- Node.js 22.12.0以降
-- pnpm 10.x以降
-
-### セットアップ
+`package.json`に指定したバージョンのpnpmを使います。以下はリポジトリのルートで実行してください。
 
 ```bash
-# 依存関係のインストール
 pnpm install
-
-# ライブラリのビルド
-cd lib
-pnpm run build
-```
-
-### テスト
-
-```bash
-# ユニットテストを実行
+pnpm build
 pnpm test
-```
-
-studio の E2E テストは `e2e/` にあり、[TesterArmy e2e](https://e2e.tester.army) で実行します。手順を書いたテスト（`pnpm e2e:deterministic`）は、プルリクエストごとに CI で実行し、レポートを、そのままブラウザで開ける HTML 1枚（`studio-e2e-report.html`）の artifact としてアップロードして、プルリクエストにコメントします。手元では `pnpm e2e:report:html` で同じファイルを `e2e/.e2e/report.html` に書き出せます。AI エージェントのテストは ChatGPT サブスクリプション経由でブラウザを操作するため、CI では実行せずローカルで実行します。
-
-```bash
-# 初回のみ: テスト用の Chromium をインストールし、ChatGPT にログイン
-pnpm e2e:setup
-
-# ビルドしてから、全テスト・手順を書いたテストのみ・AI エージェントのテストのみを実行
-pnpm e2e
-pnpm e2e:deterministic
-pnpm e2e:agent
-
-# 最後に実行したテストの結果を表示（スクリーンショットと trace は e2e/.e2e/artifacts/ にある）
-pnpm e2e:report
-```
-
-### その他のコマンド
-
-```bash
-# 型チェック
 pnpm typecheck
-
-# リント
 pnpm lint
-pnpm lint:fix
-
-# フォーマット
-pnpm format
 pnpm format:check
-
-# サンプル実行
-pnpm example
-pnpm example:validation
-pnpm example:json
-pnpm example:datadir
 ```
 
-## コントリビューション
+`pnpm build`でライブラリとStudioをビルドします。ライブラリだけなら`pnpm --filter lines-db build`を使います。サンプルは`pnpm example`、`pnpm example:validation`、`pnpm example:json`、`pnpm example:datadir`で実行できます。
 
-コントリビューションを歓迎します！プルリクエストをお気軽に送信してください。
+| ディレクトリ  | 内容                                                   |
+| ------------- | ------------------------------------------------------ |
+| `lib/`        | データベースAPIとCLIを含む`lines-db`                   |
+| `studio/`     | ローカルサーバーとビルド済みUIを含む`@lines-db/studio` |
+| `studio-ui/`  | StudioのReactソース                                    |
+| `extension/`  | VS Code拡張                                            |
+| `tests/unit/` | 統合テストと型のテスト                                 |
+| `e2e/`        | Studioのブラウザテスト                                 |
+| `examples/`   | 使用例                                                 |
 
-### ワークフロー
+### ブラウザテスト
 
-1. リポジトリをフォーク
-2. フィーチャーブランチを作成 (`git checkout -b feature/amazing-feature`)
-3. 変更をコミット (`git commit -m 'Add some amazing feature'`)
-4. ブランチにプッシュ (`git push origin feature/amazing-feature`)
-5. プルリクエストを開く
-
-### 公開
-
-このプロジェクトは [changesets](https://github.com/changesets/changesets) を使用してバージョン管理を行っています：
+Studioのブラウザテストには[TesterArmy e2e](https://e2e.tester.army)を使います。初回はChromiumをインストールし、ChatGPTにログインしてください。
 
 ```bash
-# changesetを作成
-pnpm changeset
-
-# パッケージのバージョンアップ
-pnpm version
-
-# npmに公開
-pnpm release
+pnpm e2e:setup
+pnpm e2e:deterministic
 ```
+
+`pnpm e2e`で全ブラウザテスト、`pnpm e2e:agent`でエージェントのテストを実行します。エージェントのテストはChatGPTサブスクリプションを使うため、ローカルで実行します。CIではプルリクエストごとに手順を指定したテストを実行し、HTMLレポートを添付します。
+
+直前の実行結果の表示とHTMLレポートの出力には、以下を使います。
+
+```bash
+pnpm e2e:report
+pnpm --filter @toiroakr/lines-db-e2e e2e:report:html
+```
+
+HTMLレポートの出力先は`e2e/.e2e/report.html`です。スクリーンショットとトレースは`e2e/.e2e/artifacts/`にあります。
+
+### リリース
+
+公開パッケージを変更したときは、`pnpm changeset`でchangesetを追加します。[Changesets](https://github.com/changesets/changesets)で`lines-db`と`@lines-db/studio`のバージョンを管理しています。CIが作成するリリースPRをマージすると、npmへ公開されます。
 
 ## ライセンス
 
-MIT
-
-## リンク
-
-- **npm**: [@toiroakr/lines-db](https://www.npmjs.com/package/@toiroakr/lines-db)
-- **GitHub**: [toiroakr/lines-db](https://github.com/toiroakr/lines-db)
-- **Issues**: [github.com/toiroakr/lines-db/issues](https://github.com/toiroakr/lines-db/issues)
-- **ドキュメント**: [lib/README.ja.md](./lib/README.ja.md)
-- **拡張機能**: [extension/README.md](./extension/README.md)
+[MIT](./LICENSE)

@@ -26,7 +26,7 @@ describe('Undefined value handling in schema inference', () => {
     // Create schema that adds an optional field with undefined value
     await writeFile(
       schemaPath,
-      `import { defineSchema } from '@toiroakr/lines-db';
+      `import { defineSchema } from 'lines-db';
 
 export const schema = defineSchema(
   {

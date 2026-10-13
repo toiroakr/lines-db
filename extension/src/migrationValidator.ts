@@ -34,7 +34,7 @@ export class MigrationValidator {
       if (!global.__linesDbModule?.JsonlReader) {
         return {
           valid: false,
-          errors: [{ line: 0, message: '@toiroakr/lines-db not found in workspace' }],
+          errors: [{ line: 0, message: 'lines-db not found in workspace' }],
         };
       }
 

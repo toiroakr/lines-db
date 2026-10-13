@@ -1,32 +1,32 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { watch } from 'node:fs';
-import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { readFile, realpath, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { basename, extname, join, relative, resolve as resolvePath } from 'node:path';
+import { basename, extname, relative, resolve as resolvePath } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { LinesDB } from '../database.js';
-import { DirectoryScanner } from '../directory-scanner.js';
-import { ErrorFormatter } from '../error-formatter.js';
-import { unwrap } from '../result.js';
-import { JsonlReader, hashJsonlContent } from '../jsonl-reader.js';
-import { findSchemaFile } from '../schema-extensions.js';
+import {
+  LinesDB,
+  DirectoryScanner,
+  ErrorFormatter,
+  unwrap,
+  JsonlReader,
+  findSchemaFile,
+  type ColumnDefinition,
+  type ForeignKeyDefinition,
+  type JsonlConflictError,
+  type JsonlParseError,
+  type JsonObject,
+  type JsonValue,
+  type StandardSchemaIssue,
+  type TableDefs,
+  type ValidationError,
+  type ValidationErrorDetail,
+  type WriteFilledValues,
+} from 'lines-db';
+import { hashJsonlContent, replaceFile } from 'lines-db/internal';
 import { readDeclaredColumns } from './declared-columns.js';
 import { replaceRows } from './file-rows.js';
-import { replaceFile } from '../replace-file.js';
-import type {
-  ColumnDefinition,
-  ForeignKeyDefinition,
-  JsonlConflictError,
-  JsonlParseError,
-  JsonObject,
-  JsonValue,
-  StandardSchemaIssue,
-  TableDefs,
-  ValidationError,
-  ValidationErrorDetail,
-  WriteFilledValues,
-} from '../types.js';
 
 export interface StudioServerOptions {
   dataDir: string | string[];
@@ -81,7 +81,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const dataDir = dataDirs[0];
   const schemaDir = options.schemaDir ?? dataDir;
   const host = options.host ?? '127.0.0.1';
-  const uiDir = options.uiDir ?? (await shippedUiDir());
+  const uiDir = options.uiDir ?? shippedUiDir();
   const token = randomBytes(24).toString('base64url');
   const writeFilledValues = options.writeFilledValues ?? 'primaryKey';
   const load = () => loadSnapshot(dataDirs, options.schemaDir, writeFilledValues);
@@ -989,13 +989,8 @@ const CONTENT_TYPES: Record<string, string> = {
   '.json': 'application/json; charset=utf-8',
 };
 
-/** The built page shipped next to the CLI (bin/) or the sources (src/studio/), whichever exists */
-async function shippedUiDir(): Promise<string> {
-  const candidates = ['../studio', '../../studio'].map((path) => fileURLToPath(new URL(path, import.meta.url)));
-  for (const dir of candidates) {
-    if (await stat(join(dir, 'index.html')).catch(() => undefined)) return dir;
-  }
-  return candidates[0];
+function shippedUiDir(): string {
+  return fileURLToPath(new URL('../ui', import.meta.url));
 }
 
 /** Serve a file of the built page, the page itself carrying the token */
