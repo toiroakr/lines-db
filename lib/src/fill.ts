@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { chmod, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { type Result, ok, err, toError } from './result.js';
@@ -11,11 +11,11 @@ import type { JsonlConflictError, JsonObject, JsonValue, StandardSchema, Table }
 export type RowFiller = (row: JsonObject) => Record<string, unknown>;
 
 export interface FillFieldsOptions {
-  /** A data directory, or one `.jsonl` file in it */
-  path: string;
+  /** One or more data directories or `.jsonl` files */
+  path: string | readonly string[];
   /** Fields to fill. Defaults to each table's primary key: `primaryKey` in its schema file, or `id` */
   fields?: readonly string[];
-  /** Directory the `<Table>.schema.{ts,mts,cts}` files are looked up in. Defaults to the data directory */
+  /** Directory the `<Table>.schema.{ts,mts,cts}` files are looked up in. Defaults to each file's data directory */
   schemaDir?: string;
   /**
    * Builds the function that computes a table's row values from its schema module. Defaults to the
@@ -72,21 +72,31 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
   if (options.fields && options.fields.length === 0) {
     throw new Error('No fields to fill. Name at least one field.');
   }
-  const { dataDir, tableNames } = await resolveTables(options.path);
-  const schemaDir = options.schemaDir ?? dataDir;
+  const paths = typeof options.path === 'string' ? [options.path] : options.path;
+  if (paths.length === 0) throw new Error('No paths to fill. Name at least one path.');
+  const sources = new Map<string, { table: string; file: string; schemaDir: string }>();
+  for (const path of paths) {
+    const { dataDir, tableNames } = await resolveTables(path);
+    for (const table of tableNames) {
+      const file = join(dataDir, `${table}.jsonl`);
+      const key = await realpath(file);
+      if (!sources.has(key)) sources.set(key, { table, file, schemaDir: options.schemaDir ?? dataDir });
+    }
+  }
   const loadFiller = options.loadFiller ?? fillerFromValidationSchema;
 
   const tablesWithoutSchema: string[] = [];
-  const tables: Array<{ table: string; fields: readonly string[]; fill: RowFiller }> = [];
-  for (const table of tableNames) {
+  const tables: Array<{ table: string; file: string; fields: readonly string[]; fill: RowFiller }> = [];
+  for (const { table, file, schemaDir } of sources.values()) {
     const schemaPath = await findSchemaFile(schemaDir, table);
     if (!schemaPath) {
-      tablesWithoutSchema.push(table);
+      if (!tablesWithoutSchema.includes(table)) tablesWithoutSchema.push(table);
       continue;
     }
     const schemaModule = (await import(`${pathToFileURL(schemaPath).href}?t=${Date.now()}`)) as Record<string, unknown>;
     tables.push({
       table,
+      file,
       fields: options.fields ?? [primaryKeyOf(schemaModule)],
       fill: loadFiller(schemaModule, { tableName: table, schemaPath }),
     });
@@ -96,8 +106,7 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
   const unreadableLines: FillFieldsResult['unreadableLines'] = [];
   const filled: FilledFile[] = [];
   const writes: Array<{ file: string; read: string; content: string }> = [];
-  for (const { table, fields, fill } of tables) {
-    const file = join(dataDir, `${table}.jsonl`);
+  for (const { table, file, fields, fill } of tables) {
     const read = await readFile(file, 'utf-8');
     const bom = read.startsWith('\u{feff}') ? '\u{feff}' : '';
     const lines = splitLines(read.slice(bom.length));
@@ -151,7 +160,7 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
     filled,
     tablesWithoutSchema,
     unreadableLines,
-    unproducedFields: tableNames.length > 0 ? named.filter((field) => !produced.has(field)) : [],
+    unproducedFields: sources.size > 0 ? named.filter((field) => !produced.has(field)) : [],
   };
 }
 

@@ -168,10 +168,10 @@ npx lines-db migrate ./data/users.jsonl "(row) => row" --fields id
 ### 足りない値を埋める
 
 ```bash
-npx lines-db fill <path> [--fields id,createdAt]
+npx lines-db fill <path...> [--schema-dir ./schemas] [--fields id,createdAt]
 ```
 
-`path`にはデータディレクトリか、JSONLファイルを指定します。指定したフィールドに値がない行へ、検証スキーマが補った値を書き込みます。`--fields`を省略すると、各テーブルの主キーが対象です。
+`path`にはデータディレクトリやJSONLファイルを1つ以上指定します。共通スキーマを使う場合は`--schema-dir`で指定してください。省略すると各JSONLファイルと同じディレクトリでスキーマを探します。指定したフィールドに値がない行へ、検証スキーマが補った値を書き込みます。`--fields`を省略すると、各テーブルの主キーが対象です。
 
 既存の値は置き換えません。値を補わなかった行は改行コードも含めて変更せず、補った行のキーはスキーマの順に並べます。検証に失敗する行には書き込みません。全行の値を計算してからファイルへ書き込みます。読み込み後に他のツールがファイルを変更していた場合は、どのファイルにも書き込まず、ファイル名を含む`JsonlConflictError`で終了します。
 
@@ -195,6 +195,17 @@ const { filled } = unwrap(
 ```
 
 結果の`tablesWithoutSchema`にはスキーマがないテーブル、`unreadableLines`にはJSONオブジェクトとして読めない行、`unproducedFields`にはどのテーブルでも値を生成できなかったフィールドが入ります。
+
+`fillFields()`の`path`には文字列か、空でない文字列配列を渡せます。複数パスでも全ファイルの値を計算し、外部変更を確認してから書き込みます。書き込み中に失敗した場合は、先に書き込んだファイルを復元します。重複して指定したファイルは1回だけ処理します。JSONオブジェクトとして読めない行は、従来どおり変更せずに報告します。
+
+```typescript
+unwrap(
+  await fillFields({
+    path: ['./data/dataset-a', './data/dataset-b'],
+    schemaDir: './data',
+  }),
+);
+```
 
 ### ブラウザで閲覧・編集する
 

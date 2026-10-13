@@ -298,9 +298,12 @@ const fillCommand = defineCommand({
   name: 'fill',
   description: 'Fill the values each table computes into the JSONL rows that have none for the named fields',
   args: z.object({
-    path: arg(z.string(), {
+    path: arg(z.array(z.string()).min(1), {
       positional: true,
-      description: 'Data directory, or one .jsonl file in it',
+      description: 'One or more data directories or .jsonl files',
+    }),
+    schemaDir: arg(z.string().optional(), {
+      description: 'Directory holding shared schemas (default: next to each JSONL file)',
     }),
     fields: arg(z.string().optional(), {
       alias: 'f',
@@ -312,7 +315,7 @@ const fillCommand = defineCommand({
       ?.split(',')
       .map((field) => field.trim())
       .filter(Boolean);
-    const result = await fillFields({ path: args.path, fields });
+    const result = await fillFields({ path: args.path, schemaDir: args.schemaDir, fields });
     if (!result.ok) {
       console.error('Error:', result.error.message);
       process.exit(1);
