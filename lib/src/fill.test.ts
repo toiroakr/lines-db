@@ -1,6 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { writeFileSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  readlink,
+  realpath,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fillFields } from './fill.js';
@@ -66,7 +79,7 @@ describe('fillFields', () => {
   const readLines = async (jsonlPath: string) => (await readFile(jsonlPath, 'utf-8')).split('\n');
 
   beforeEach(async () => {
-    dataDir = await mkdtemp(join(tmpdir(), 'linesdb-fill-'));
+    dataDir = await realpath(await mkdtemp(join(tmpdir(), 'linesdb-fill-')));
   });
 
   afterEach(async () => {
@@ -384,6 +397,28 @@ describe('fillFields', () => {
     expect(calls).toBe(1);
     expect(result.filled).toEqual([{ table: 'Widget', file, fields: ['id'], count: 1 }]);
     expect(await readFile(file, 'utf-8')).toBe('{"id":"generated-1","name":"widget"}\n');
+  });
+
+  it('fills the shared target once without replacing a JSONL symlink', async () => {
+    const file = await writeTable('Widget', ['{"name":"widget"}']);
+    const dataset = join(dataDir, 'dataset');
+    await mkdir(dataset);
+    const alias = join(dataset, 'Widget.jsonl');
+    await symlink(file, alias);
+    let calls = 0;
+
+    const result = unwrap(
+      await fillFields({
+        path: [dataset, dataDir],
+        schemaDir: dataDir,
+        loadFiller: () => (row) => ({ id: `generated-${++calls}`, ...row }),
+      }),
+    );
+
+    expect(result.filled).toEqual([{ table: 'Widget', file: alias, fields: ['id'], count: 1 }]);
+    expect(calls).toBe(1);
+    expect(await readFile(file, 'utf-8')).toBe('{"id":"generated-1","name":"widget"}\n');
+    expect(await readlink(alias)).toBe(file);
   });
 
   it('writes nothing in earlier directories when a later filler throws', async () => {

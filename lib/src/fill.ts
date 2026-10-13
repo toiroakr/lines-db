@@ -74,20 +74,20 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
   }
   const paths = typeof options.path === 'string' ? [options.path] : options.path;
   if (paths.length === 0) throw new Error('No paths to fill. Name at least one path.');
-  const sources = new Map<string, { table: string; file: string; schemaDir: string }>();
+  const sources = new Map<string, { table: string; file: string; target: string; schemaDir: string }>();
   for (const path of paths) {
     const { dataDir, tableNames } = await resolveTables(path);
     for (const table of tableNames) {
       const file = join(dataDir, `${table}.jsonl`);
       const key = await realpath(file);
-      if (!sources.has(key)) sources.set(key, { table, file, schemaDir: options.schemaDir ?? dataDir });
+      if (!sources.has(key)) sources.set(key, { table, file, target: key, schemaDir: options.schemaDir ?? dataDir });
     }
   }
   const loadFiller = options.loadFiller ?? fillerFromValidationSchema;
 
   const tablesWithoutSchema: string[] = [];
-  const tables: Array<{ table: string; file: string; fields: readonly string[]; fill: RowFiller }> = [];
-  for (const { table, file, schemaDir } of sources.values()) {
+  const tables: Array<{ table: string; file: string; target: string; fields: readonly string[]; fill: RowFiller }> = [];
+  for (const { table, file, target, schemaDir } of sources.values()) {
     const schemaPath = await findSchemaFile(schemaDir, table);
     if (!schemaPath) {
       if (!tablesWithoutSchema.includes(table)) tablesWithoutSchema.push(table);
@@ -97,6 +97,7 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
     tables.push({
       table,
       file,
+      target,
       fields: options.fields ?? [primaryKeyOf(schemaModule)],
       fill: loadFiller(schemaModule, { tableName: table, schemaPath }),
     });
@@ -106,8 +107,8 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
   const unreadableLines: FillFieldsResult['unreadableLines'] = [];
   const filled: FilledFile[] = [];
   const writes: Array<{ file: string; read: string; content: string }> = [];
-  for (const { table, file, fields, fill } of tables) {
-    const read = await readFile(file, 'utf-8');
+  for (const { table, file, target, fields, fill } of tables) {
+    const read = await readFile(target, 'utf-8');
     const bom = read.startsWith('\u{feff}') ? '\u{feff}' : '';
     const lines = splitLines(read.slice(bom.length));
     const written = new Set<string>();
@@ -137,7 +138,7 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
 
     if (unreadable.length > 0) unreadableLines.push({ file, lines: unreadable });
     if (count === 0) continue;
-    writes.push({ file, read, content: bom + lines.map((line) => `${line.text}${line.eol}`).join('') });
+    writes.push({ file: target, read, content: bom + lines.map((line) => `${line.text}${line.eol}`).join('') });
     filled.push({ table, file, fields: [...written], count });
   }
 
