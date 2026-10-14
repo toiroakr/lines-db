@@ -14,7 +14,7 @@
     "amaro": "^1.2.1",
     "typescript": "^6.0.3",
     "valibot": "^1.5.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "dependencies": {
     "lines-db": "workspace:*"
