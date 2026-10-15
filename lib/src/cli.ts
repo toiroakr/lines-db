@@ -9,8 +9,8 @@ import { LinesDB } from './database.js';
 import { ErrorFormatter } from './error-formatter.js';
 import { unwrap } from './result.js';
 import type { ValidationError, JsonObject, TableDefs } from './types.js';
-import { z } from 'zod';
-import { arg, defineCommand, runMain } from '@politty/zod';
+import * as l from 'loculus';
+import { arg, defineCommand, runMain } from '@politty/loculus';
 import { styleText } from 'node:util';
 import { writeFile, stat, readdir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
@@ -54,12 +54,12 @@ function runInSandbox<T>(expression: string, context: Record<string, unknown> = 
 const generateCommand = defineCommand({
   name: 'generate',
   description: 'Generate TypeScript type definitions from schema files',
-  args: z.object({
-    dataDir: arg(z.string(), {
+  args: l.object({
+    dataDir: arg(l.string(), {
       positional: true,
       description: 'Directory containing JSONL and schema files',
     }),
-    output: arg(z.string().optional(), {
+    output: arg(l.string({ optional: true }), {
       alias: 'o',
       description: 'Output file path (default: db.ts in dataDir)',
     }),
@@ -79,21 +79,21 @@ const generateCommand = defineCommand({
 const validateCommand = defineCommand({
   name: 'validate',
   description: 'Validate JSONL file(s) against schema',
-  args: z.object({
-    path: arg(z.string().optional(), {
+  args: l.object({
+    path: arg(l.string({ optional: true }), {
       positional: true,
       description: 'File or directory path to validate (omit to use lines-db.config.json)',
     }),
-    config: arg(z.string().optional(), {
+    config: arg(l.string({ optional: true }), {
       description: 'Dataset configuration file (default: ./lines-db.config.json)',
     }),
-    dataset: arg(z.array(z.string()).optional(), {
+    dataset: arg(l.array(l.string(), { optional: true }), {
       description: 'Named datasets to validate together with base (repeat to select several)',
     }),
-    allDatasets: arg(z.boolean().default(false), {
+    allDatasets: arg(l.boolean({ default: false }), {
       description: 'Validate base and all datasets together',
     }),
-    verbose: arg(z.boolean().default(false), {
+    verbose: arg(l.boolean({ default: false }), {
       alias: 'v',
       description: 'Show verbose error output',
     }),
@@ -234,28 +234,28 @@ const validateCommand = defineCommand({
 const migrateCommand = defineCommand({
   name: 'migrate',
   description: 'Migrate data with transformation function',
-  args: z.object({
-    path: arg(z.string(), {
+  args: l.object({
+    path: arg(l.string(), {
       positional: true,
       description: 'File or directory path to migrate',
     }),
-    transform: arg(z.string(), {
+    transform: arg(l.string(), {
       positional: true,
       description: 'Transform function (e.g., "(row) => ({ ...row, age: row.age + 1 })")',
     }),
-    filter: arg(z.string().optional(), {
+    filter: arg(l.string({ optional: true }), {
       alias: 'f',
       description: 'Filter expression',
     }),
-    fields: arg(z.string().optional(), {
+    fields: arg(l.string({ optional: true }), {
       description:
         'Comma-separated fields to write back (e.g. "id"). Every other field keeps the value the JSONL file already had. Default: write every field',
     }),
-    errorOutput: arg(z.string().optional(), {
+    errorOutput: arg(l.string({ optional: true }), {
       alias: 'e',
       description: 'Output file path for transformed data when migration fails',
     }),
-    verbose: arg(z.boolean().default(false), {
+    verbose: arg(l.boolean({ default: false }), {
       alias: 'v',
       description: 'Show verbose error output',
     }),
@@ -297,15 +297,15 @@ const migrateCommand = defineCommand({
 const fillCommand = defineCommand({
   name: 'fill',
   description: 'Fill the values each table computes into the JSONL rows that have none for the named fields',
-  args: z.object({
-    path: arg(z.array(z.string()).min(1), {
+  args: l.object({
+    path: arg(l.array(l.string(), { min: 1 }), {
       positional: true,
       description: 'One or more data directories or .jsonl files',
     }),
-    schemaDir: arg(z.string().optional(), {
+    schemaDir: arg(l.string({ optional: true }), {
       description: 'Directory holding shared schemas (default: next to each JSONL file)',
     }),
-    fields: arg(z.string().optional(), {
+    fields: arg(l.string({ optional: true }), {
       alias: 'f',
       description: "Comma-separated fields to fill (default: each table's primary key)",
     }),
@@ -365,25 +365,25 @@ let studio: StudioServer | undefined;
 const studioCommand = defineCommand({
   name: 'studio',
   description: 'Browse and edit the tables of a data directory in the browser',
-  args: z.object({
-    path: arg(z.string().optional(), {
+  args: l.object({
+    path: arg(l.string({ optional: true }), {
       positional: true,
       description: 'Directory containing JSONL files',
     }),
-    dataDir: arg(z.array(z.string()).default([]), {
+    dataDir: arg(l.array(l.string(), { default: [] }), {
       description: 'Directory containing JSONL files (repeatable)',
     }),
-    schemaDir: arg(z.string().optional(), {
+    schemaDir: arg(l.string({ optional: true }), {
       description: 'Directory containing shared schema files (required for several data directories)',
     }),
-    port: arg(z.coerce.number().int().min(0).max(65535).default(4848), {
+    port: arg(l.number({ integer: true, gte: 0, lte: 65535, default: 4848 }), {
       alias: 'p',
       description: 'Port to listen on (0 picks a free one)',
     }),
-    open: arg(z.boolean().default(false), {
+    open: arg(l.boolean({ default: false }), {
       description: 'Open the studio in the default browser',
     }),
-    writeFilledValues: arg(z.enum(['all', 'primaryKey']).default('primaryKey'), {
+    writeFilledValues: arg(l.enum(['all', 'primaryKey'], { default: 'primaryKey' }), {
       description: 'Values the schema fills in that a save writes: all of them, or only a generated primary key',
     }),
   }),
