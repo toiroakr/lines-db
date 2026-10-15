@@ -10,7 +10,7 @@ The CLI validates, migrates, fills missing values, and generates types. Install 
 
 ## Installation
 
-Requires Node.js 22.12.0 or later.
+Requires Node.js 24.21.0 or later.
 
 ```bash
 npm install lines-db

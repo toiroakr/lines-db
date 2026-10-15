@@ -1,9 +1,11 @@
 import { defineConfig } from 'tsdown';
+import { loculusPlugin } from '@loculus/rolldown';
 
 export default defineConfig([
   // CLI build (ESM only)
   {
     entry: ['src/cli.ts'],
+    plugins: [loculusPlugin()],
     external: ['@lines-db/studio'],
     format: ['esm'],
     platform: 'node',

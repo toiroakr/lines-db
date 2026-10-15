@@ -6,7 +6,7 @@ lines-dbはJSONLファイルをSQLiteのテーブルとして読み込むライ�
 
 ## 使い始める
 
-Node.js 22.12.0以降が必要です。
+Node.js 24.21.0以降が必要です。
 
 ```bash
 npm install lines-db
