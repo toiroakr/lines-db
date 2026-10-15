@@ -1,5 +1,12 @@
 # @lines-db/studio
 
+## 0.16.2
+
+### Patch Changes
+
+- Updated dependencies [8f9912e]
+  - lines-db@0.18.0
+
 ## 0.16.1
 
 ### Patch Changes
