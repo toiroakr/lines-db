@@ -1,5 +1,11 @@
 # @toiroakr/lines-db
 
+## 0.18.0
+
+### Minor Changes
+
+- 8f9912e: Migrate CLI argument validation to @politty/loculus and generate validators with @loculus/rolldown during the build. Node.js 22.18.0 or newer is now required.
+
 ## 0.17.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "@lines-db/studio",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "description": "Browser UI and local server for lines-db",
   "type": "module",
   "types": "./dist/index.d.mts",
