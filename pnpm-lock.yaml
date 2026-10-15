@@ -264,8 +264,8 @@ importers:
   lib:
     dependencies:
       '@politty/loculus':
-        specifier: ^0.1.0
-        version: 0.1.0(@clack/prompts@1.7.0)(loculus@0.2.4)
+        specifier: ^0.1.1
+        version: 0.1.1(@clack/prompts@1.7.0)(loculus@0.2.5)
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
@@ -273,15 +273,15 @@ importers:
         specifier: ^1.2.1
         version: 1.2.1
       loculus:
-        specifier: ^0.2.4
-        version: 0.2.4
+        specifier: ^0.2.5
+        version: 0.2.5
       zod:
         specifier: ^4.6.6
         version: 4.6.6
     devDependencies:
       '@loculus/rolldown':
-        specifier: ^0.2.2
-        version: 0.2.2(loculus@0.2.4)(rolldown@1.2.13)
+        specifier: ^0.2.3
+        version: 0.2.3(loculus@0.2.5)(rolldown@1.2.13)
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
@@ -911,11 +911,11 @@ packages:
   '@lezer/lr@1.4.10':
     resolution: {integrity: sha512-rnCpTIBafOx4mRp43xOxDJbFipJm/c0cia/V5TiGlhmMa+wsSdoGmUN3w5Bqrks/09Q/D4tNAmWaT8p6NRi77A==}
 
-  '@loculus/rolldown@0.2.2':
-    resolution: {integrity: sha512-g5sh7oR7rRsVEvDabHAJaUBg2XffwOMAc6EZ10xRpB51/ZP1e/JbW7UKDkn4XwilLqgJ90G+6lCwOmm97sPuXw==}
-    engines: {node: '>=24'}
+  '@loculus/rolldown@0.2.3':
+    resolution: {integrity: sha512-PMIyzNjSyzGjCA8HRLl+LQclTVP832BHVMAfSp64d8ZRVSWmpXUrjkjqtQT2X7msm/OcSZo0WORHPozjXhwBWg==}
+    engines: {node: '>=22.18.0'}
     peerDependencies:
-      loculus: ^0.2.3
+      loculus: ^0.2.5
       rolldown: '>=1.2.13 <2'
 
   '@manypkg/find-root@3.1.0':
@@ -1524,14 +1524,14 @@ packages:
     resolution: {integrity: sha512-pOr5+q1fLYKwFN3LAJuGZEnfXDcQ73zqgDHMtGy+K+uIoUqyY+6MeDCWFwfu+4EFuq76I5EPFofoNAI+Bmmq4A==}
     engines: {node: '>=22.13'}
 
-  '@politty/loculus@0.1.0':
-    resolution: {integrity: sha512-0hsA1YwVMWNDTu7wF52Prj+qFTZUasXiOJ3WXqE57mGXBU7E1PXZJc3ij4wM3WQAeiVbWIxNZ/bxdFZLQsyx/A==}
-    engines: {node: '>=24.21.0'}
+  '@politty/loculus@0.1.1':
+    resolution: {integrity: sha512-o1A3UsnRfW93yj9N/maoKQUDqp8yWdkenrupvZrL/AC6O2e2OW5/1P4aFOedRPGwwROlzyvoVIwCCRE17ezn6w==}
+    engines: {node: '>=22.18.0'}
     hasBin: true
     peerDependencies:
       '@clack/prompts': ^0.10.0 || ^0.11.0 || ^1.0.0
       '@inquirer/prompts': ^8.3.2
-      loculus: ^0.2.4
+      loculus: ^0.2.5
     peerDependenciesMeta:
       '@clack/prompts':
         optional: true
@@ -3304,9 +3304,9 @@ packages:
     resolution: {integrity: sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==}
     engines: {node: '>= 12.0.0'}
 
-  loculus@0.2.4:
-    resolution: {integrity: sha512-p+swtXAm96owpvvj4OsZwNnZ8ep876K7Rejk+9UNvSGBJ2fIYUajbVhZiBe2rxiY3Wcba9X9Wc6v3+GNiCXpXg==}
-    engines: {node: '>=24'}
+  loculus@0.2.5:
+    resolution: {integrity: sha512-idAO14ke9seznkaPNm4L9l3Ka6DQFJqT8IJZne1W6MtBEfucayu2gmGB+YGP/mgHuvoTteL7iibI6s/ezTDNCA==}
+    engines: {node: '>=22.18.0'}
 
   lodash.includes@4.3.0:
     resolution: {integrity: sha512-W3Bx6mdkRTGtlJISOvVD/lbqjTlPPUDTMnlXZFnVwi9NKJ6tiAk6LVdlhZMm17VZisqhKcgzpO5Wz91PCt5b0w==}
@@ -4556,9 +4556,9 @@ snapshots:
     dependencies:
       '@lezer/common': 1.5.3
 
-  '@loculus/rolldown@0.2.2(loculus@0.2.4)(rolldown@1.2.13)':
+  '@loculus/rolldown@0.2.3(loculus@0.2.5)(rolldown@1.2.13)':
     dependencies:
-      loculus: 0.2.4
+      loculus: 0.2.5
       rolldown: 1.2.13
 
   '@manypkg/find-root@3.1.0':
@@ -4874,9 +4874,9 @@ snapshots:
 
   '@pnpm/deps.graph-sequencer@1100.0.1': {}
 
-  '@politty/loculus@0.1.0(@clack/prompts@1.7.0)(loculus@0.2.4)':
+  '@politty/loculus@0.1.1(@clack/prompts@1.7.0)(loculus@0.2.5)':
     dependencies:
-      loculus: 0.2.4
+      loculus: 0.2.5
       yaml: 2.9.1
     optionalDependencies:
       '@clack/prompts': 1.7.0
@@ -6553,7 +6553,7 @@ snapshots:
       lightningcss-win32-arm64-msvc: 1.33.0
       lightningcss-win32-x64-msvc: 1.33.0
 
-  loculus@0.2.4: {}
+  loculus@0.2.5: {}
 
   lodash.includes@4.3.0: {}
 

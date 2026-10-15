@@ -48,7 +48,7 @@
   },
   "homepage": "https://github.com/toiroakr/lines-db#readme",
   "devDependencies": {
-    "@loculus/rolldown": "^0.2.2",
+    "@loculus/rolldown": "^0.2.3",
     "@types/node": "^24.19.2",
     "publint": "^0.3.25",
     "tsdown": "^0.23.1",
@@ -66,10 +66,10 @@
     }
   },
   "dependencies": {
-    "@politty/loculus": "^0.1.0",
+    "@politty/loculus": "^0.1.1",
     "@standard-schema/spec": "^1.1.0",
     "amaro": "^1.2.1",
-    "loculus": "^0.2.4",
+    "loculus": "^0.2.5",
     "zod": "^4.6.6"
   }
 }
