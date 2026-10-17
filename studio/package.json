@@ -48,6 +48,6 @@
     "valibot": "^1.5.0",
     "vitest": "^5.0.4",
     "lines-db": "workspace:*",
-    "zod": "^4.6.6"
+    "zod": "^4.6.7"
   }
 }
