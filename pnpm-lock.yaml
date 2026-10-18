@@ -194,8 +194,8 @@ importers:
         specifier: ^4.0.94
         version: 4.0.94(zod@4.6.7)
       '@e2e-dev/web':
-        specifier: ^0.14.0
-        version: 0.14.0(e2e@0.19.0(@ai-sdk/openai@4.0.94(zod@4.6.7))(ai@7.0.140(zod@4.6.7)))
+        specifier: ^0.15.1
+        version: 0.15.2(e2e@0.19.0(@ai-sdk/openai@4.0.94(zod@4.6.7))(ai@7.0.140(zod@4.6.7)))
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
@@ -699,8 +699,8 @@ packages:
     resolution: {integrity: sha512-OoKoR0f76dCY666JlcbhmVTs2drYj1GUXZTYTcbUgJjh9Nv41aFfZ21bPQTERm5+L5cBDo466NltB2lplS5GBw==}
     engines: {node: '>=20.19.0'}
 
-  '@e2e-dev/web@0.14.0':
-    resolution: {integrity: sha512-GscnN1Gt3Vj+w6AicDImO64PEO2y6kh49hV1RdOn3YLMcuMIYgE3rET0/A783qUzqLbS0gX+wyLvtfBkMKBTlw==}
+  '@e2e-dev/web@0.15.2':
+    resolution: {integrity: sha512-XidBXbpiEeJQqPsXcEwMOon5KDk8PEaaXR65rDu5P1u115bW+2KK7DlWqYvLg/RpjK/pnOa5iNuD9JthqODLVQ==}
     engines: {node: ^22.22.3 || >=24.8.0}
     hasBin: true
     peerDependencies:
@@ -3492,8 +3492,8 @@ packages:
     resolution: {integrity: sha512-cIqOLfh5k52us715qf3B3+kTOxZv+WDv77HN7xokLScYQGYQHi4m/ynoDIPpvF2LvCyUJGyvzY64i0QCXtzu1g==}
     hasBin: true
 
-  playwright-core@1.63.0:
-    resolution: {integrity: sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==}
+  playwright-core@1.64.0:
+    resolution: {integrity: sha512-T9r+MZkTECl2+oUcZ26YgZzTrYidTsIhYYkJix+6iDOymOb1FB2RLLSOxRGnZGv5DStt+aduIVbt+E8WygXYpg==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -4449,10 +4449,10 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.2': {}
 
-  '@e2e-dev/web@0.14.0(e2e@0.19.0(@ai-sdk/openai@4.0.94(zod@4.6.7))(ai@7.0.140(zod@4.6.7)))':
+  '@e2e-dev/web@0.15.2(e2e@0.19.0(@ai-sdk/openai@4.0.94(zod@4.6.7))(ai@7.0.140(zod@4.6.7)))':
     dependencies:
       e2e: 0.19.0(@ai-sdk/openai@4.0.94(zod@4.6.7))(ai@7.0.140(zod@4.6.7))
-      playwright-core: 1.63.0
+      playwright-core: 1.64.0
 
   '@esbuild/aix-ppc64@0.28.2':
     optional: true
@@ -6791,7 +6791,7 @@ snapshots:
     dependencies:
       pngjs: 7.0.0
 
-  playwright-core@1.63.0: {}
+  playwright-core@1.64.0: {}
 
   playwright-core@1.64.1: {}
 
