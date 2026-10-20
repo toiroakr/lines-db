@@ -19,10 +19,6 @@
       "automerge": true
     },
     {
-      "groupName": "{{depName}}",
-      "matchUpdateTypes": ["minor", "patch"]
-    },
-    {
       "matchDepTypes": ["devDependencies"],
       "matchUpdateTypes": ["minor", "patch"],
       "automerge": true
@@ -47,6 +43,11 @@
       "matchPackageNames": ["react", "react-dom"],
       "groupName": "react runtime",
       "minimumGroupSize": 2
+    },
+    {
+      "matchDatasources": ["npm"],
+      "matchPackageNames": ["ai", "@ai-sdk/*"],
+      "groupName": "ai sdk"
     }
   ]
 }
