@@ -1,5 +1,11 @@
 # @lines-db/studio
 
+## 0.16.3
+
+### Patch Changes
+
+- 7943f11: Update the bundled Studio UI to matching React and React DOM 19.3.1 versions.
+
 ## 0.16.2
 
 ### Patch Changes
