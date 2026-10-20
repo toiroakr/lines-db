@@ -40,6 +40,13 @@
     {
       "matchDepTypes": ["devDependencies"],
       "rangeStrategy": "bump"
+    },
+    {
+      "description": "React and react-dom must be updated together because their runtime versions must match.",
+      "matchDatasources": ["npm"],
+      "matchPackageNames": ["react", "react-dom"],
+      "groupName": "react runtime",
+      "minimumGroupSize": 2
     }
   ]
 }
