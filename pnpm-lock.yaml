@@ -280,8 +280,8 @@ importers:
         version: 4.6.7
     devDependencies:
       '@loculus/rolldown':
-        specifier: ^0.2.3
-        version: 0.2.3(loculus@0.3.0)(rolldown@1.2.13)
+        specifier: ^0.3.1
+        version: 0.3.1(loculus@0.3.0)(rolldown@1.2.13)
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
@@ -914,11 +914,11 @@ packages:
   '@lezer/lr@1.4.10':
     resolution: {integrity: sha512-rnCpTIBafOx4mRp43xOxDJbFipJm/c0cia/V5TiGlhmMa+wsSdoGmUN3w5Bqrks/09Q/D4tNAmWaT8p6NRi77A==}
 
-  '@loculus/rolldown@0.2.3':
-    resolution: {integrity: sha512-PMIyzNjSyzGjCA8HRLl+LQclTVP832BHVMAfSp64d8ZRVSWmpXUrjkjqtQT2X7msm/OcSZo0WORHPozjXhwBWg==}
+  '@loculus/rolldown@0.3.1':
+    resolution: {integrity: sha512-vMX2Q2IjTTOspFBuJi7IZFASymTOiP531NH0LoWnqnUtNdMm6TuFumzgizCfKViKrLWOpUnQ9I8ENeQRFn6o4Q==}
     engines: {node: '>=22.18.0'}
     peerDependencies:
-      loculus: ^0.2.5
+      loculus: ^0.4.0
       rolldown: '>=1.2.13 <2'
 
   '@manypkg/find-root@3.1.0':
@@ -4560,7 +4560,7 @@ snapshots:
     dependencies:
       '@lezer/common': 1.5.3
 
-  '@loculus/rolldown@0.2.3(loculus@0.3.0)(rolldown@1.2.13)':
+  '@loculus/rolldown@0.3.1(loculus@0.3.0)(rolldown@1.2.13)':
     dependencies:
       loculus: 0.3.0
       rolldown: 1.2.13
