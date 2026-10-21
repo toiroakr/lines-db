@@ -265,7 +265,7 @@ importers:
     dependencies:
       '@politty/loculus':
         specifier: ^0.1.1
-        version: 0.1.1(@clack/prompts@1.7.0)(loculus@0.3.0)
+        version: 0.1.1(@clack/prompts@1.7.0)(loculus@0.4.1)
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
@@ -273,15 +273,15 @@ importers:
         specifier: ^1.2.1
         version: 1.2.1
       loculus:
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: ^0.4.0
+        version: 0.4.1
       zod:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
       '@loculus/rolldown':
         specifier: ^0.3.1
-        version: 0.3.1(loculus@0.3.0)(rolldown@1.2.13)
+        version: 0.3.1(loculus@0.4.1)(rolldown@1.2.13)
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
@@ -3318,8 +3318,8 @@ packages:
     resolution: {integrity: sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==}
     engines: {node: '>= 12.0.0'}
 
-  loculus@0.3.0:
-    resolution: {integrity: sha512-rdnqJQTf7Ub+gEIk4tieoSkVheMyf3kNLZuRYtiaWAtuDIwPyutk+WEn5mDIek7N3ttjV0D86QF+aPARlsslzw==}
+  loculus@0.4.1:
+    resolution: {integrity: sha512-KOdLVxfEu6sKeMTqHo7//UdCFkT0vlQngaYGyj9Agyb3A2wWBdyORBZ4kdvz9d9w0tAjiPTdg0gNiL+TGxwlIw==}
     engines: {node: '>=22.18.0'}
 
   lodash.includes@4.3.0:
@@ -4560,9 +4560,9 @@ snapshots:
     dependencies:
       '@lezer/common': 1.5.3
 
-  '@loculus/rolldown@0.3.1(loculus@0.3.0)(rolldown@1.2.13)':
+  '@loculus/rolldown@0.3.1(loculus@0.4.1)(rolldown@1.2.13)':
     dependencies:
-      loculus: 0.3.0
+      loculus: 0.4.1
       rolldown: 1.2.13
 
   '@manypkg/find-root@3.1.0':
@@ -4876,9 +4876,9 @@ snapshots:
 
   '@pnpm/deps.graph-sequencer@1100.0.1': {}
 
-  '@politty/loculus@0.1.1(@clack/prompts@1.7.0)(loculus@0.3.0)':
+  '@politty/loculus@0.1.1(@clack/prompts@1.7.0)(loculus@0.4.1)':
     dependencies:
-      loculus: 0.3.0
+      loculus: 0.4.1
       yaml: 2.9.1
     optionalDependencies:
       '@clack/prompts': 1.7.0
@@ -6572,7 +6572,7 @@ snapshots:
       lightningcss-win32-arm64-msvc: 1.33.0
       lightningcss-win32-x64-msvc: 1.33.0
 
-  loculus@0.3.0: {}
+  loculus@0.4.1: {}
 
   lodash.includes@4.3.0: {}
 
