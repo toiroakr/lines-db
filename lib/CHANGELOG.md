@@ -1,5 +1,11 @@
 # @toiroakr/lines-db
 
+## 0.18.1
+
+### Patch Changes
+
+- e06facb: `lines-db validate` now prints a warning on stderr when every table it loaded has zero records (for example when all `.jsonl` files are empty placeholders), so a run that checked nothing no longer looks like a plain success. The exit code stays 0.
+
 ## 0.18.0
 
 ### Minor Changes
