@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { basename, extname, relative, resolve as resolvePath } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { watch, type FSWatcher } from 'zygiella';
 import {
   LinesDB,
   DirectoryScanner,
@@ -23,7 +24,6 @@ import {
   type ValidationErrorDetail,
   type WriteFilledValues,
 } from 'lines-db';
-import { watch, type FSWatcher } from 'zygiella';
 import { hashJsonlContent, replaceFile } from 'lines-db/internal';
 import { readDeclaredColumns } from './declared-columns.js';
 import { replaceRows } from './file-rows.js';
