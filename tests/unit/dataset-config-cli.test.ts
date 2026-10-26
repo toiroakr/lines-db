@@ -92,6 +92,30 @@ describe('validate dataset configuration', () => {
     });
   });
 
+  describe('when no records are validated', () => {
+    const noRecords = 'No records were validated';
+
+    it('warns on stderr and still succeeds when every file is empty', async () => {
+      await writeFile(join(project, 'data/Item.jsonl'), '');
+      const { stdout, stderr } = await validate([], project);
+      expect(stderr).toContain(
+        `${noRecords}: every JSONL file in ${join(project, 'data')} is empty (0 records in total).`,
+      );
+      expect(stdout).toContain('All records are valid');
+    });
+
+    it('does not warn when a selected dataset supplies records', async () => {
+      await writeFile(join(project, 'data/Item.jsonl'), '');
+      const { stderr } = await validate(['--dataset', 'sales'], project);
+      expect(stderr).not.toContain(noRecords);
+    });
+
+    it('does not warn when a file has records', async () => {
+      const { stderr } = await validate([], project);
+      expect(stderr).not.toContain(noRecords);
+    });
+  });
+
   it('keeps positional directory and file validation without loading configuration', async () => {
     await writeFile(config, 'not JSON');
     for (const path of ['data', 'data/Item.jsonl']) {

@@ -158,6 +158,17 @@ const validateCommand = defineCommand({
           }
         }
 
+        const tableCount = result.tableResults.length;
+        if (tableCount > 0 && result.tableResults.every((r) => r.rowCount === 0)) {
+          const dirs = [config.dataDir].flat().join(', ');
+          console.warn(
+            styleText(
+              'yellow',
+              `⚠ No records were validated: every JSONL file in ${dirs} is empty (0 records in total).`,
+            ),
+          );
+        }
+
         if (result.valid) {
           console.log('');
           console.log(styleText('green', '✓ All records are valid'));
