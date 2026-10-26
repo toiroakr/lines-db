@@ -264,7 +264,7 @@ importers:
   lib:
     dependencies:
       '@politty/loculus':
-        specifier: ^0.2.1
+        specifier: ^0.2.2
         version: 0.2.2(@clack/prompts@1.7.0)(loculus@0.4.1)
       '@standard-schema/spec':
         specifier: ^1.1.0
