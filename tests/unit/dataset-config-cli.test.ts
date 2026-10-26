@@ -104,9 +104,22 @@ describe('validate dataset configuration', () => {
       expect(stdout).toContain('All records are valid');
     });
 
+    it('warns on stderr and still succeeds when the one selected file is empty', async () => {
+      await writeFile(join(project, 'data/Item.jsonl'), '');
+      const { stdout, stderr } = await validate(['data/Item.jsonl'], project);
+      expect(stderr).toContain(`${noRecords}: the selected file Item.jsonl in data is empty (0 records).`);
+      expect(stdout).toContain('All records are valid');
+    });
+
     it('does not warn when a selected dataset supplies records', async () => {
       await writeFile(join(project, 'data/Item.jsonl'), '');
       const { stderr } = await validate(['--dataset', 'sales'], project);
+      expect(stderr).not.toContain(noRecords);
+    });
+
+    it('does not warn when only some tables are empty', async () => {
+      await writeFile(join(project, 'data/Empty.jsonl'), '');
+      const { stderr } = await validate([], project);
       expect(stderr).not.toContain(noRecords);
     });
 
