@@ -401,6 +401,24 @@ describe('studio server', () => {
     }
   });
 
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'starts without live reload when the shared schema directory cannot be read',
+    async () => {
+      await studio.close();
+      const unreadable = join(dataDir, 'unreadable-schemas');
+      await mkdir(unreadable);
+      await chmod(unreadable, 0o100);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        studio = await startStudioServer({ dataDir, schemaDir: unreadable, port: 0 });
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Live reload is off'));
+      } finally {
+        warn.mockRestore();
+        await chmod(unreadable, 0o700);
+      }
+    },
+  );
+
   it('notifies the page when a shared schema changes and validates edits against it', async () => {
     await studio.close();
     const set = join(dataDir, 'local');

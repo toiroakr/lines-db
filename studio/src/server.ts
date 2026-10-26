@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { readdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, extname, relative, resolve as resolvePath } from 'node:path';
@@ -169,8 +169,8 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     await Promise.all(
       [...new Set([...dataDirs, resolvePath(schemaDir)])].map(async (dir): Promise<FSWatcher[]> => {
         try {
-          // Not left to the watcher: it reports nothing for a directory that does not exist
-          if (!(await stat(dir)).isDirectory()) throw new Error('not a directory');
+          // Not left to the watcher: it reports nothing for a directory that does not exist or cannot be read
+          await readdir(dir);
           const watcher = watch(dir, { ignoreInitial: true, depth: 0 });
           watcher.on('all', () => {
             clearTimeout(watchTimer);
