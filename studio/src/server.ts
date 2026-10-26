@@ -161,6 +161,8 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     for (const client of eventClients) client.write('event: changed\ndata: {}\n\n');
   };
 
+  const reloadIfChanged = (): Promise<boolean> => serialize(reloadIfChangedUnlocked);
+
   let watchTimer: NodeJS.Timeout | undefined;
   // Not checking on each event: an editor saving a file fires several (a temporary file, then a rename)
   const watchers = (
@@ -191,7 +193,6 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       }),
     )
   ).flat();
-  const reloadIfChanged = (): Promise<boolean> => serialize(reloadIfChangedUnlocked);
 
   const server = createServer((req, res) => {
     handle(req, res).catch((error) =>

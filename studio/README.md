@@ -6,7 +6,7 @@ Studio is a browser editor for [lines-db](https://github.com/toiroakr/lines-db).
 
 ## Start Studio
 
-Requires Node.js 22.12.0 or later. Install both packages in the project.
+Requires Node.js 22.18.0 or later. Install both packages in the project.
 
 ```bash
 npm install -D lines-db @lines-db/studio

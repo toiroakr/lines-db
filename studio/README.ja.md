@@ -6,7 +6,7 @@ Studioは[lines-db](https://github.com/toiroakr/lines-db)のブラウザ用エ�
 
 ## 起動する
 
-Node.js 22.12.0以降が必要です。プロジェクトに両方のパッケージをインストールします。
+Node.js 22.18.0以降が必要です。プロジェクトに両方のパッケージをインストールします。
 
 ```bash
 npm install -D lines-db @lines-db/studio
