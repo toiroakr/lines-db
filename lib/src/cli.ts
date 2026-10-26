@@ -111,10 +111,10 @@ const validateCommand = defineCommand({
 
       if (result.tableResults.length > 0 && result.tableResults.every((r) => r.rowCount === 0)) {
         const dirs = [config.dataDir].flat().join(', ');
-        const scope = tableName
-          ? `the selected file ${tableName}.jsonl in ${dirs} is empty (0 records)`
-          : `every JSONL file in ${dirs} is empty (0 records in total)`;
-        console.warn(styleText('yellow', `⚠ No records were validated: ${scope}.`));
+        const message = tableName
+          ? `The selected file ${tableName}.jsonl in ${dirs} is empty (0 records), so none of its records were validated.`
+          : `No records were validated: every JSONL file in ${dirs} is empty (0 records in total).`;
+        console.warn(styleText('yellow', `⚠ ${message}`));
       }
 
       if (!tableName) {
