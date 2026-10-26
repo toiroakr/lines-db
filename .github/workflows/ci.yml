@@ -8,8 +8,12 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   quality-checks:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -74,6 +78,7 @@ jobs:
   # Cross-platform tests to catch platform-specific issues
   # (e.g., file system ordering differences affecting foreign key resolution)
   cross-platform-tests:
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
