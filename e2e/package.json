@@ -16,10 +16,10 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@ai-sdk/openai": "^4.0.101",
+    "@ai-sdk/openai": "^4.0.102",
     "@e2e-dev/web": "^0.15.3",
     "@types/node": "^24.19.2",
-    "ai": "^7.0.152",
+    "ai": "^7.0.153",
     "e2e": "^0.21.3",
     "playwright": "^1.64.1",
     "typescript": "^6.0.3",
