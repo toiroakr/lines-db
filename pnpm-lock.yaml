@@ -264,8 +264,8 @@ importers:
   lib:
     dependencies:
       '@politty/loculus':
-        specifier: ^0.2.2
-        version: 0.2.2(@clack/prompts@1.7.0)(loculus@0.4.1)
+        specifier: ^0.3.1
+        version: 0.3.1(@clack/prompts@1.7.0)(loculus@0.4.1)
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
@@ -1530,14 +1530,14 @@ packages:
     resolution: {integrity: sha512-pOr5+q1fLYKwFN3LAJuGZEnfXDcQ73zqgDHMtGy+K+uIoUqyY+6MeDCWFwfu+4EFuq76I5EPFofoNAI+Bmmq4A==}
     engines: {node: '>=22.13'}
 
-  '@politty/loculus@0.2.2':
-    resolution: {integrity: sha512-WgKyOGkHFRHIXYBGJ8D4vc80d6D4YAsz4L5u2t4xG1LryHN/7/t2Je8x8jsXD6dwCZ+pOzCoS9FX27AFj4BJHA==}
+  '@politty/loculus@0.3.1':
+    resolution: {integrity: sha512-yLGKqHM40zDMDXo0zRwsKc8TmP+zyRmxDfEiwcSstlAmJCmwOkxCbK/2LbISZfsxwc1dRLcU04g8/CwNIJiwMA==}
     engines: {node: '>=22.18.0'}
     hasBin: true
     peerDependencies:
       '@clack/prompts': ^0.10.0 || ^0.11.0 || ^1.0.0
       '@inquirer/prompts': ^8.3.2
-      loculus: ^0.2.5 || ^0.3.0
+      loculus: ^0.4.0
     peerDependenciesMeta:
       '@clack/prompts':
         optional: true
@@ -4987,7 +4987,7 @@ snapshots:
 
   '@pnpm/deps.graph-sequencer@1100.0.1': {}
 
-  '@politty/loculus@0.2.2(@clack/prompts@1.7.0)(loculus@0.4.1)':
+  '@politty/loculus@0.3.1(@clack/prompts@1.7.0)(loculus@0.4.1)':
     dependencies:
       loculus: 0.4.1
       yaml: 2.9.1
