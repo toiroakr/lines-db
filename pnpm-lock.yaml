@@ -194,8 +194,8 @@ importers:
         specifier: ^4.0.101
         version: 4.0.101(zod@4.6.7)
       '@e2e-dev/web':
-        specifier: ^0.15.2
-        version: 0.15.2(e2e@0.21.2(@ai-sdk/openai@4.0.101(zod@4.6.7))(ai@7.0.150(zod@4.6.7)))
+        specifier: ^0.15.3
+        version: 0.15.3(e2e@0.21.2(@ai-sdk/openai@4.0.101(zod@4.6.7))(ai@7.0.150(zod@4.6.7)))
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
@@ -693,8 +693,8 @@ packages:
     resolution: {integrity: sha512-OoKoR0f76dCY666JlcbhmVTs2drYj1GUXZTYTcbUgJjh9Nv41aFfZ21bPQTERm5+L5cBDo466NltB2lplS5GBw==}
     engines: {node: '>=20.19.0'}
 
-  '@e2e-dev/web@0.15.2':
-    resolution: {integrity: sha512-XidBXbpiEeJQqPsXcEwMOon5KDk8PEaaXR65rDu5P1u115bW+2KK7DlWqYvLg/RpjK/pnOa5iNuD9JthqODLVQ==}
+  '@e2e-dev/web@0.15.3':
+    resolution: {integrity: sha512-S15TxVQsSTvjEd00r/fZs0tX/gvq53EhWMtSCYhydnMA9QdfE83GpgiXeRqrBDzNhfbm6f1TwJeANw+qW/4T4A==}
     engines: {node: ^22.22.3 || >=24.8.0}
     hasBin: true
     peerDependencies:
@@ -3584,11 +3584,6 @@ packages:
     resolution: {integrity: sha512-cIqOLfh5k52us715qf3B3+kTOxZv+WDv77HN7xokLScYQGYQHi4m/ynoDIPpvF2LvCyUJGyvzY64i0QCXtzu1g==}
     hasBin: true
 
-  playwright-core@1.64.0:
-    resolution: {integrity: sha512-T9r+MZkTECl2+oUcZ26YgZzTrYidTsIhYYkJix+6iDOymOb1FB2RLLSOxRGnZGv5DStt+aduIVbt+E8WygXYpg==}
-    engines: {node: '>=20'}
-    hasBin: true
-
   playwright-core@1.64.1:
     resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
     engines: {node: '>=20'}
@@ -4522,10 +4517,10 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.2': {}
 
-  '@e2e-dev/web@0.15.2(e2e@0.21.2(@ai-sdk/openai@4.0.101(zod@4.6.7))(ai@7.0.150(zod@4.6.7)))':
+  '@e2e-dev/web@0.15.3(e2e@0.21.2(@ai-sdk/openai@4.0.101(zod@4.6.7))(ai@7.0.150(zod@4.6.7)))':
     dependencies:
       e2e: 0.21.2(@ai-sdk/openai@4.0.101(zod@4.6.7))(ai@7.0.150(zod@4.6.7))
-      playwright-core: 1.64.0
+      playwright-core: 1.64.1
 
   '@esbuild/aix-ppc64@0.28.2':
     optional: true
@@ -6908,8 +6903,6 @@ snapshots:
   pixelmatch@8.0.0:
     dependencies:
       pngjs: 7.0.0
-
-  playwright-core@1.64.0: {}
 
   playwright-core@1.64.1: {}
 
