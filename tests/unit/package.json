@@ -8,7 +8,7 @@
     "test": "pnpm --filter lines-db build && pnpm --filter @lines-db/studio build && vitest run --typecheck"
   },
   "devDependencies": {
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.5",
     "@vitest/ui": "^5.0.5",
     "typescript": "^6.0.3",
     "valibot": "^1.5.0",
