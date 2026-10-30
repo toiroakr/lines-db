@@ -225,8 +225,8 @@ importers:
         specifier: ^26.6.5
         version: 26.6.5
       amaro:
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.3.0
+        version: 1.3.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -270,8 +270,8 @@ importers:
         specifier: ^1.1.0
         version: 1.1.0
       amaro:
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.3.0
+        version: 1.3.0
       loculus:
         specifier: ^0.4.1
         version: 0.4.1
@@ -2794,8 +2794,8 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  amaro@1.2.2:
-    resolution: {integrity: sha512-H1ReZZ8Te6HHaWAy9171A/iWkGZOusKCtdzmh6EnTgluiNiAV9OSmUIN5rZI1TZnw6+NAUNz+n6pAWoJAHhRIQ==}
+  amaro@1.3.0:
+    resolution: {integrity: sha512-AuQra8VNxiToMaXpQWLEeDZZqo13unyNvKq81VhdtIh0cO9ZE+fElw+rpwrdVwjzomaqB40bin8ycHmoLlhvoQ==}
     engines: {node: '>=22'}
 
   ansi-regex@5.0.1:
@@ -6147,7 +6147,7 @@ snapshots:
       '@ai-sdk/provider-utils': 5.0.69(zod@4.6.7)
       zod: 4.6.7
 
-  amaro@1.2.2: {}
+  amaro@1.3.0: {}
 
   ansi-regex@5.0.1: {}
 
