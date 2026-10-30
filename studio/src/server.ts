@@ -1,10 +1,10 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { watch } from 'node:fs';
-import { readFile, realpath, writeFile } from 'node:fs/promises';
+import { readdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, extname, relative, resolve as resolvePath } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { watch, type FSWatcher } from 'zygiella';
 import {
   LinesDB,
   DirectoryScanner,
@@ -161,29 +161,38 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     for (const client of eventClients) client.write('event: changed\ndata: {}\n\n');
   };
 
+  const reloadIfChanged = (): Promise<boolean> => serialize(reloadIfChangedUnlocked);
+
   let watchTimer: NodeJS.Timeout | undefined;
   // Not checking on each event: an editor saving a file fires several (a temporary file, then a rename)
-  const watchers = [...new Set([...dataDirs, resolvePath(schemaDir)])].flatMap((dir) => {
-    try {
-      const watcher = watch(dir, () => {
-        clearTimeout(watchTimer);
-        watchTimer = setTimeout(() => {
-          // Not reporting the error here: the page asks again on 'changed' and shows the error it gets
-          reloadIfChanged().catch(notifyChanged);
-        }, 100);
-      });
-      // Not letting the error end the process: Reload still loads the current files without the watcher
-      watcher.on('error', (error) => {
-        console.warn(`Live reload is off for '${dir}': ${errorMessage(error)}`);
-        watcher.close();
-      });
-      return [watcher];
-    } catch (error) {
-      console.warn(`Live reload is off for '${dir}': ${errorMessage(error)}`);
-      return [];
-    }
-  });
-  const reloadIfChanged = (): Promise<boolean> => serialize(reloadIfChangedUnlocked);
+  const watchers = (
+    await Promise.all(
+      [...new Set([...dataDirs, resolvePath(schemaDir)])].map(async (dir): Promise<FSWatcher[]> => {
+        try {
+          // Not left to the watcher: it reports nothing for a directory that does not exist or cannot be read
+          await readdir(dir);
+          const watcher = watch(dir, { ignoreInitial: true, depth: 0 });
+          watcher.on('all', () => {
+            clearTimeout(watchTimer);
+            watchTimer = setTimeout(() => {
+              // Not reporting the error here: the page asks again on 'changed' and shows the error it gets
+              reloadIfChanged().catch(notifyChanged);
+            }, 100);
+          });
+          // Not letting the error end the process: Reload still loads the current files without the watcher
+          watcher.on('error', (error) => {
+            console.warn(`Live reload is off for '${dir}': ${errorMessage(error)}`);
+            void watcher.close();
+          });
+          await watcher.ready;
+          return [watcher];
+        } catch (error) {
+          console.warn(`Live reload is off for '${dir}': ${errorMessage(error)}`);
+          return [];
+        }
+      }),
+    )
+  ).flat();
 
   const server = createServer((req, res) => {
     handle(req, res).catch((error) =>
@@ -600,7 +609,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       });
     });
   } catch (error) {
-    watchers.forEach((watcher) => watcher.close());
+    await Promise.all(watchers.map((watcher) => watcher.close()));
     await snapshot.db.close();
     throw error;
   }
@@ -611,7 +620,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     url,
     token,
     close: async () => {
-      watchers.forEach((watcher) => watcher.close());
+      await Promise.all(watchers.map((watcher) => watcher.close()));
       clearTimeout(watchTimer);
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

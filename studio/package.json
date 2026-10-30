@@ -16,7 +16,7 @@
     "CHANGELOG.md"
   ],
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "build": "tsdown && pnpm --filter @toiroakr/lines-db-studio-ui build",
@@ -49,5 +49,8 @@
     "vitest": "^5.0.5",
     "lines-db": "workspace:*",
     "zod": "^4.6.7"
+  },
+  "dependencies": {
+    "zygiella": "0.0.1"
   }
 }

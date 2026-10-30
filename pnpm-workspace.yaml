@@ -21,6 +21,8 @@ minimumReleaseAgeExclude:
   - '@politty/loculus'
   - loculus
   - '@loculus/rolldown'
+  # Not held back: the first release is younger than the cutoff, so no mature one exists to pin
+  - zygiella
 
 enableGlobalVirtualStore: true
 
