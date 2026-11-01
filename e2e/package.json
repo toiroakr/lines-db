@@ -18,7 +18,7 @@
   "devDependencies": {
     "@ai-sdk/openai": "^4.0.104",
     "@e2e-dev/web": "^0.15.3",
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "ai": "^7.0.155",
     "e2e": "^0.21.3",
     "playwright": "^1.64.1",
