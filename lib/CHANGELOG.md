@@ -1,5 +1,20 @@
 # @toiroakr/lines-db
 
+## 0.19.0
+
+### Minor Changes
+
+- 376a141: A JSON column now gives back a string, a boolean and a number as the value that was inserted. A string such as `"123"`, `"true"`, `"null"` or `'{"a":1}'` used to come back as a number, a boolean, null or an object, and `false` and `true` came back as `0` and `1`. Every value of a JSON column is now stored as JSON text with a string quoted, for `insert`, `batchInsert`, `update` (including `resetToDefault`) and the conditions of `find`, `update` and `delete` alike. Objects and arrays are stored as before, and the JSONL file still holds plain values.
+  
+  Breaking for raw SQL: a string in a JSON column is now stored and read back through `query()` in its quoted form, so `WHERE data = 'abc'` becomes `WHERE data = '"abc"'`. `lines-db` also no longer warns "Failed to parse JSON column" for a plain string it wrote itself.
+
+### Patch Changes
+
+- 8deddc8: A table with a validation schema (a schema file, or `validationSchema` passed in code) no longer refuses a row that leaves out a field every existing row holds, when the schema takes that row. Before, the field was inferred as NOT NULL from the rows on disk, so inserting `{"id":3,"name":"c"}` into a table whose rows all had `nick` failed with `NOT NULL constraint failed: users.nick`, in `insert()` and in the studio's save, although the schema accepted the row. A field the schema fills in, or whose omission the schema rejects, stays as it was.
+- aa9725e: `lines-db studio` now lists a table whose JSONL file has no rows, and a table with a primary key can have its first row added in the studio. The studio reads the columns of such a table from the types of its schema file, so the table is listed when the schema declares its input type through `~standard.types` (zod and valibot do; a hand-written Standard Schema has to declare `types`). Without types, the table stays out of the list as before. `DatabaseConfig` has a new `schemaOfEmptyTable` option to give the columns of a table with no rows. `lines-db validate` no longer says a table has "validation errors" when it only skips the foreign keys that point at an empty table; it says the table has no rows to read its columns from.
+- 8deddc8: A boolean, object or array written into a field that no row holds a value in yet is now written back to the JSONL file as it was given. Before, saving `true` into a field that was `null` in every row wrote `1`, and an object wrote JSON text such as `"{\"a\":1}"`, which a schema that takes a boolean or an object then refuses on the next load. A string written first settles the field as text, so a later object is stored as text too, and a write that failed, matched no row or was rolled back leaves the field untyped.
+- 8deddc8: Saving one row no longer rewrites the other rows of the file when the write-back writes only the primary key (`writeFilledValues: 'primaryKey'`, the studio's default). Before, a row nothing was written to had every field its line holds replaced by the value the schema computes: with a schema that computes `full` from `a` and `b`, saving row 1 changed `"full":"edited by hand"` in row 3 to `"full":"m-n"`. Such a row is now written as the file holds it. A field named in `writeBackFields`, and a foreign-key column that an `ON DELETE` / `ON UPDATE` `CASCADE` or `SET NULL` action can change, is still written from the database for every row.
+
 ## 0.18.1
 
 ### Patch Changes
