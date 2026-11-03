@@ -32,9 +32,9 @@ describe('a JSON column', () => {
   let db: LinesDB<TableDefs> | undefined;
   const notesPath = () => join(dataDir, 'notes.jsonl');
 
-  const load = async (lines = SEED) => {
+  const load = async (lines = SEED, schema = GENERIC_SCHEMA) => {
     await writeFile(notesPath(), lines);
-    await writeFile(join(dataDir, 'notes.schema.ts'), GENERIC_SCHEMA);
+    await writeFile(join(dataDir, 'notes.schema.ts'), schema);
     db = LinesDB.create<TableDefs>({ dataDir });
     unwrap(await db.initialize());
   };
@@ -109,5 +109,17 @@ describe('a JSON column', () => {
 
     const lines = (await readFile(notesPath(), 'utf-8')).trim().split('\n');
     expect(JSON.parse(lines[2])).toStrictEqual({ id: 'n', data: '123', label: 'y' });
+  });
+
+  it('gives back the string the schema fills in when a field is reset to its default', async () => {
+    await load(
+      SEED,
+      `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, data: data.data === undefined ? '123' : data.data } }) } };\n`,
+    );
+
+    unwrap(db!.update('notes', {}, { id: 'seed' }, { resetToDefault: ['data'] }));
+
+    expect(unwrap(db!.findOne('notes', { id: 'seed' }))!.data).toBe('123');
   });
 });
