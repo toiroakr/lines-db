@@ -91,6 +91,28 @@ describe('a JSON column', () => {
     expect(unwrap(db!.find('notes', { data: 123 })).map((row) => row.id)).toEqual(['as-number']);
   });
 
+  it('updates the row whose JSON column holds the string, not the one holding the number that reads alike', async () => {
+    await load();
+    unwrap(db!.insert('notes', { id: 'as-string', data: '123' }));
+    unwrap(db!.insert('notes', { id: 'as-number', data: 123 }));
+
+    unwrap(db!.update('notes', { data: 'changed' }, { data: '123' }));
+
+    expect(unwrap(db!.findOne('notes', { id: 'as-string' }))!.data).toBe('changed');
+    expect(unwrap(db!.findOne('notes', { id: 'as-number' }))!.data).toBe(123);
+  });
+
+  it('deletes the row whose JSON column holds the string, not the one holding the number that reads alike', async () => {
+    await load();
+    unwrap(db!.insert('notes', { id: 'as-string', data: '123' }));
+    unwrap(db!.insert('notes', { id: 'as-number', data: 123 }));
+
+    unwrap(db!.delete('notes', { data: '123' }));
+
+    expect(unwrap(db!.find('notes')).map((row) => row.id)).not.toContain('as-string');
+    expect(unwrap(db!.find('notes')).map((row) => row.id)).toContain('as-number');
+  });
+
   it('does not warn when it holds a string that is not JSON', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await load();
