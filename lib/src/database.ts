@@ -2357,8 +2357,18 @@ export class LinesDB<Tables extends TableDefs> {
       for (const key of rowChanges?.reset ?? []) keep.delete(key);
       for (const key of namedFields) keep.add(key);
       if (pkName) keep.add(pkName);
+      // Not the stored value for a row nothing wrote to: a schema computes a value that may differ from what
+      // the line holds, and an edit elsewhere in the file is no reason to write it into this line
+      const untouched = line !== undefined && !rowChanges;
       return {
-        written: Object.fromEntries(Object.entries(lineRow).filter(([key]) => keep.has(key))) as JsonObject,
+        written: Object.fromEntries(
+          Object.entries(lineRow)
+            .filter(([key]) => keep.has(key))
+            .map(([key, value]) => [
+              key,
+              untouched && Object.hasOwn(line, key) && !actionColumns.includes(key) ? line[key] : value,
+            ]),
+        ) as JsonObject,
         narrowed: true,
       };
     });
