@@ -299,12 +299,35 @@ function kindOf(member: string): TypeKind {
 
 // Not TEXT for a type it is not sure of: a TEXT column stores an object or a number as its text, which the file then holds
 function sqlTypeOf(type: string): TableSchema['columns'][number]['type'] {
-  const kinds = new Set(type.split(' | ').map(kindOf));
+  const kinds = new Set(unionMembers(type).map(kindOf));
   if (kinds.size !== 1) return 'JSON';
   const [kind] = kinds;
   return kind === 'text' ? 'TEXT' : kind === 'number' ? 'REAL' : kind === 'boolean' ? 'INTEGER' : 'JSON';
 }
 
 function isBoolean(type: string): boolean {
-  return type.split(' | ').every((member) => kindOf(member) === 'boolean');
+  return unionMembers(type).every((member) => kindOf(member) === 'boolean');
+}
+
+/** The members of a union as the compiler prints it, split only where ` | ` is outside quotes and brackets */
+function unionMembers(type: string): string[] {
+  const members: string[] = [];
+  let depth = 0;
+  let quote: string | undefined;
+  let start = 0;
+  for (let index = 0; index < type.length; index++) {
+    const char = type[index];
+    if (quote) {
+      if (char === '\\') index++;
+      else if (char === quote) quote = undefined;
+    } else if (char === '"' || char === "'") quote = char;
+    else if ('{[(<'.includes(char)) depth++;
+    else if ('}])>'.includes(char)) depth--;
+    else if (depth === 0 && type.startsWith(' | ', index)) {
+      members.push(type.slice(start, index));
+      start = index + 3;
+    }
+  }
+  members.push(type.slice(start));
+  return members;
 }
