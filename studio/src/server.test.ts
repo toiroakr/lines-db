@@ -1186,6 +1186,42 @@ describe('studio server', () => {
     expect(column('note')).toMatchObject({ nullable: true, optional: true });
   });
 
+  it('saves a row that leaves out a field every existing row holds, where the schema takes the row', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'nicknamed.jsonl'), '{"id":1,"nick":"al"}\n{"id":2,"nick":"bo"}\n');
+    await writeFile(
+      join(dataDir, 'nicknamed.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n`,
+    );
+    studio = await startStudioServer({ dataDir, port: 0 });
+
+    const response = await sendJsonRequest('POST', `${studio.url}/api/tables/nicknamed/changes`, {
+      inserts: [{ id: 3 }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(await readFile(join(dataDir, 'nicknamed.jsonl'), 'utf8')).toBe(
+      '{"id":1,"nick":"al"}\n{"id":2,"nick":"bo"}\n{"id":3}\n',
+    );
+  });
+
+  it('lists a column as a boolean once a save put a boolean in a column no row held a value in', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'flags.jsonl'), '{"id":1,"on":null}\n{"id":2,"on":null}\n');
+    studio = await startStudioServer({ dataDir, port: 0 });
+    const columnOn = async () =>
+      (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables
+        .find((table: { name: string }) => table.name === 'flags')
+        .columns.find((column: { name: string }) => column.name === 'on');
+    await columnOn();
+
+    await sendJsonRequest('POST', `${studio.url}/api/tables/flags/changes`, {
+      updates: [{ key: 1, changes: { on: true } }],
+    });
+
+    expect(await columnOn()).toMatchObject({ valueType: 'boolean' });
+  });
+
   it('lists the schema file of each table, or null for a table without one', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'notes.jsonl'), '{"title":"first"}\n');
