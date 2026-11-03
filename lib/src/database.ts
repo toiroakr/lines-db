@@ -3071,8 +3071,6 @@ export class LinesDB<Tables extends TableDefs> {
       if (fieldChangesBefore) this.fieldChanges = fieldChangesBefore;
       if (rawSqlTablesBefore) this.rawSqlTables = rawSqlTablesBefore;
       if (linesWithUnknownFieldsBefore) this.linesWithUnknownFields = linesWithUnknownFieldsBefore;
-      for (const undo of [...(this.settleUndos ?? [])].reverse()) undo();
-      this.settleUndos = undefined;
       // Not only when writing a file fails: a COMMIT failing after the writes leaves files holding rolled-back rows
       const failure = await this.restoreAll(written, error);
       if (this.inTransaction) {
@@ -3082,6 +3080,10 @@ export class LinesDB<Tables extends TableDefs> {
           // Report the original error rather than a failure to roll back
         }
       }
+      // Not before the ROLLBACK: a read on the connection while the files are put back still sees the
+      // rolled-back row, and would read it with the column type it had before the write
+      for (const undo of [...(this.settleUndos ?? [])].reverse()) undo();
+      this.settleUndos = undefined;
       this.inTransaction = false;
       return err(toError(failure));
     } finally {

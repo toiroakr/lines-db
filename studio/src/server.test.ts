@@ -1205,6 +1205,23 @@ describe('studio server', () => {
     );
   });
 
+  it('lists a column as a boolean once a save put a boolean in a column no row held a value in', async () => {
+    await studio.close();
+    await writeFile(join(dataDir, 'flags.jsonl'), '{"id":1,"on":null}\n{"id":2,"on":null}\n');
+    studio = await startStudioServer({ dataDir, port: 0 });
+    const columnOn = async () =>
+      (await bodyOf(await fetch(`${studio.url}/api/tables`))).tables
+        .find((table: { name: string }) => table.name === 'flags')
+        .columns.find((column: { name: string }) => column.name === 'on');
+    await columnOn();
+
+    await sendJsonRequest('POST', `${studio.url}/api/tables/flags/changes`, {
+      updates: [{ key: 1, changes: { on: true } }],
+    });
+
+    expect(await columnOn()).toMatchObject({ valueType: 'boolean' });
+  });
+
   it('lists the schema file of each table, or null for a table without one', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'notes.jsonl'), '{"title":"first"}\n');
