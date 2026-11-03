@@ -1484,13 +1484,14 @@ export class LinesDB<Tables extends TableDefs> {
       throw new Error(`Table ${tableName} does not exist`);
     }
 
-    const undoSettle = this.settleColumnsNoRowHolds(schema, row);
     const columnNames = Object.keys(row);
     const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
     const placeholders = columnNames.map(() => '?').join(', ');
     const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
 
     const values = Object.values(row).map((v) => this.normalizeValue(v));
+    // After the values: one the database cannot take throws there, with nothing to undo yet
+    const undoSettle = this.settleColumnsNoRowHolds(schema, row);
     let result: ReturnType<typeof this.executeInternal>;
     try {
       result = this.executeInternal(sql, values);
@@ -1548,14 +1549,13 @@ export class LinesDB<Tables extends TableDefs> {
     try {
       for (const record of records) {
         const row = this.validateAndTransform(tableName, record);
-        const undoSettle = this.settleColumnsNoRowHolds(this.schemas.get(tableName), row);
-
         const columnNames = Object.keys(row);
         const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
         const placeholders = columnNames.map(() => '?').join(', ');
         const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
 
         const values = columnNames.map((col) => this.normalizeValue(row[col]));
+        const undoSettle = this.settleColumnsNoRowHolds(this.schemas.get(tableName), row);
 
         let result: ReturnType<typeof this.executeInternal>;
         try {
@@ -1645,12 +1645,12 @@ export class LinesDB<Tables extends TableDefs> {
 
     let result: { changes: number | bigint; lastInsertRowid: number | bigint } = { changes: 0, lastInsertRowid: 0 };
     if (Object.keys(data).length > 0) {
-      const undoSettle = this.settleColumnsNoRowHolds(this.schemas.get(tableName), data as JsonObject);
       const setClauses = Object.keys(data)
         .map((key) => `${this.quoteIdentifier(key)} = ?`)
         .join(', ');
       const sql = `UPDATE ${this.quoteTableName(tableName)} SET ${setClauses} WHERE ${whereSql}`;
       const values = [...Object.values(data).map((v) => this.normalizeValue(v)), ...whereValues];
+      const undoSettle = this.settleColumnsNoRowHolds(this.schemas.get(tableName), data as JsonObject);
       try {
         result = this.executeInternal(sql, values);
       } catch (error) {
@@ -2397,7 +2397,7 @@ export class LinesDB<Tables extends TableDefs> {
       if (pkName) keep.add(pkName);
       // Not the stored value for a row nothing wrote to: a schema computes a value that may differ from what
       // the line holds, and an edit elsewhere in the file is no reason to write it into this line
-      const untouched = line !== undefined && !rowChanges;
+      const untouched = line !== undefined && !rowChanges?.inserted && !rowChanges?.set.size && !rowChanges?.reset.size;
       return {
         written: Object.fromEntries(
           Object.entries(lineRow)

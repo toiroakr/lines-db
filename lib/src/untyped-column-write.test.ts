@@ -80,7 +80,9 @@ describe('LinesDB write of a value into a field no row holds a value in', () => 
     unwrap(await db.transaction((tx) => unwrap(tx.update('users', { meta: '123' }, { id: 1 }))));
     unwrap(await db.transaction((tx) => unwrap(tx.update('users', { meta: { a: 1 } }, { id: 2 }))));
 
-    expect(await readFile(file(), 'utf-8')).toContain('{"id":1,"name":"a","active":null,"meta":"123"}');
+    expect(await readFile(file(), 'utf-8')).toBe(
+      '{"id":1,"name":"a","active":null,"meta":"123"}\n{"id":2,"name":"b","active":null,"meta":"{\\"a\\":1}"}\n',
+    );
   });
 
   it('writes a boolean back as a boolean when it comes in with an inserted row', async () => {

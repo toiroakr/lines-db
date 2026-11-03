@@ -48,4 +48,10 @@ describe('LinesDB write-back of the rows an edit did not touch', () => {
 
     expect(await readFile(file(), 'utf-8')).toBe(`{"id":1,"a":"z","b":"y","full":"x-y"}\n${lines[1]}\n${lines[2]}\n`);
   });
+
+  it('leaves the line of a row as the file holds it when an update sets the values it already has', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.update('items', { a: 'm' }, { id: 3 }))));
+
+    expect(await readFile(file(), 'utf-8')).toBe(`${lines.join('\n')}\n`);
+  });
 });

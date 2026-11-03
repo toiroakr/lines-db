@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { LinesDB } from './database.js';
@@ -40,6 +40,7 @@ describe('LinesDB insert of a row that leaves out a field every existing row hol
     unwrap(await db!.transaction((tx) => unwrap(tx.insert('people', { id: 3, name: 'Carol' }))));
 
     expect(unwrap(db!.findOne('people', { id: 3 }))).toMatchObject({ id: 3, name: 'Carol', nick: null });
+    expect(await readFile(join(dataDir, 'people.jsonl'), 'utf-8')).toContain('{"id":3,"name":"Carol","nick":null}');
   });
 
   it('refuses the row when the schema requires the field', async () => {
@@ -48,5 +49,7 @@ describe('LinesDB insert of a row that leaves out a field every existing row hol
     const result = await db!.transaction((tx) => unwrap(tx.insert('people', { id: 3, name: 'Carol' })));
 
     expect(result.ok).toBe(false);
+    expect(String(!result.ok && result.error)).toContain('nick is required');
+    expect(unwrap(db!.findOne('people', { id: 3 }))).toBeNull();
   });
 });
