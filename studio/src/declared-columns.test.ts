@@ -2,7 +2,7 @@ import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { isProjectSource, readDeclaredColumns, type DeclaredColumn } from './declared-columns.js';
+import { isProjectSource, readDeclaredColumns, tableSchemaOf, type DeclaredColumn } from './declared-columns.js';
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
@@ -132,5 +132,58 @@ describe.skipIf(!process.env.LINES_DB_TS_DIR)('readDeclaredColumns with the Type
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('tableSchemaOf', () => {
+  const declared = (name: string, type: string, flags: Partial<DeclaredColumn> = {}): DeclaredColumn => ({
+    name,
+    type,
+    optional: false,
+    nullable: false,
+    ...flags,
+  });
+  const columnOf = (column: DeclaredColumn) => tableSchemaOf('items', [column]).columns[0];
+
+  it('names the table and keeps the columns in the order they were declared', () => {
+    const schema = tableSchemaOf('items', [declared('b', 'string'), declared('a', 'string')]);
+
+    expect(schema.name).toBe('items');
+    expect(schema.columns.map((column) => column.name)).toEqual(['b', 'a']);
+  });
+
+  it.each([
+    ['string', 'TEXT'],
+    ['"admin" | "user"', 'TEXT'],
+    ['number', 'REAL'],
+    ['1 | 2', 'REAL'],
+    ['"a" | string', 'TEXT'],
+    ['"a | b"', 'TEXT'],
+    ['"a | b" | "c"', 'TEXT'],
+    ['"say \\\"x | y\\\""', 'TEXT'],
+    ['Array<string | number>', 'JSON'],
+    ['string[]', 'JSON'],
+    ['{ a: string; }', 'JSON'],
+    ['[string, number]', 'JSON'],
+    ['Address', 'JSON'],
+    ['any', 'JSON'],
+    ['unknown', 'JSON'],
+    ['string | number', 'JSON'],
+    ['"a" | 1', 'JSON'],
+  ])('stores %s as %s', (type, sqlType) => {
+    expect(columnOf(declared('value', type)).type).toBe(sqlType);
+  });
+
+  it.each(['boolean', 'true', 'false', 'true | false'])(
+    'stores %s as an integer and reads it back as a boolean',
+    (type) => {
+      expect(columnOf(declared('active', type))).toMatchObject({ type: 'INTEGER', valueType: 'boolean' });
+    },
+  );
+
+  it('requires a value only of a column that is neither optional nor nullable', () => {
+    expect(columnOf(declared('a', 'string')).notNull).toBe(true);
+    expect(columnOf(declared('a', 'string', { optional: true })).notNull).toBe(false);
+    expect(columnOf(declared('a', 'string', { nullable: true })).notNull).toBe(false);
   });
 });

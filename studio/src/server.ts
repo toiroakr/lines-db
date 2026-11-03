@@ -3,7 +3,7 @@ import { watch } from 'node:fs';
 import { readFile, realpath, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { basename, extname, relative, resolve as resolvePath } from 'node:path';
+import { basename, dirname, extname, relative, resolve as resolvePath } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   LinesDB,
@@ -25,7 +25,7 @@ import {
   type WriteFilledValues,
 } from 'lines-db';
 import { hashJsonlContent, replaceFile } from 'lines-db/internal';
-import { readDeclaredColumns } from './declared-columns.js';
+import { readDeclaredColumns, tableSchemaOf } from './declared-columns.js';
 import { replaceRows } from './file-rows.js';
 
 export interface StudioServerOptions {
@@ -631,7 +631,16 @@ async function loadSnapshot(
   schemaDir: string | undefined,
   writeFilledValues: WriteFilledValues,
 ): Promise<Snapshot> {
-  const db = LinesDB.create<TableDefs>({ dataDir, schemaDir, writeFilledValues, writeDataSets: true });
+  const db = LinesDB.create<TableDefs>({
+    dataDir,
+    schemaDir,
+    writeFilledValues,
+    writeDataSets: true,
+    schemaOfEmptyTable: async ({ tableName, schemaPath }) => {
+      const declared = schemaPath && (await readDeclaredColumns(schemaPath, schemaDir ?? dirname(schemaPath)));
+      return declared ? tableSchemaOf(tableName, declared) : undefined;
+    },
+  });
   const baseDir = [dataDir].flat()[0];
   // Not the bulk insert: a foreign key or NOT NULL violation would fail the whole load instead of
   // marking the row, which the studio then cannot show to be fixed

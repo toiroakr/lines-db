@@ -2,6 +2,7 @@ import { stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve, win32 } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { TableSchema } from 'lines-db';
 import type * as TS from 'typescript';
 
 /** A column as the schema file declares it, read from the types of its Standard Schema */
@@ -268,4 +269,65 @@ export async function readDeclaredColumns(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The table the columns a schema file declares make, for a table with no rows to infer them from. The types
+ * are written as the compiler prints them, so a number cannot be told an integer from a real one and is stored
+ * as REAL, which gives an integer back as one.
+ */
+export function tableSchemaOf(tableName: string, columns: readonly DeclaredColumn[]): TableSchema {
+  return {
+    name: tableName,
+    columns: columns.map((column) => ({
+      name: column.name,
+      type: sqlTypeOf(column.type),
+      notNull: !column.optional && !column.nullable,
+      ...(isBoolean(column.type) ? { valueType: 'boolean' as const } : {}),
+    })),
+  };
+}
+
+type TypeKind = 'text' | 'number' | 'boolean' | 'other';
+
+function kindOf(member: string): TypeKind {
+  if (member === 'string' || /^(".*"|'.*')$/.test(member)) return 'text';
+  if (member === 'number' || /^-?\d+(\.\d+)?$/.test(member)) return 'number';
+  if (member === 'boolean' || member === 'true' || member === 'false') return 'boolean';
+  return 'other';
+}
+
+// Not TEXT for a type it is not sure of: a TEXT column stores an object or a number as its text, which the file then holds
+function sqlTypeOf(type: string): TableSchema['columns'][number]['type'] {
+  const kinds = new Set(unionMembers(type).map(kindOf));
+  if (kinds.size !== 1) return 'JSON';
+  const [kind] = kinds;
+  return kind === 'text' ? 'TEXT' : kind === 'number' ? 'REAL' : kind === 'boolean' ? 'INTEGER' : 'JSON';
+}
+
+function isBoolean(type: string): boolean {
+  return unionMembers(type).every((member) => kindOf(member) === 'boolean');
+}
+
+/** The members of a union as the compiler prints it, split only where ` | ` is outside quotes and brackets */
+function unionMembers(type: string): string[] {
+  const members: string[] = [];
+  let depth = 0;
+  let quote: string | undefined;
+  let start = 0;
+  for (let index = 0; index < type.length; index++) {
+    const char = type[index];
+    if (quote) {
+      if (char === '\\') index++;
+      else if (char === quote) quote = undefined;
+    } else if (char === '"' || char === "'") quote = char;
+    else if ('{[(<'.includes(char)) depth++;
+    else if ('}])>'.includes(char)) depth--;
+    else if (depth === 0 && type.startsWith(' | ', index)) {
+      members.push(type.slice(start, index));
+      start = index + 3;
+    }
+  }
+  members.push(type.slice(start));
+  return members;
 }
