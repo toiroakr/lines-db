@@ -386,6 +386,8 @@ const order = unwrap(db.findOne('orders', { id: 1 }));
 console.log(order.items[0].name); // "Laptop"
 ```
 
+A JSON column keeps any value as it was inserted. Every value is stored as JSON text, a string quoted, so the string `"123"` is returned as `"123"`, and the number `123` as `123`. In SQL, a string is therefore compared in its quoted form: `WHERE data = '"abc"'`.
+
 ### Schema transformations
 
 If a schema converts date strings to `Date` objects on load, define a `backward` transformation to convert them to strings when saving. JSONL stores the strings; the application works with `Date` objects.

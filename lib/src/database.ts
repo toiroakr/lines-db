@@ -909,6 +909,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     const columnNames = schema.columns.map((col) => col.name);
     const quotedColumns = columnNames.map((name) => this.quoteIdentifier(name));
+    const columnsByName = new Map(schema.columns.map((column) => [column.name, column]));
     const columnCount = columnNames.length;
 
     // Calculate batch size to stay under SQLite's parameter limit (999)
@@ -926,7 +927,7 @@ export class LinesDB<Tables extends TableDefs> {
       const values: (string | number | bigint | null | Uint8Array)[] = [];
       for (const row of batch) {
         for (const col of columnNames) {
-          values.push(this.normalizeValue(row[col]));
+          values.push(this.normalizeValue(row[col], columnsByName.get(col)));
         }
       }
 
@@ -950,6 +951,7 @@ export class LinesDB<Tables extends TableDefs> {
     const quotedColumns = columnNames.map((name) => this.quoteIdentifier(name));
     const placeholders = columnNames.map(() => '?').join(', ');
     const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
+    const columnsByName = new Map(schema.columns.map((column) => [column.name, column]));
 
     const stmt = this.db.prepare(sql);
     const rowOrigins = new Map<string, RowOrigin>();
@@ -958,7 +960,7 @@ export class LinesDB<Tables extends TableDefs> {
     for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
       const row = data[rowIndex];
       try {
-        const values = columnNames.map((col) => this.normalizeValue(row[col]));
+        const values = columnNames.map((col) => this.normalizeValue(row[col], columnsByName.get(col)));
         const { lastInsertRowid } = stmt.run(...values);
         rowOrigins.set(String(lastInsertRowid), origins[rowIndex]);
       } catch (error) {
@@ -1004,7 +1006,7 @@ export class LinesDB<Tables extends TableDefs> {
         try {
           const result = this.queryInternal(
             `SELECT COUNT(*) as count FROM ${this.quoteIdentifier(fk.references.table)} WHERE ${this.quoteIdentifier(fk.references.column)} = ?`,
-            [this.normalizeValue(fkValue)],
+            [this.normalizeValue(fkValue, this.columnOf(fk.references.table, fk.references.column))],
           );
           if (result.length > 0 && (result[0] as { count: number }).count === 0) {
             return {
@@ -1213,7 +1215,7 @@ export class LinesDB<Tables extends TableDefs> {
       return [];
     }
 
-    const { sql, values, functionFilters, hasOrWithFunctionFilters } = this.buildWhereClause(where);
+    const { sql, values, functionFilters, hasOrWithFunctionFilters } = this.buildWhereClause(where, tableName);
 
     let rows: Tables[K][];
 
@@ -1256,7 +1258,7 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: K,
     where: WhereCondition<Tables[K]>,
   ): Tables[K] | null {
-    const { sql, values, functionFilters } = this.buildWhereClause(where);
+    const { sql, values, functionFilters } = this.buildWhereClause(where, tableName);
 
     let rows: Tables[K][];
     if (sql) {
@@ -1440,7 +1442,7 @@ export class LinesDB<Tables extends TableDefs> {
     const placeholders = columnNames.map(() => '?').join(', ');
     const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
 
-    const values = Object.values(row).map((v) => this.normalizeValue(v));
+    const values = columnNames.map((col) => this.normalizeValue(row[col], this.columnOf(tableName, col)));
     const result = this.executeInternal(sql, values);
     if (destination) {
       const origins = this.rowOriginsByRowid.get(tableName) ?? new Map<string, RowOrigin>();
@@ -1518,7 +1520,7 @@ export class LinesDB<Tables extends TableDefs> {
         const placeholders = columnNames.map(() => '?').join(', ');
         const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
 
-        const values = columnNames.map((col) => this.normalizeValue(row[col]));
+        const values = columnNames.map((col) => this.normalizeValue(row[col], this.columnOf(tableName, col)));
 
         const result = this.executeInternal(sql, values);
         this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(record), inserted: true });
@@ -1584,7 +1586,7 @@ export class LinesDB<Tables extends TableDefs> {
       }
     }
 
-    const { sql: whereSql, values: whereValues, functionFilters } = this.buildWhereClause(where);
+    const { sql: whereSql, values: whereValues, functionFilters } = this.buildWhereClause(where, tableName);
 
     if (functionFilters.length > 0) {
       throw new Error('Function filters are not supported in update operations');
@@ -1606,7 +1608,10 @@ export class LinesDB<Tables extends TableDefs> {
         .map((key) => `${this.quoteIdentifier(key)} = ?`)
         .join(', ');
       const sql = `UPDATE ${this.quoteTableName(tableName)} SET ${setClauses} WHERE ${whereSql}`;
-      const values = [...Object.values(data).map((v) => this.normalizeValue(v)), ...whereValues];
+      const values = [
+        ...Object.entries(data).map(([key, v]) => this.normalizeValue(v, this.columnOf(tableName, key))),
+        ...whereValues,
+      ];
       result = this.executeInternal(sql, values);
     }
 
@@ -1615,7 +1620,7 @@ export class LinesDB<Tables extends TableDefs> {
       // An INTEGER PRIMARY KEY is the rowid, so a new key moves the row, and what is kept by rowid with it
       const moved = this.queryInternal<JsonObject>(
         `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)} WHERE ${this.quoteIdentifier(pkName)} = ?`,
-        [this.normalizeValue((data as Record<string, unknown>)[pkName])],
+        [this.normalizeValue((data as Record<string, unknown>)[pkName], this.columnOf(tableName, pkName))],
       );
       if (targets.length === 1 && moved.length === 1) {
         const from = String(targets[0][ROWID_ALIAS]);
@@ -1629,7 +1634,11 @@ export class LinesDB<Tables extends TableDefs> {
 
     for (const target of targets) {
       const set = Object.keys(data).filter(
-        (key) => !sameStoredValue(target[key], this.normalizeValue((data as Record<string, unknown>)[key])),
+        (key) =>
+          !sameStoredValue(
+            target[key],
+            this.normalizeValue((data as Record<string, unknown>)[key], this.columnOf(tableName, key)),
+          ),
       );
       this.noteFieldChanges(tableName, target[ROWID_ALIAS] as number | bigint, { set });
     }
@@ -1813,7 +1822,7 @@ export class LinesDB<Tables extends TableDefs> {
       throw new Error(`Table ${tableName} does not exist`);
     }
 
-    const { sql: whereSql, values, functionFilters } = this.buildWhereClause(where);
+    const { sql: whereSql, values, functionFilters } = this.buildWhereClause(where, tableName);
 
     if (functionFilters.length > 0) {
       throw new Error('Function filters are not supported in delete operations');
@@ -1875,7 +1884,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     const placeholders = pkValues.map(() => '?').join(', ');
     const sql = `DELETE FROM ${this.quoteTableName(tableName)} WHERE ${this.quoteIdentifier(pkName)} IN (${placeholders})`;
-    const values = pkValues.map((value) => this.normalizeValue(value));
+    const values = pkValues.map((value) => this.normalizeValue(value, this.columnOf(tableName, pkName)));
     const deleted = this.rowidsWhere(tableName, `${this.quoteIdentifier(pkName)} IN (${placeholders})`, values);
     const result = this.executeInternal(sql, values);
     this.forgetFieldChanges(tableName, deleted);
@@ -1891,8 +1900,13 @@ export class LinesDB<Tables extends TableDefs> {
   /**
    * Normalize value for SQLite
    */
-  private normalizeValue(value: unknown): string | number | bigint | null | Uint8Array {
+  private normalizeValue(value: unknown, column?: { type: string }): string | number | bigint | null | Uint8Array {
     if (value === null || value === undefined) return null;
+    // A JSON column holds JSON text for every value, a string quoted, so that reading it back with JSON.parse gives the type it had
+    if (column?.type === 'JSON') {
+      if (value instanceof Uint8Array) return value;
+      return typeof value === 'bigint' ? value.toString() : JSON.stringify(value);
+    }
     if (typeof value === 'boolean') return value ? 1 : 0;
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') return value;
     if (value instanceof Uint8Array) return value;
@@ -1900,11 +1914,16 @@ export class LinesDB<Tables extends TableDefs> {
     return JSON.stringify(value);
   }
 
+  private columnOf(tableName: string, columnName: string): { type: string } | undefined {
+    return this.schemas.get(tableName)?.columns.find((column) => column.name === columnName);
+  }
+
   /**
    * Build WHERE clause from condition (supports OR/AND with arrays and functions)
    */
   private buildWhereClause<T extends Record<string, unknown>>(
     condition: WhereCondition<T>,
+    tableName: string,
   ): {
     sql: string;
     values: Array<string | number | bigint | null | Uint8Array>;
@@ -1942,7 +1961,7 @@ export class LinesDB<Tables extends TableDefs> {
         } else {
           // Regular value
           conditions.push(`${this.quoteIdentifier(key)} = ?`);
-          values.push(this.normalizeValue(value));
+          values.push(this.normalizeValue(value, this.columnOf(tableName, key)));
         }
       }
 
@@ -2451,7 +2470,10 @@ export class LinesDB<Tables extends TableDefs> {
       const row = { ...this.deserializeRow(tableName, stored), ...data };
       for (const field of fields) delete row[field];
       const validated = this.validateAndTransform(tableName, row);
-      return { rowid: rowid as number | bigint, values: fields.map((field) => this.normalizeValue(validated[field])) };
+      return {
+        rowid: rowid as number | bigint,
+        values: fields.map((field) => this.normalizeValue(validated[field], this.columnOf(tableName, field))),
+      };
     });
   }
 
