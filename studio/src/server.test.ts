@@ -674,6 +674,17 @@ describe('studio server', () => {
     expect((await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`))).rows).toHaveLength(1);
   });
 
+  it('tells an open page over /api/events when an editor replaces a JSONL file by renaming a temporary file over it', async () => {
+    const events = await openEvents();
+    const temporary = join(dataDir, 'users.jsonl.tmp');
+    await writeFile(temporary, '{"id":1,"name":"Carol","active":true,"tags":[]}\n');
+    await rename(temporary, join(dataDir, 'users.jsonl'));
+
+    await events.waitFor('changed');
+    events.close();
+    expect((await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`))).rows[0]).toMatchObject({ name: 'Carol' });
+  });
+
   it('tells an open page over /api/events once a save succeeds, so another open page shows it too', async () => {
     const events = await openEvents();
 
