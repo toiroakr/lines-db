@@ -793,6 +793,24 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
+   * A column no row holds a value in has no type to read a boolean or an object back with, and so reads
+   * back as 1 or as JSON text. The first such value written settles it. Not asked of the schema: it
+   * names no type at run time
+   */
+  private settleColumnsNoRowHolds(schema: TableSchema | undefined, written: JsonObject): void {
+    if (!schema) return;
+    for (const column of schema.columns) {
+      if (column.type !== 'NULL') continue;
+      const value = written[column.name];
+      if (typeof value === 'boolean') {
+        column.valueType = 'boolean';
+      } else if (value !== null && typeof value === 'object' && !(value instanceof Uint8Array)) {
+        column.type = 'JSON';
+      }
+    }
+  }
+
+  /**
    * A column every row holds is inferred NOT NULL, which refuses a later row that leaves it out even
    * where the schema takes that row. The sample row without the field says whether the schema does.
    * A column the schema fills in stays NOT NULL: the row is stored as the schema leaves it
@@ -1446,6 +1464,7 @@ export class LinesDB<Tables extends TableDefs> {
       throw new Error(`Table ${tableName} does not exist`);
     }
 
+    this.settleColumnsNoRowHolds(schema, row);
     const columnNames = Object.keys(row);
     const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
     const placeholders = columnNames.map(() => '?').join(', ');
@@ -1503,6 +1522,7 @@ export class LinesDB<Tables extends TableDefs> {
     try {
       for (const record of records) {
         const row = this.validateAndTransform(tableName, record);
+        this.settleColumnsNoRowHolds(this.schemas.get(tableName), row);
 
         const columnNames = Object.keys(row);
         const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
@@ -1593,6 +1613,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     let result: { changes: number | bigint; lastInsertRowid: number | bigint } = { changes: 0, lastInsertRowid: 0 };
     if (Object.keys(data).length > 0) {
+      this.settleColumnsNoRowHolds(this.schemas.get(tableName), data as JsonObject);
       const setClauses = Object.keys(data)
         .map((key) => `${this.quoteIdentifier(key)} = ?`)
         .join(', ');
