@@ -1,5 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { chmod, link, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  chmod,
+  link,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -683,6 +695,16 @@ describe('studio server', () => {
     await events.waitFor('changed');
     events.close();
     expect((await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`))).rows[0]).toMatchObject({ name: 'Carol' });
+  });
+
+  it('tells an open page over /api/events when a row is appended to a JSONL file', async () => {
+    const events = await openEvents();
+    await appendFile(join(dataDir, 'users.jsonl'), '{"id":3,"name":"Dave","active":true,"tags":[]}\n');
+
+    await events.waitFor('changed');
+    events.close();
+    const { rows } = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    expect(rows.map((row: { name: string }) => row.name)).toContain('Dave');
   });
 
   it('tells an open page over /api/events once a save succeeds, so another open page shows it too', async () => {
