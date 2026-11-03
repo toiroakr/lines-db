@@ -177,6 +177,10 @@ export class LinesDB<Tables extends TableDefs> {
   private observedHashes: Map<string, string> = new Map();
   /** The JSONL files the data directories held when the tables were scanned */
   private scannedJsonlFiles: string[] = [];
+  /** Tables left out because their files have no rows to infer the columns from */
+  private emptyTables: Set<string> = new Set();
+  /** Tables created from the columns `schemaOfEmptyTable` gave, which may lack a field the validator adds */
+  private tablesFromGivenColumns: Set<string> = new Set();
   /** Each table's schema file and a hash of its content as the tables were loaded, or '' for none */
   private schemaFileStates: Map<string, string> = new Map();
 
@@ -245,6 +249,7 @@ export class LinesDB<Tables extends TableDefs> {
     const transform = options?.transform;
 
     // Scan directory for JSONL files
+    this.emptyTables.clear();
     this.tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
     this.scannedJsonlFiles = listJsonlFiles(this.tables);
     this.observedHashes.clear();
@@ -255,6 +260,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Determine which tables to load
     const tablesToLoad = tableName ? [tableName] : Array.from(this.tables.keys());
+    for (const name of tablesToLoad) this.tablesFromGivenColumns.delete(name);
 
     // Validate that all requested tables exist BEFORE starting to load
     for (const tableNameToLoad of tablesToLoad) {
@@ -461,8 +467,9 @@ export class LinesDB<Tables extends TableDefs> {
         }
         if (failedDependencies.size > 0) {
           for (const dep of failedDependencies) {
+            const reason = this.emptyTables.has(dep) ? 'has no rows to read its columns from' : 'has validation errors';
             warnings.push(
-              `Skipping foreign key validation for table '${tableName}': referenced table '${dep}' has validation errors`,
+              `Skipping foreign key validation for table '${tableName}': referenced table '${dep}' ${reason}`,
             );
           }
         }
@@ -497,6 +504,7 @@ export class LinesDB<Tables extends TableDefs> {
         }
       } else {
         // Table was not loaded (e.g., empty data)
+        if (rowCount === 0 && loadErrors.length === 0) this.emptyTables.add(tableName);
         warnings.push(`Table '${tableName}' was not loaded (no data or skipped)`);
         this.tables.delete(tableName);
       }
@@ -693,10 +701,13 @@ export class LinesDB<Tables extends TableDefs> {
       }
     } else if (config.autoInferSchema !== false) {
       if (validatedData.length === 0) {
-        return { loaded: false, rowCount: 0, errors: [] };
+        const declared = await this.config.schemaOfEmptyTable?.({ tableName, schemaPath });
+        if (!declared || declared.columns.length === 0) return { loaded: false, rowCount: 0, errors: [] };
+        schema = { ...declared, name: tableName, columns: declared.columns.map((column) => ({ ...column })) };
+        this.tablesFromGivenColumns.add(tableName);
+      } else {
+        schema = inferredSchema!;
       }
-      // Use inferred schema
-      schema = inferredSchema!;
     } else {
       // Critical error - throw exception
       throw new Error(`No schema provided for table ${tableName} and autoInferSchema is disabled`);
@@ -1422,6 +1433,8 @@ export class LinesDB<Tables extends TableDefs> {
       throw new Error(`Table ${tableName} does not exist`);
     }
 
+    this.addMissingColumns(tableName, schema, row);
+
     const columnNames = Object.keys(row);
     const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
     const placeholders = columnNames.map(() => '?').join(', ');
@@ -1440,6 +1453,25 @@ export class LinesDB<Tables extends TableDefs> {
     this.afterWrite(tableName, result.changes);
 
     return result;
+  }
+
+  /**
+   * A table made from the columns given has only those, and the validator may add a field they lack: the
+   * columns of a table made from rows are those of the validated rows, which have it
+   */
+  private addMissingColumns(tableName: string, schema: TableSchema, row: JsonObject): void {
+    if (!this.tablesFromGivenColumns.has(tableName)) return;
+    const known = new Set(schema.columns.map((column) => column.name));
+    const missing = Object.keys(row).filter((key) => !known.has(key));
+    if (missing.length === 0) return;
+    for (const column of unwrap(JsonlReader.inferSchema(tableName, [row])).columns) {
+      if (!missing.includes(column.name)) continue;
+      const sqlType = column.type === 'JSON' ? 'TEXT' : column.type;
+      this.db.exec(
+        `ALTER TABLE ${this.quoteTableName(tableName)} ADD COLUMN ${this.quoteIdentifier(column.name)} ${sqlType}`,
+      );
+      schema.columns.push({ name: column.name, type: column.type, notNull: false, valueType: column.valueType });
+    }
   }
 
   /**
@@ -1479,6 +1511,7 @@ export class LinesDB<Tables extends TableDefs> {
     try {
       for (const record of records) {
         const row = this.validateAndTransform(tableName, record);
+        this.addMissingColumns(tableName, schema, row);
 
         const columnNames = Object.keys(row);
         const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
@@ -2928,12 +2961,17 @@ export class LinesDB<Tables extends TableDefs> {
     let rawSqlTablesBefore: Set<string> | undefined;
     let linesWithUnknownFieldsBefore: Map<string, Map<string, JsonObject>> | undefined;
     let originsBefore: Map<string, Map<string, RowOrigin>> | undefined;
+    let columnsBefore: Map<string, TableSchema['columns']> | undefined;
     const scannedBefore = [...this.scannedJsonlFiles];
     let written: PreparedWriteBack[] = [];
     try {
       // Not beginning first: a pending auto-sync would then read, and write out, rows still uncommitted
       await this.waitForPendingSyncs();
       originsBefore = new Map([...this.rowOriginsByRowid].map(([name, origins]) => [name, new Map(origins)]));
+      // The columns added to a table made from given columns go with the transaction that added them
+      columnsBefore = new Map(
+        [...this.tablesFromGivenColumns].map((name) => [name, [...(this.schemas.get(name)?.columns ?? [])]]),
+      );
       fieldChangesBefore = cloneFieldChanges(this.fieldChanges);
       rawSqlTablesBefore = new Set(this.rawSqlTables);
       linesWithUnknownFieldsBefore = new Map(
@@ -2970,6 +3008,10 @@ export class LinesDB<Tables extends TableDefs> {
       this.transactionStarting = false;
       this.transactionChanges = undefined;
       if (originsBefore) this.rowOriginsByRowid = originsBefore;
+      for (const [name, columns] of columnsBefore ?? []) {
+        const schema = this.schemas.get(name);
+        if (schema) schema.columns = columns;
+      }
       this.scannedJsonlFiles = scannedBefore;
       if (fieldChangesBefore) this.fieldChanges = fieldChangesBefore;
       if (rawSqlTablesBefore) this.rawSqlTables = rawSqlTablesBefore;

@@ -1262,6 +1262,90 @@ describe('studio server', () => {
     }
   });
 
+  describe('a table whose JSONL file has no rows', () => {
+    const TYPED_SCHEMA = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test',
+  validate: (data: any) => ({ value: { ...data, id: data.id ?? 'generated-' + data.name } }),
+  types: undefined as unknown as { input: { id?: string; name: string; active?: boolean }; output: unknown } } };\n`;
+    let dir: string;
+    let other: StudioServer;
+    const startWith = async (schema: string) => {
+      // Inside the package, so that the TypeScript it reads the types with is found
+      dir = await mkdtemp(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'run-'));
+      await writeFile(join(dir, 'members.jsonl'), '');
+      await writeFile(join(dir, 'members.schema.ts'), schema);
+      other = await startStudioServer({ dataDir: dir, port: 0 });
+    };
+    const get = (path: string) =>
+      globalThis.fetch(`${other.url}${path}`, { headers: { Authorization: `Bearer ${other.token}` } });
+    const post = (path: string, body: unknown) =>
+      globalThis.fetch(`${other.url}${path}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${other.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    afterEach(async () => {
+      await other?.close();
+      await rm(dir, { recursive: true, force: true });
+    });
+
+    it('is listed with no rows and the columns its schema declares', async () => {
+      await startWith(TYPED_SCHEMA);
+
+      const { tables } = await bodyOf(await get('/api/tables'));
+
+      expect(tables).toEqual([
+        expect.objectContaining({
+          name: 'members',
+          rowCount: 0,
+          primaryKey: 'id',
+          columns: expect.arrayContaining([
+            expect.objectContaining({ name: 'name', type: 'TEXT', optional: false }),
+            expect.objectContaining({ name: 'active', type: 'INTEGER', optional: true }),
+          ]),
+        }),
+      ]);
+    });
+
+    it('takes its first row, which is written to the file with the primary key the schema generated', async () => {
+      await startWith(TYPED_SCHEMA);
+
+      const response = await post('/api/tables/members/changes', { inserts: [{ name: 'Alice' }] });
+
+      expect(response.status).toBe(200);
+      expect(await readFile(join(dir, 'members.jsonl'), 'utf-8')).toBe('{"id":"generated-Alice","name":"Alice"}\n');
+      const { tables } = await bodyOf(await get('/api/tables'));
+      expect(tables[0]).toMatchObject({ name: 'members', rowCount: 1 });
+    });
+
+    it('writes the first row with the values of a column that is not text as they are, not as text', async () => {
+      await startWith(`export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data: any) => ({ value: data }),
+  types: undefined as unknown as { input: { id: string; pair: [string, number]; extra: unknown; amount: number }; output: unknown } } };\n`);
+
+      const response = await post('/api/tables/members/changes', {
+        inserts: [{ id: 'a', pair: ['x', 1], extra: { k: 1 }, amount: 5 }],
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(await readFile(join(dir, 'members.jsonl'), 'utf-8'))).toEqual({
+        id: 'a',
+        pair: ['x', 1],
+        extra: { k: 1 },
+        amount: 5,
+      });
+    });
+
+    it('is not listed when its schema declares no types to read the columns from', async () => {
+      await startWith(
+        `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n`,
+      );
+
+      const { tables } = await bodyOf(await get('/api/tables'));
+
+      expect(tables).toEqual([]);
+    });
+  });
+
   it('gives the columns inferred from the rows, as such, for a schema that declares no types', async () => {
     const body = await bodyOf(await fetch(`${studio.url}/api/tables/users/schema`));
 
