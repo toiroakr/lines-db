@@ -122,4 +122,39 @@ describe('a table whose JSONL file has no rows', () => {
     expect(db!.getTableNames()).not.toContain('people');
     expect(result.warnings).toContain("Table 'people' was not loaded (no data or skipped)");
   });
+
+  describe('with a validator that adds a field the columns given lack', () => {
+    const SLUG_SCHEMA = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, id: data.id ?? 'generated-' + data.name, slug: data.name.toLowerCase() } }) } };\n`;
+
+    const loadWithSlug = async (tableName?: string) => {
+      await writeFile(peoplePath(), '');
+      await writeFile(join(dataDir, 'people.schema.ts'), SLUG_SCHEMA);
+      await writeFile(join(dataDir, 'notes.jsonl'), '{"id":"n1"}\n');
+      await writeFile(join(dataDir, 'notes.schema.ts'), PEOPLE_SCHEMA);
+      db = LinesDB.create<TableDefs>({
+        dataDir,
+        writeFilledValues: 'primaryKey',
+        schemaOfEmptyTable: ({ tableName }) => (tableName === 'people' ? PEOPLE_COLUMNS : undefined),
+      });
+      unwrap(await db.initialize(tableName ? { tableName } : undefined));
+    };
+
+    it('takes a batch of first rows', async () => {
+      await loadWithSlug();
+
+      unwrap(db!.batchInsert('people', [{ name: 'Alice' }, { name: 'Bob' }]));
+
+      expect(unwrap(db!.find('people')).map((row) => row.slug)).toEqual(['alice', 'bob']);
+    });
+
+    it('still takes a first row after another table alone was loaded again', async () => {
+      await loadWithSlug('people');
+      unwrap(await db!.initialize({ tableName: 'notes' }));
+
+      unwrap(await db!.transaction((tx) => void unwrap(tx.insert('people', { name: 'Alice' }))));
+
+      expect(unwrap(db!.find('people'))[0]).toMatchObject({ name: 'Alice', slug: 'alice' });
+    });
+  });
 });

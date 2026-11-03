@@ -250,7 +250,6 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Scan directory for JSONL files
     this.emptyTables.clear();
-    this.tablesFromGivenColumns.clear();
     this.tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
     this.scannedJsonlFiles = listJsonlFiles(this.tables);
     this.observedHashes.clear();
@@ -261,6 +260,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Determine which tables to load
     const tablesToLoad = tableName ? [tableName] : Array.from(this.tables.keys());
+    for (const name of tablesToLoad) this.tablesFromGivenColumns.delete(name);
 
     // Validate that all requested tables exist BEFORE starting to load
     for (const tableNameToLoad of tablesToLoad) {
@@ -1511,6 +1511,7 @@ export class LinesDB<Tables extends TableDefs> {
     try {
       for (const record of records) {
         const row = this.validateAndTransform(tableName, record);
+        this.addMissingColumns(tableName, schema, row);
 
         const columnNames = Object.keys(row);
         const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
