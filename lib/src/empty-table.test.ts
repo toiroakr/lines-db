@@ -95,4 +95,31 @@ describe('a table whose JSONL file has no rows', () => {
     );
     expect(result.warnings.join('\n')).not.toContain('has validation errors');
   });
+
+  it('takes a first row with a field the validator adds beyond the columns given', async () => {
+    await writeFile(peoplePath(), '');
+    await writeFile(
+      join(dataDir, 'people.schema.ts'),
+      `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, id: data.id ?? 'generated-' + data.name, slug: data.name.toLowerCase() } }) } };\n`,
+    );
+    db = LinesDB.create<TableDefs>({
+      dataDir,
+      writeFilledValues: 'primaryKey',
+      schemaOfEmptyTable: () => PEOPLE_COLUMNS,
+    });
+    unwrap(await db.initialize());
+
+    unwrap(await db.transaction((tx) => void unwrap(tx.insert('people', { name: 'Alice' }))));
+
+    expect(unwrap(db.find('people'))[0]).toMatchObject({ name: 'Alice', slug: 'alice' });
+    expect(await readFile(peoplePath(), 'utf-8')).toBe('{"id":"generated-Alice","name":"Alice"}\n');
+  });
+
+  it('is left out, not failed on load, when the columns given are none', async () => {
+    const result = await load({ schemaOfEmptyTable: () => ({ name: 'people', columns: [] }) });
+
+    expect(db!.getTableNames()).not.toContain('people');
+    expect(result.warnings).toContain("Table 'people' was not loaded (no data or skipped)");
+  });
 });

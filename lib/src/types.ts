@@ -95,7 +95,7 @@ export interface DatabaseConfig<_Tables extends TableDefs = TableDefs> {
   /**
    * Columns of a table whose JSONL files have no rows. They cannot be inferred from rows, so such a
    * table is left out of the database unless this returns them. It is given the table's name and its
-   * schema file, if it has one; returning nothing leaves the table out.
+   * schema file, if it has one; returning nothing, or no columns, leaves the table out.
    */
   schemaOfEmptyTable?: (table: {
     tableName: string;

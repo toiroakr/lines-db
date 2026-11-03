@@ -179,6 +179,8 @@ export class LinesDB<Tables extends TableDefs> {
   private scannedJsonlFiles: string[] = [];
   /** Tables left out because their files have no rows to infer the columns from */
   private emptyTables: Set<string> = new Set();
+  /** Tables created from the columns `schemaOfEmptyTable` gave, which may lack a field the validator adds */
+  private tablesFromGivenColumns: Set<string> = new Set();
   /** Each table's schema file and a hash of its content as the tables were loaded, or '' for none */
   private schemaFileStates: Map<string, string> = new Map();
 
@@ -248,6 +250,7 @@ export class LinesDB<Tables extends TableDefs> {
 
     // Scan directory for JSONL files
     this.emptyTables.clear();
+    this.tablesFromGivenColumns.clear();
     this.tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
     this.scannedJsonlFiles = listJsonlFiles(this.tables);
     this.observedHashes.clear();
@@ -699,8 +702,9 @@ export class LinesDB<Tables extends TableDefs> {
     } else if (config.autoInferSchema !== false) {
       if (validatedData.length === 0) {
         const declared = await this.config.schemaOfEmptyTable?.({ tableName, schemaPath });
-        if (!declared) return { loaded: false, rowCount: 0, errors: [] };
+        if (!declared || declared.columns.length === 0) return { loaded: false, rowCount: 0, errors: [] };
         schema = { ...declared, name: tableName, columns: declared.columns.map((column) => ({ ...column })) };
+        this.tablesFromGivenColumns.add(tableName);
       } else {
         schema = inferredSchema!;
       }
@@ -1429,6 +1433,8 @@ export class LinesDB<Tables extends TableDefs> {
       throw new Error(`Table ${tableName} does not exist`);
     }
 
+    this.addMissingColumns(tableName, schema, row);
+
     const columnNames = Object.keys(row);
     const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
     const placeholders = columnNames.map(() => '?').join(', ');
@@ -1447,6 +1453,25 @@ export class LinesDB<Tables extends TableDefs> {
     this.afterWrite(tableName, result.changes);
 
     return result;
+  }
+
+  /**
+   * A table made from the columns given has only those, and the validator may add a field they lack: the
+   * columns of a table made from rows are those of the validated rows, which have it
+   */
+  private addMissingColumns(tableName: string, schema: TableSchema, row: JsonObject): void {
+    if (!this.tablesFromGivenColumns.has(tableName)) return;
+    const known = new Set(schema.columns.map((column) => column.name));
+    const missing = Object.keys(row).filter((key) => !known.has(key));
+    if (missing.length === 0) return;
+    for (const column of unwrap(JsonlReader.inferSchema(tableName, [row])).columns) {
+      if (!missing.includes(column.name)) continue;
+      const sqlType = column.type === 'JSON' ? 'TEXT' : column.type;
+      this.db.exec(
+        `ALTER TABLE ${this.quoteTableName(tableName)} ADD COLUMN ${this.quoteIdentifier(column.name)} ${sqlType}`,
+      );
+      schema.columns.push({ name: column.name, type: column.type, notNull: false, valueType: column.valueType });
+    }
   }
 
   /**
