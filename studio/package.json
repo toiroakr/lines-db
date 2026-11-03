@@ -51,6 +51,6 @@
     "zod": "^4.6.7"
   },
   "dependencies": {
-    "zygiella": "0.0.1"
+    "zygiella": "0.1.3"
   }
 }
