@@ -583,6 +583,8 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           },
         };
       }
+      // Not kept: the listing would answer with the column types cached before this write
+      leeway.get(snapshot)?.delete(tableName);
       return { status: write.kind === 'insert' ? 201 : 200, body: { ok: true }, changed: true };
     });
     sendJson(res, outcome.status, outcome.body);
