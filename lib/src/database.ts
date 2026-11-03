@@ -13,6 +13,7 @@ import { dirname, join, resolve } from 'node:path';
 import type {
   DatabaseConfig,
   TableSchema,
+  ColumnDefinition,
   JsonObject,
   TableConfig,
   StandardSchema,
@@ -146,6 +147,7 @@ export class LinesDB<Tables extends TableDefs> {
    * holds the fields a user wrote, so only what changed since it was written needs remembering
    */
   private fieldChanges: Map<string, Map<string, FieldChanges>> = new Map();
+  private settleUndos: Array<() => void> | undefined;
   /**
    * The tables raw SQL may have changed since they were last written back: which fields it set is
    * unknown, so their rows are written back whole
@@ -794,20 +796,38 @@ export class LinesDB<Tables extends TableDefs> {
 
   /**
    * A column no row holds a value in has no type to read a boolean or an object back with, and so reads
-   * back as 1 or as JSON text. The first such value written settles it. Not asked of the schema: it
-   * names no type at run time
+   * back as 1 or as JSON text. The first value written settles it, and a string settles it as text so an
+   * object written later does not turn that text into JSON. Not asked of the schema: it names no type at
+   * run time. Returns what puts the columns back, which a write that did not go in, or a transaction that
+   * rolled back, must call: the value that settled it is not in the table
    */
-  private settleColumnsNoRowHolds(schema: TableSchema | undefined, written: JsonObject): void {
-    if (!schema) return;
-    for (const column of schema.columns) {
-      if (column.type !== 'NULL') continue;
+  private settleColumnsNoRowHolds(schema: TableSchema | undefined, written: JsonObject): () => void {
+    const before: Array<[ColumnDefinition, ColumnDefinition['type'], ColumnDefinition['valueType']]> = [];
+    for (const column of schema?.columns ?? []) {
       const value = written[column.name];
+      if (column.type !== 'NULL' || value === null || value === undefined) continue;
+      before.push([column, column.type, column.valueType]);
       if (typeof value === 'boolean') {
+        column.type = 'INTEGER';
         column.valueType = 'boolean';
-      } else if (value !== null && typeof value === 'object' && !(value instanceof Uint8Array)) {
+      } else if (typeof value === 'string') {
+        column.type = 'TEXT';
+      } else if (typeof value === 'number') {
+        column.type = Number.isInteger(value) ? 'INTEGER' : 'REAL';
+      } else if (typeof value === 'object' && !(value instanceof Uint8Array)) {
         column.type = 'JSON';
+      } else {
+        before.pop();
       }
     }
+    const undo = () => {
+      for (const [column, type, valueType] of before) {
+        column.type = type;
+        column.valueType = valueType;
+      }
+    };
+    this.settleUndos?.push(undo);
+    return undo;
   }
 
   /**
@@ -1464,14 +1484,20 @@ export class LinesDB<Tables extends TableDefs> {
       throw new Error(`Table ${tableName} does not exist`);
     }
 
-    this.settleColumnsNoRowHolds(schema, row);
+    const undoSettle = this.settleColumnsNoRowHolds(schema, row);
     const columnNames = Object.keys(row);
     const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
     const placeholders = columnNames.map(() => '?').join(', ');
     const sql = `INSERT INTO ${this.quoteTableName(tableName)} (${quotedColumns.join(', ')}) VALUES (${placeholders})`;
 
     const values = Object.values(row).map((v) => this.normalizeValue(v));
-    const result = this.executeInternal(sql, values);
+    let result: ReturnType<typeof this.executeInternal>;
+    try {
+      result = this.executeInternal(sql, values);
+    } catch (error) {
+      undoSettle();
+      throw error;
+    }
     if (destination) {
       const origins = this.rowOriginsByRowid.get(tableName) ?? new Map<string, RowOrigin>();
       origins.set(String(result.lastInsertRowid), { file: destination, rowIndex: -1 });
@@ -1522,7 +1548,7 @@ export class LinesDB<Tables extends TableDefs> {
     try {
       for (const record of records) {
         const row = this.validateAndTransform(tableName, record);
-        this.settleColumnsNoRowHolds(this.schemas.get(tableName), row);
+        const undoSettle = this.settleColumnsNoRowHolds(this.schemas.get(tableName), row);
 
         const columnNames = Object.keys(row);
         const quotedColumns = columnNames.map((col) => this.quoteIdentifier(col));
@@ -1531,7 +1557,13 @@ export class LinesDB<Tables extends TableDefs> {
 
         const values = columnNames.map((col) => this.normalizeValue(row[col]));
 
-        const result = this.executeInternal(sql, values);
+        let result: ReturnType<typeof this.executeInternal>;
+        try {
+          result = this.executeInternal(sql, values);
+        } catch (error) {
+          undoSettle();
+          throw error;
+        }
         this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(record), inserted: true });
         totalChanges += BigInt(result.changes);
         lastRowid = BigInt(result.lastInsertRowid);
@@ -1613,13 +1645,19 @@ export class LinesDB<Tables extends TableDefs> {
 
     let result: { changes: number | bigint; lastInsertRowid: number | bigint } = { changes: 0, lastInsertRowid: 0 };
     if (Object.keys(data).length > 0) {
-      this.settleColumnsNoRowHolds(this.schemas.get(tableName), data as JsonObject);
+      const undoSettle = this.settleColumnsNoRowHolds(this.schemas.get(tableName), data as JsonObject);
       const setClauses = Object.keys(data)
         .map((key) => `${this.quoteIdentifier(key)} = ?`)
         .join(', ');
       const sql = `UPDATE ${this.quoteTableName(tableName)} SET ${setClauses} WHERE ${whereSql}`;
       const values = [...Object.values(data).map((v) => this.normalizeValue(v)), ...whereValues];
-      result = this.executeInternal(sql, values);
+      try {
+        result = this.executeInternal(sql, values);
+      } catch (error) {
+        undoSettle();
+        throw error;
+      }
+      if (Number(result.changes) === 0) undoSettle();
     }
 
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
@@ -2366,7 +2404,9 @@ export class LinesDB<Tables extends TableDefs> {
             .filter(([key]) => keep.has(key))
             .map(([key, value]) => [
               key,
-              untouched && Object.hasOwn(line, key) && !actionColumns.includes(key) ? line[key] : value,
+              untouched && Object.hasOwn(line, key) && !actionColumns.includes(key) && !namedFields.includes(key)
+                ? line[key]
+                : value,
             ]),
         ) as JsonObject,
         narrowed: true,
@@ -2995,6 +3035,7 @@ export class LinesDB<Tables extends TableDefs> {
         Array.from(this.linesWithUnknownFields, ([tableName, lines]) => [tableName, new Map(lines)]),
       );
       this.db.exec('BEGIN TRANSACTION');
+      this.settleUndos = [];
       this.inTransaction = true;
       this.transactionToken = token;
       this.transactionStarting = false;
@@ -3017,6 +3058,7 @@ export class LinesDB<Tables extends TableDefs> {
       }
 
       this.db.exec('COMMIT');
+      this.settleUndos = undefined;
       this.inTransaction = false;
       this.transactionChanges = undefined;
 
@@ -3029,6 +3071,8 @@ export class LinesDB<Tables extends TableDefs> {
       if (fieldChangesBefore) this.fieldChanges = fieldChangesBefore;
       if (rawSqlTablesBefore) this.rawSqlTables = rawSqlTablesBefore;
       if (linesWithUnknownFieldsBefore) this.linesWithUnknownFields = linesWithUnknownFieldsBefore;
+      for (const undo of [...(this.settleUndos ?? [])].reverse()) undo();
+      this.settleUndos = undefined;
       // Not only when writing a file fails: a COMMIT failing after the writes leaves files holding rolled-back rows
       const failure = await this.restoreAll(written, error);
       if (this.inTransaction) {

@@ -33,6 +33,16 @@ describe('LinesDB write-back of the rows an edit did not touch', () => {
     await rm(dataDir, { recursive: true, force: true });
   });
 
+  it('writes a field the write-back names from the database, for a row nothing was written to as well', async () => {
+    await db.close();
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey', writeBackFields: ['full'] });
+    unwrap(await db.initialize());
+
+    unwrap(await db.transaction((tx) => unwrap(tx.update('items', { a: 'z' }, { id: 1 }))));
+
+    expect(await readFile(file(), 'utf-8')).toContain('{"id":3,"a":"m","b":"n","full":"m-n"}');
+  });
+
   it('leaves the line of a row as the file holds it, though the schema computes another value for a field of it', async () => {
     unwrap(await db.transaction((tx) => unwrap(tx.update('items', { a: 'z' }, { id: 1 }))));
 
