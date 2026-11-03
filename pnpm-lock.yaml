@@ -194,8 +194,8 @@ importers:
         specifier: ^4.0.105
         version: 4.0.105(zod@4.6.7)
       '@e2e-dev/web':
-        specifier: ^0.15.3
-        version: 0.15.3(e2e@0.21.3(@ai-sdk/openai@4.0.105(zod@4.6.7))(ai@7.0.157(zod@4.6.7)))
+        specifier: ^0.15.4
+        version: 0.15.4(e2e@0.21.3(@ai-sdk/openai@4.0.105(zod@4.6.7))(ai@7.0.157(zod@4.6.7)))
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
@@ -693,8 +693,8 @@ packages:
     resolution: {integrity: sha512-OoKoR0f76dCY666JlcbhmVTs2drYj1GUXZTYTcbUgJjh9Nv41aFfZ21bPQTERm5+L5cBDo466NltB2lplS5GBw==}
     engines: {node: '>=20.19.0'}
 
-  '@e2e-dev/web@0.15.3':
-    resolution: {integrity: sha512-S15TxVQsSTvjEd00r/fZs0tX/gvq53EhWMtSCYhydnMA9QdfE83GpgiXeRqrBDzNhfbm6f1TwJeANw+qW/4T4A==}
+  '@e2e-dev/web@0.15.4':
+    resolution: {integrity: sha512-j4bDSP6wV310h9LwrMVfsUHv7uAIIzK516NboLco6Ah92B32uShIHne5V3AI1lvKtLip+PWlpJ+aw848vogBwQ==}
     engines: {node: ^22.22.3 || >=24.8.0}
     hasBin: true
     peerDependencies:
@@ -4507,7 +4507,7 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.2': {}
 
-  '@e2e-dev/web@0.15.3(e2e@0.21.3(@ai-sdk/openai@4.0.105(zod@4.6.7))(ai@7.0.157(zod@4.6.7)))':
+  '@e2e-dev/web@0.15.4(e2e@0.21.3(@ai-sdk/openai@4.0.105(zod@4.6.7))(ai@7.0.157(zod@4.6.7)))':
     dependencies:
       e2e: 0.21.3(@ai-sdk/openai@4.0.105(zod@4.6.7))(ai@7.0.157(zod@4.6.7))
       playwright-core: 1.64.1
