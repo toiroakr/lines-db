@@ -148,6 +148,19 @@ describe('a table whose JSONL file has no rows', () => {
       expect(unwrap(db!.find('people')).map((row) => row.slug)).toEqual(['alice', 'bob']);
     });
 
+    it('still takes a first row after a transaction that added the column was rolled back', async () => {
+      await loadWithSlug();
+
+      const failed = await db!.transaction((tx) => {
+        unwrap(tx.insert('people', { name: 'Alice' }));
+        throw new Error('stop here');
+      });
+      expect(failed.ok).toBe(false);
+      unwrap(db!.batchInsert('people', [{ name: 'Bob' }]));
+
+      expect(unwrap(db!.find('people')).map((row) => row.slug)).toEqual(['bob']);
+    });
+
     it('still takes a first row after another table alone was loaded again', async () => {
       await loadWithSlug('people');
       unwrap(await db!.initialize({ tableName: 'notes' }));

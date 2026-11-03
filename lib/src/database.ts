@@ -2961,12 +2961,17 @@ export class LinesDB<Tables extends TableDefs> {
     let rawSqlTablesBefore: Set<string> | undefined;
     let linesWithUnknownFieldsBefore: Map<string, Map<string, JsonObject>> | undefined;
     let originsBefore: Map<string, Map<string, RowOrigin>> | undefined;
+    let columnsBefore: Map<string, TableSchema['columns']> | undefined;
     const scannedBefore = [...this.scannedJsonlFiles];
     let written: PreparedWriteBack[] = [];
     try {
       // Not beginning first: a pending auto-sync would then read, and write out, rows still uncommitted
       await this.waitForPendingSyncs();
       originsBefore = new Map([...this.rowOriginsByRowid].map(([name, origins]) => [name, new Map(origins)]));
+      // The columns added to a table made from given columns go with the transaction that added them
+      columnsBefore = new Map(
+        [...this.tablesFromGivenColumns].map((name) => [name, [...(this.schemas.get(name)?.columns ?? [])]]),
+      );
       fieldChangesBefore = cloneFieldChanges(this.fieldChanges);
       rawSqlTablesBefore = new Set(this.rawSqlTables);
       linesWithUnknownFieldsBefore = new Map(
@@ -3003,6 +3008,10 @@ export class LinesDB<Tables extends TableDefs> {
       this.transactionStarting = false;
       this.transactionChanges = undefined;
       if (originsBefore) this.rowOriginsByRowid = originsBefore;
+      for (const [name, columns] of columnsBefore ?? []) {
+        const schema = this.schemas.get(name);
+        if (schema) schema.columns = columns;
+      }
       this.scannedJsonlFiles = scannedBefore;
       if (fieldChangesBefore) this.fieldChanges = fieldChangesBefore;
       if (rawSqlTablesBefore) this.rawSqlTables = rawSqlTablesBefore;
