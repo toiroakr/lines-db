@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { readdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { readFile, realpath, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, extname, relative, resolve as resolvePath } from 'node:path';
@@ -169,8 +169,6 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     await Promise.all(
       [...new Set([...dataDirs, resolvePath(schemaDir)])].map(async (dir): Promise<FSWatcher[]> => {
         try {
-          // Not left to the watcher: it reports nothing for a directory that does not exist or cannot be read
-          await readdir(dir);
           const watcher = watch(dir, { ignoreInitial: true, depth: 0 });
           watcher.on('all', () => {
             clearTimeout(watchTimer);
@@ -184,7 +182,13 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
             console.warn(`Live reload is off for '${dir}': ${errorMessage(error)}`);
             void watcher.close();
           });
-          await watcher.ready;
+          // Not left watching: the watcher would wait for the directory to appear, and Reload is the way to pick it up
+          const { missing } = await watcher.ready;
+          if (missing.length > 0) {
+            console.warn(`Live reload is off for '${dir}': the directory does not exist`);
+            await watcher.close();
+            return [];
+          }
           return [watcher];
         } catch (error) {
           console.warn(`Live reload is off for '${dir}': ${errorMessage(error)}`);
