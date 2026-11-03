@@ -177,6 +177,8 @@ export class LinesDB<Tables extends TableDefs> {
   private observedHashes: Map<string, string> = new Map();
   /** The JSONL files the data directories held when the tables were scanned */
   private scannedJsonlFiles: string[] = [];
+  /** Tables left out because their files have no rows to infer the columns from */
+  private emptyTables: Set<string> = new Set();
   /** Each table's schema file and a hash of its content as the tables were loaded, or '' for none */
   private schemaFileStates: Map<string, string> = new Map();
 
@@ -245,6 +247,7 @@ export class LinesDB<Tables extends TableDefs> {
     const transform = options?.transform;
 
     // Scan directory for JSONL files
+    this.emptyTables.clear();
     this.tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
     this.scannedJsonlFiles = listJsonlFiles(this.tables);
     this.observedHashes.clear();
@@ -461,8 +464,9 @@ export class LinesDB<Tables extends TableDefs> {
         }
         if (failedDependencies.size > 0) {
           for (const dep of failedDependencies) {
+            const reason = this.emptyTables.has(dep) ? 'has no rows to read its columns from' : 'has validation errors';
             warnings.push(
-              `Skipping foreign key validation for table '${tableName}': referenced table '${dep}' has validation errors`,
+              `Skipping foreign key validation for table '${tableName}': referenced table '${dep}' ${reason}`,
             );
           }
         }
@@ -497,6 +501,7 @@ export class LinesDB<Tables extends TableDefs> {
         }
       } else {
         // Table was not loaded (e.g., empty data)
+        if (rowCount === 0 && loadErrors.length === 0) this.emptyTables.add(tableName);
         warnings.push(`Table '${tableName}' was not loaded (no data or skipped)`);
         this.tables.delete(tableName);
       }
@@ -693,10 +698,12 @@ export class LinesDB<Tables extends TableDefs> {
       }
     } else if (config.autoInferSchema !== false) {
       if (validatedData.length === 0) {
-        return { loaded: false, rowCount: 0, errors: [] };
+        const declared = await this.config.schemaOfEmptyTable?.({ tableName, schemaPath });
+        if (!declared) return { loaded: false, rowCount: 0, errors: [] };
+        schema = { ...declared, name: tableName, columns: declared.columns.map((column) => ({ ...column })) };
+      } else {
+        schema = inferredSchema!;
       }
-      // Use inferred schema
-      schema = inferredSchema!;
     } else {
       // Critical error - throw exception
       throw new Error(`No schema provided for table ${tableName} and autoInferSchema is disabled`);

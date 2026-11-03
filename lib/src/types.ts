@@ -92,6 +92,15 @@ export interface DatabaseConfig<_Tables extends TableDefs = TableDefs> {
    * discovering foreign keys. Defaults to the directory of each table's JSONL file.
    */
   schemaDir?: string;
+  /**
+   * Columns of a table whose JSONL files have no rows. They cannot be inferred from rows, so such a
+   * table is left out of the database unless this returns them. It is given the table's name and its
+   * schema file, if it has one; returning nothing leaves the table out.
+   */
+  schemaOfEmptyTable?: (table: {
+    tableName: string;
+    schemaPath: string | undefined;
+  }) => TableSchema | undefined | Promise<TableSchema | undefined>;
   writeDataSets?: boolean;
   /**
    * Fields written back to the JSONL files on sync.

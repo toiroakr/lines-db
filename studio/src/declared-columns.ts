@@ -2,6 +2,7 @@ import { stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve, win32 } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { TableSchema } from 'lines-db';
 import type * as TS from 'typescript';
 
 /** A column as the schema file declares it, read from the types of its Standard Schema */
@@ -268,4 +269,30 @@ export async function readDeclaredColumns(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The table the columns a schema file declares make, for a table with no rows to infer them from. The types
+ * are written as the compiler prints them, so a number cannot be told an integer from a real one and is stored
+ * as REAL, which gives an integer back as one.
+ */
+export function tableSchemaOf(tableName: string, columns: readonly DeclaredColumn[]): TableSchema {
+  return {
+    name: tableName,
+    columns: columns.map((column) => ({
+      name: column.name,
+      type: sqlTypeOf(column.type),
+      notNull: !column.optional && !column.nullable,
+      ...(column.type === 'boolean' ? { valueType: 'boolean' as const } : {}),
+    })),
+  };
+}
+
+function sqlTypeOf(type: string): TableSchema['columns'][number]['type'] {
+  if (type === 'boolean') return 'INTEGER';
+  if (type === 'number' || /^-?\d+(\.\d+)?( \| -?\d+(\.\d+)?)*$/.test(type)) return 'REAL';
+  if (type.endsWith('[]') || type.startsWith('{') || type.startsWith('Array<') || type.startsWith('Record<')) {
+    return 'JSON';
+  }
+  return 'TEXT';
 }
