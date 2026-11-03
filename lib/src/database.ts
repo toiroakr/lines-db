@@ -746,6 +746,10 @@ export class LinesDB<Tables extends TableDefs> {
       }
     }
 
+    if (schema === inferredSchema) {
+      this.relaxColumnsTheSchemaLeavesOptional(tableName, schema, data[0]);
+    }
+
     this.schemas.set(tableName, schema);
 
     // Create table
@@ -786,6 +790,26 @@ export class LinesDB<Tables extends TableDefs> {
       this.fileHashes.set(jsonlPath, contentHash);
     }
     return { loaded: true, rowCount: data.length, errors: [] };
+  }
+
+  /**
+   * A column every row holds is inferred NOT NULL, which refuses a later row that leaves it out even
+   * where the schema takes that row. The sample row without the field says whether the schema does.
+   * A column the schema fills in stays NOT NULL: the row is stored as the schema leaves it
+   */
+  private relaxColumnsTheSchemaLeavesOptional(tableName: string, schema: TableSchema, sample: JsonObject | undefined) {
+    if (!sample || !this.validationSchemas.get(tableName)) return;
+    for (const column of schema.columns) {
+      if (!column.notNull || column.primaryKey || !(column.name in sample)) continue;
+      const { [column.name]: _left, ...without } = sample;
+      try {
+        if ((this.validateAndTransform(tableName, without)[column.name] ?? null) === null) {
+          column.notNull = false;
+        }
+      } catch {
+        // Not rethrown: a validator written for whole rows may throw on one without the field, which is no reason to fail the load
+      }
+    }
   }
 
   /**
