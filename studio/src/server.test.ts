@@ -1318,6 +1318,23 @@ describe('studio server', () => {
       expect(tables[0]).toMatchObject({ name: 'members', rowCount: 1 });
     });
 
+    it('writes the first row with the values of a column that is not text as they are, not as text', async () => {
+      await startWith(`export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data: any) => ({ value: data }),
+  types: undefined as unknown as { input: { id: string; pair: [string, number]; extra: unknown; amount: number }; output: unknown } } };\n`);
+
+      const response = await post('/api/tables/members/changes', {
+        inserts: [{ id: 'a', pair: ['x', 1], extra: { k: 1 }, amount: 5 }],
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(await readFile(join(dir, 'members.jsonl'), 'utf-8'))).toEqual({
+        id: 'a',
+        pair: ['x', 1],
+        extra: { k: 1 },
+        amount: 5,
+      });
+    });
+
     it('is not listed when its schema declares no types to read the columns from', async () => {
       await startWith(
         `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n`,

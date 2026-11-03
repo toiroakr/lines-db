@@ -283,16 +283,28 @@ export function tableSchemaOf(tableName: string, columns: readonly DeclaredColum
       name: column.name,
       type: sqlTypeOf(column.type),
       notNull: !column.optional && !column.nullable,
-      ...(column.type === 'boolean' ? { valueType: 'boolean' as const } : {}),
+      ...(isBoolean(column.type) ? { valueType: 'boolean' as const } : {}),
     })),
   };
 }
 
+type TypeKind = 'text' | 'number' | 'boolean' | 'other';
+
+function kindOf(member: string): TypeKind {
+  if (member === 'string' || /^(".*"|'.*')$/.test(member)) return 'text';
+  if (member === 'number' || /^-?\d+(\.\d+)?$/.test(member)) return 'number';
+  if (member === 'boolean' || member === 'true' || member === 'false') return 'boolean';
+  return 'other';
+}
+
+// Not TEXT for a type it is not sure of: a TEXT column stores an object or a number as its text, which the file then holds
 function sqlTypeOf(type: string): TableSchema['columns'][number]['type'] {
-  if (type === 'boolean') return 'INTEGER';
-  if (type === 'number' || /^-?\d+(\.\d+)?( \| -?\d+(\.\d+)?)*$/.test(type)) return 'REAL';
-  if (type.endsWith('[]') || type.startsWith('{') || type.startsWith('Array<') || type.startsWith('Record<')) {
-    return 'JSON';
-  }
-  return 'TEXT';
+  const kinds = new Set(type.split(' | ').map(kindOf));
+  if (kinds.size !== 1) return 'JSON';
+  const [kind] = kinds;
+  return kind === 'text' ? 'TEXT' : kind === 'number' ? 'REAL' : kind === 'boolean' ? 'INTEGER' : 'JSON';
+}
+
+function isBoolean(type: string): boolean {
+  return type.split(' | ').every((member) => kindOf(member) === 'boolean');
 }

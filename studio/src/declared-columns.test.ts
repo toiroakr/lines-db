@@ -157,15 +157,25 @@ describe('tableSchemaOf', () => {
     ['"admin" | "user"', 'TEXT'],
     ['number', 'REAL'],
     ['1 | 2', 'REAL'],
+    ['"a" | string', 'TEXT'],
     ['string[]', 'JSON'],
     ['{ a: string; }', 'JSON'],
+    ['[string, number]', 'JSON'],
+    ['Address', 'JSON'],
+    ['any', 'JSON'],
+    ['unknown', 'JSON'],
+    ['string | number', 'JSON'],
+    ['"a" | 1', 'JSON'],
   ])('stores %s as %s', (type, sqlType) => {
     expect(columnOf(declared('value', type)).type).toBe(sqlType);
   });
 
-  it('stores a boolean as an integer and reads it back as a boolean', () => {
-    expect(columnOf(declared('active', 'boolean'))).toMatchObject({ type: 'INTEGER', valueType: 'boolean' });
-  });
+  it.each(['boolean', 'true', 'false', 'true | false'])(
+    'stores %s as an integer and reads it back as a boolean',
+    (type) => {
+      expect(columnOf(declared('active', type))).toMatchObject({ type: 'INTEGER', valueType: 'boolean' });
+    },
+  );
 
   it('requires a value only of a column that is neither optional nor nullable', () => {
     expect(columnOf(declared('a', 'string')).notNull).toBe(true);
