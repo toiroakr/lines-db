@@ -60,6 +60,12 @@ describe('Studio package installation', () => {
     for (const directory of ['dist', 'ui']) {
       await cp(join(root, 'studio', directory), join(studio, directory), { recursive: true });
     }
+    const studioManifest = JSON.parse(await readFile(join(root, 'studio/package.json'), 'utf8'));
+    for (const dependency of Object.keys(studioManifest.dependencies ?? {})) {
+      const target = join(project, 'node_modules', dependency);
+      await mkdir(dirname(target), { recursive: true });
+      await symlink(join(root, 'studio/node_modules', dependency), target, 'junction');
+    }
     const child = spawn(process.execPath, [cli, 'studio', join(project, 'data'), '--port', '0'], { cwd: project, env });
     let output = '';
     let errors = '';

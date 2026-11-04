@@ -1,5 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { chmod, link, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  chmod,
+  link,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -401,6 +413,24 @@ describe('studio server', () => {
     }
   });
 
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'starts without live reload when the shared schema directory cannot be read',
+    async () => {
+      await studio.close();
+      const unreadable = join(dataDir, 'unreadable-schemas');
+      await mkdir(unreadable);
+      await chmod(unreadable, 0o100);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        studio = await startStudioServer({ dataDir, schemaDir: unreadable, port: 0 });
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Live reload is off'));
+      } finally {
+        warn.mockRestore();
+        await chmod(unreadable, 0o700);
+      }
+    },
+  );
+
   it('notifies the page when a shared schema changes and validates edits against it', async () => {
     await studio.close();
     const set = join(dataDir, 'local');
@@ -654,6 +684,27 @@ describe('studio server', () => {
     await events.waitFor('changed');
     events.close();
     expect((await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`))).rows).toHaveLength(1);
+  });
+
+  it('tells an open page over /api/events when an editor replaces a JSONL file by renaming a temporary file over it', async () => {
+    const events = await openEvents();
+    const temporary = join(dataDir, 'users.jsonl.tmp');
+    await writeFile(temporary, '{"id":1,"name":"Carol","active":true,"tags":[]}\n');
+    await rename(temporary, join(dataDir, 'users.jsonl'));
+
+    await events.waitFor('changed');
+    events.close();
+    expect((await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`))).rows[0]).toMatchObject({ name: 'Carol' });
+  });
+
+  it('tells an open page over /api/events when a row is appended to a JSONL file', async () => {
+    const events = await openEvents();
+    await appendFile(join(dataDir, 'users.jsonl'), '{"id":3,"name":"Dave","active":true,"tags":[]}\n');
+
+    await events.waitFor('changed');
+    events.close();
+    const { rows } = await bodyOf(await fetch(`${studio.url}/api/tables/users/rows`));
+    expect(rows.map((row: { name: string }) => row.name)).toContain('Dave');
   });
 
   it('tells an open page over /api/events once a save succeeds, so another open page shows it too', async () => {
