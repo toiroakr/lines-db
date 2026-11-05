@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
 
       - name: Install deps
-        uses: ./.github/actions/install-deps
+        uses: $/.github/actions/install-deps
 
       - name: Check formatting
         run: pnpm format:check
@@ -59,7 +59,7 @@ jobs:
           persist-credentials: false
 
       - name: Install deps
-        uses: ./.github/actions/install-deps
+        uses: $/.github/actions/install-deps
 
       - name: Install the schema compiler
         env:
