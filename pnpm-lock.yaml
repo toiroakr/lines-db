@@ -264,8 +264,8 @@ importers:
   lib:
     dependencies:
       '@politty/loculus':
-        specifier: ^0.4.0
-        version: 0.4.0(@clack/prompts@1.7.0)(loculus@0.4.1)
+        specifier: ^0.4.1
+        version: 0.4.2(@clack/prompts@1.7.0)(loculus@0.4.1)
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
@@ -1531,8 +1531,8 @@ packages:
     resolution: {integrity: sha512-pOr5+q1fLYKwFN3LAJuGZEnfXDcQ73zqgDHMtGy+K+uIoUqyY+6MeDCWFwfu+4EFuq76I5EPFofoNAI+Bmmq4A==}
     engines: {node: '>=22.13'}
 
-  '@politty/loculus@0.4.0':
-    resolution: {integrity: sha512-OgIV3Rjzzd38qfkiYO5DOTBBzzxi9xLiKPMo1OTInN4IRu4N6YMjUUYFo1BVbbgoKjOPCKCxQ5XCNQTsaTUf9g==}
+  '@politty/loculus@0.4.2':
+    resolution: {integrity: sha512-AfCm62DJOsz5vg38jb0mpwprSBs0sICAqeT/1UjN60ncf0ZohPcCLiJklmmdEemkvSMLkKq76ajzceESySrIWg==}
     engines: {node: '>=22.18.0'}
     hasBin: true
     peerDependencies:
@@ -4975,7 +4975,7 @@ snapshots:
 
   '@pnpm/deps.graph-sequencer@1100.0.1': {}
 
-  '@politty/loculus@0.4.0(@clack/prompts@1.7.0)(loculus@0.4.1)':
+  '@politty/loculus@0.4.2(@clack/prompts@1.7.0)(loculus@0.4.1)':
     dependencies:
       loculus: 0.4.1
       yaml: 2.9.1
