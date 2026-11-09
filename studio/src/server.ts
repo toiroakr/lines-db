@@ -3,7 +3,7 @@ import { readFile, realpath, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, dirname, extname, relative, resolve as resolvePath } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { watch, type FSWatcher } from 'zygiella';
 import {
   LinesDB,
@@ -24,7 +24,7 @@ import {
   type ValidationErrorDetail,
   type WriteFilledValues,
 } from 'lines-db';
-import { hashJsonlContent, replaceFile } from 'lines-db/internal';
+import { createSchemaImports, hashJsonlContent, replaceFile } from 'lines-db/internal';
 import { readDeclaredColumns, tableSchemaOf } from './declared-columns.js';
 import { replaceRows } from './file-rows.js';
 
@@ -99,6 +99,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     const previous = snapshot;
     snapshot = await load();
     await previous.db.close();
+    watchDependencies();
   };
   const reloadIfChangedUnlocked = async (): Promise<boolean> => {
     if (!unwrap(await snapshot.db.hasExternalChanges())) return false;
@@ -165,18 +166,19 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
   let watchTimer: NodeJS.Timeout | undefined;
   // Not checking on each event: an editor saving a file fires several (a temporary file, then a rename)
+  const scheduleReload = (): void => {
+    clearTimeout(watchTimer);
+    watchTimer = setTimeout(() => {
+      // Not reporting the error here: the page asks again on 'changed' and shows the error it gets
+      reloadIfChanged().catch(notifyChanged);
+    }, 100);
+  };
   const watchers = (
     await Promise.all(
       [...new Set([...dataDirs, resolvePath(schemaDir)])].map(async (dir): Promise<FSWatcher[]> => {
         try {
           const watcher = watch(dir, { ignoreInitial: true, depth: 0 });
-          watcher.on('all', () => {
-            clearTimeout(watchTimer);
-            watchTimer = setTimeout(() => {
-              // Not reporting the error here: the page asks again on 'changed' and shows the error it gets
-              reloadIfChanged().catch(notifyChanged);
-            }, 100);
-          });
+          watcher.on('all', scheduleReload);
           // Not letting the error end the process: Reload still loads the current files without the watcher
           watcher.on('error', (error) => {
             console.warn(`Live reload is off for '${dir}': ${errorMessage(error)}`);
@@ -197,6 +199,35 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       }),
     )
   ).flat();
+
+  // The files the schemas import are watched one by one: they are in directories the schema directory does not hold
+  let dependencyWatcher: FSWatcher | undefined;
+  let watchedDependencies: string[] = [];
+  const watchDependencies = (): void => {
+    const wanted = snapshot.db.listSchemaDependencies();
+    if (!dependencyWatcher) {
+      if (wanted.length === 0) return;
+      try {
+        const created = watch(wanted, { ignoreInitial: true, depth: 0 });
+        created.on('all', scheduleReload);
+        // Not letting the error end the process: Reload still loads the current files without the watcher
+        created.on('error', (error) => {
+          console.warn(`Live reload is off for the files the schemas import: ${errorMessage(error)}`);
+          void created.close();
+          if (dependencyWatcher === created) dependencyWatcher = undefined;
+        });
+        dependencyWatcher = created;
+      } catch (error) {
+        console.warn(`Live reload is off for the files the schemas import: ${errorMessage(error)}`);
+        return;
+      }
+    } else {
+      dependencyWatcher.unwatch(watchedDependencies.filter((file) => !wanted.includes(file)));
+      dependencyWatcher.add(wanted.filter((file) => !watchedDependencies.includes(file)));
+    }
+    watchedDependencies = wanted;
+  };
+  watchDependencies();
 
   const server = createServer((req, res) => {
     handle(req, res).catch((error) =>
@@ -521,16 +552,20 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       // conflict a write-back detects, so the rows would be validated against the old schema
       const changedFiles = unwrap(await snapshot.db.findExternalChanges());
       if (changedFiles.length > 0) {
+        // Taken before the reload, which replaces what the database knows of the table's imports
+        const tableImports = snapshot.db.listSchemaDependencies(tableName);
         await reloadUnlocked();
         reloaded = true;
         if (write.kind === 'check') changedFiles.length = 0;
         // Not saved over an outside edit of the edited table's own file: the change was made on rows
         // the page showed before that edit
-        // A changed schema file of the edited table counts too: its primary key may name another column
+        // A changed schema file of the edited table counts too, and so does a file it imports: its primary key
+        // may name another column
         const ownFile = changedFiles.find(
           (file) =>
             dataDirs.some((dir) => resolvePath(file) === resolvePath(dir, `${tableName}.jsonl`)) ||
-            basename(file).startsWith(`${tableName}.schema.`),
+            basename(file).startsWith(`${tableName}.schema.`) ||
+            tableImports.includes(file),
         );
         if (ownFile) {
           const message = `${relative(dataDir, ownFile) || ownFile} changed on disk, so the tables were reloaded. Check the rows and try again.`;
@@ -615,7 +650,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       });
     });
   } catch (error) {
-    await Promise.all(watchers.map((watcher) => watcher.close()));
+    await Promise.all([...watchers, dependencyWatcher].map((watcher) => watcher?.close()));
     await snapshot.db.close();
     throw error;
   }
@@ -626,7 +661,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     url,
     token,
     close: async () => {
-      await Promise.all(watchers.map((watcher) => watcher.close()));
+      await Promise.all([...watchers, dependencyWatcher].map((watcher) => watcher?.close()));
       clearTimeout(watchTimer);
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -752,9 +787,9 @@ async function foreignKeysInFile(dataDir: string, tableName: string): Promise<Fo
   const schemaPath = await findSchemaFile(dataDir, tableName);
   if (!schemaPath) return [];
   try {
-    const module = await import(`${pathToFileURL(schemaPath).href}?t=${Date.now()}`);
-    const exported = module.schema ?? module.default;
-    return exported?.foreignKeys ?? module.foreignKeys ?? [];
+    const module = await createSchemaImports().import(schemaPath);
+    const exported = (module.schema ?? module.default) as { foreignKeys?: ForeignKeyDefinition[] } | undefined;
+    return exported?.foreignKeys ?? (module.foreignKeys as ForeignKeyDefinition[] | undefined) ?? [];
   } catch {
     // Not failing the listing: the file failed to load on start too, and its problem is listed there
     return [];

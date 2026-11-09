@@ -1,7 +1,7 @@
-import { pathToFileURL } from 'node:url';
 import { dirname, basename } from 'node:path';
 import type { StandardSchema } from './types.js';
 import { findSchemaFile, SCHEMA_EXTENSIONS } from './schema-extensions.js';
+import { createSchemaImports, type SchemaImports } from './schema-module.js';
 
 export class SchemaLoader {
   /**
@@ -18,7 +18,7 @@ export class SchemaLoader {
    * Load a validation schema file for a table
    * Requires ${tableName}.schema.{ts,mts,cts} to exist in schemaDir, or alongside the JSONL file when omitted
    */
-  static async loadSchema(jsonlPath: string, schemaDir?: string): Promise<StandardSchema> {
+  static async loadSchema(jsonlPath: string, schemaDir?: string, imports?: SchemaImports): Promise<StandardSchema> {
     const dir = schemaDir ?? dirname(jsonlPath);
     const tableName = basename(jsonlPath, '.jsonl');
     const schemaPath = await findSchemaFile(dir, tableName);
@@ -30,11 +30,7 @@ export class SchemaLoader {
     }
 
     try {
-      const schemaUrl = pathToFileURL(schemaPath).href;
-      // Add cache busting query parameter to force reload on each import
-      // This ensures schema changes are picked up immediately
-      const cacheBustedUrl = `${schemaUrl}?t=${Date.now()}`;
-      const module = await import(cacheBustedUrl);
+      const module = await (imports ?? createSchemaImports()).import(schemaPath);
       const schema = module.default || module.schema;
 
       if (schema && this.isStandardSchema(schema)) {
