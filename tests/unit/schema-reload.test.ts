@@ -336,12 +336,14 @@ export const schema = {
   });
 
   // Not run in this process: the module hook that finds the files a schema imports does not see imports made through the test runner
-  async function changedAfterEach(edits: Array<{ file: string; content: string } | null>): Promise<boolean[]> {
+  async function changedAfterEach(
+    edits: Array<{ file: string; content: string; directory?: string } | null>,
+  ): Promise<boolean[]> {
     const script = join(dataDir, 'studio.mjs');
     await writeFile(
       script,
       `import { startStudioServer } from '${studioLibrary}';
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 const studio = await startStudioServer({ dataDir: ${JSON.stringify(dataDir)}, port: 0 });
 const response = await fetch(studio.url + '/api/events?token=' + studio.token);
 const reader = response.body.getReader();
@@ -352,6 +354,7 @@ let pending;
 for (const edit of ${JSON.stringify(edits)}) {
   let received = '';
   await new Promise((resolve) => setTimeout(resolve, 300));
+  if (edit?.directory) await mkdir(edit.directory, { recursive: true });
   if (edit) await writeFile(edit.file, edit.content);
   const deadline = Date.now() + 3000;
   while (!received.includes('event: changed') && Date.now() < deadline) {
@@ -430,6 +433,20 @@ process.exit(0);
     const added = { file: join(dataDir, 'shared', 'added.ts'), content: rulesRequiring('name') };
 
     expect(await changedAfterEach([importAdded, added])).toEqual([true, true]);
+  }, 20000);
+
+  it('tells the page once a file is added in a directory that was not there either, as the nearest one that exists is watched', async () => {
+    const importDeep = {
+      file: join(dataDir, 'users.schema.ts'),
+      content: SCHEMA_IMPORTING_ADDED.replace('./shared/added.ts', './shared/deep/added.ts'),
+    };
+    const deep = {
+      directory: join(dataDir, 'shared', 'deep'),
+      file: join(dataDir, 'shared', 'deep', 'added.ts'),
+      content: rulesRequiring('name'),
+    };
+
+    expect(await changedAfterEach([importDeep, deep])).toEqual([true, true]);
   }, 20000);
 
   it('tells nothing while nothing is edited', async () => {
@@ -545,6 +562,51 @@ process.exit(0);
     expect(
       result.files.map((file) => file.replaceAll('\\', '/')).some((file) => file.endsWith('/shared/added.ts')),
     ).toBe(true);
+  });
+});
+
+describe('a file the schema imports whose content could be taken for a file that is not there', () => {
+  let dataDir: string;
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'lines-db-lookalike-'));
+    await mkdir(join(dataDir, 'shared'));
+    await writeFile(
+      join(dataDir, 'users.schema.ts'),
+      `globalThis.missing = 1;
+const loaded = await import('./shared/added.ts').then(() => true, () => false);
+export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => (loaded ? { value: data } : { issues: [{ message: 'not loaded' }] }) } };
+`,
+    );
+    await writeFile(join(dataDir, 'users.jsonl'), '{"id":1,"name":"Alice"}\n');
+  });
+
+  afterEach(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('reads the schema again once a file holding only the word missing is added', async () => {
+    const script = join(dataDir, 'program.mjs');
+    await writeFile(
+      script,
+      `import { LinesDB } from '${library}';
+import { writeFile } from 'node:fs/promises';
+const row = { id: 2, name: 'Bob' };
+const read = async () => {
+  const db = LinesDB.create({ dataDir: ${JSON.stringify(dataDir)} });
+  await db.initialize();
+  return db.validateRow('users', row).ok;
+};
+// Twice before the file is added: the second read is the first to have the import in the version of the schema
+const before = [await read(), await read()];
+await writeFile(${JSON.stringify(join(dataDir, 'shared', 'added.ts'))}, 'missing');
+console.log(JSON.stringify({ before, after: await read() }));
+process.exit(0);
+`,
+    );
+    const { stdout } = await run(process.execPath, [script]);
+
+    expect(JSON.parse(stdout.trim().split('\n').at(-1) as string)).toEqual({ before: [false, false], after: true });
   });
 });
 

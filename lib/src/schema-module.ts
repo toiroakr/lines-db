@@ -87,8 +87,9 @@ function hashOfFile(file: string): string {
 function versionOf(file: string, visiting = new Set<string>()): { version: string; whole: boolean } {
   const known = shared.versions.get(file);
   if (known) return { version: known, whole: true };
-  const content = contentOf(file) ?? 'missing';
-  if (!shared.hashes.has(file)) shared.hashes.set(file, hashOfFile(file));
+  // Not the content itself: a file holding only the word `missing` would take the version of a file that is not there
+  const content = hashOfFile(file);
+  if (!shared.hashes.has(file)) shared.hashes.set(file, content);
   if (visiting.has(file)) return { version: hashOf([shared.salt, content]), whole: false };
   visiting.add(file);
   let whole = true;
@@ -167,8 +168,10 @@ function hookImports(): boolean {
       } catch (error) {
         // The file is imported again once it is added: a schema failing for it is then read anew
         if ((error as NodeJS.ErrnoException).code === 'ERR_MODULE_NOT_FOUND' && /^\.\.?\//.test(specifier)) {
-          if (context.parentURL?.startsWith('file:'))
-            recordImport(context.parentURL, fileURLToPath(new URL(specifier, context.parentURL)));
+          const missing = context.parentURL?.startsWith('file:') ? new URL(specifier, context.parentURL) : undefined;
+          // A package from node_modules is left out as it is when the file is there
+          if (missing && !missing.href.includes('/node_modules/'))
+            recordImport(context.parentURL!, fileURLToPath(missing));
         }
         throw error;
       }

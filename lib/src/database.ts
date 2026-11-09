@@ -2983,7 +2983,7 @@ export class LinesDB<Tables extends TableDefs> {
   /**
    * The files that changed since this database last read or wrote them, as {@link hasExternalChanges}
    * tells: each JSONL file edited, added or removed, each schema file edited, added or removed, and each
-   * project file a schema imports edited or removed
+   * project file a schema imports edited, added or removed
    */
   async findExternalChanges(): Promise<Result<string[], Error>> {
     try {
