@@ -187,11 +187,115 @@ log({ changed: checked.ok && checked.value });`,
     expect(result.changed).toBe(false);
   });
 
-  it('lists the project files the schemas import, and not a package from node_modules', async () => {
+  it('lists the project files the schemas import, and not the schemas or a package from node_modules', async () => {
     const result = await inProgram<{ files: string[] }>(dataDir, 'log({ files: db.listSchemaDependencies() });');
 
     expect(result.files).toContain(await realpath(rulesPath()));
-    expect(result.files).toContain(await realpath(join(dataDir, 'users.schema.ts')));
-    expect(result.files.some((file) => file.includes('node_modules'))).toBe(false);
+    expect(result.files.some((file) => file.includes('node_modules') || file.endsWith('.schema.ts'))).toBe(false);
+  });
+});
+
+describe('evaluating only the files that changed', () => {
+  let root: string;
+  let dataDir: string;
+  const rulesPath = () => join(dataDir, 'shared', 'rules.ts');
+
+  const SCHEMA = `import { requiredField } from './shared/rules.ts';
+import { other } from './shared/other.ts';
+export const schema = {
+  '~standard': {
+    version: 1,
+    vendor: 'test',
+    validate: (data) => (data[requiredField] ? { value: data } : { issues: [{ message: other, path: [{ key: requiredField }] }] }),
+  },
+};
+`;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'lines-db-versions-'));
+    dataDir = join(root, 'data');
+    await mkdir(join(dataDir, 'shared'), { recursive: true });
+    await writeFile(rulesPath(), rulesRequiring('name'));
+    await writeFile(
+      join(dataDir, 'shared', 'other.ts'),
+      "globalThis.otherEvaluated = (globalThis.otherEvaluated ?? 0) + 1;\nexport const other = 'other';\n",
+    );
+    await writeFile(join(dataDir, 'users.schema.ts'), SCHEMA);
+    await writeFile(join(dataDir, 'users.jsonl'), '{"id":1,"name":"Alice"}\n');
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const readThreeTimesThenEditRules = (
+    editedRules: string,
+  ) => `const counts = () => ({ rules: globalThis.rulesEvaluated, other: globalThis.otherEvaluated });
+const again = async () => {
+  const next = LinesDB.create({ dataDir: ${JSON.stringify(dataDir)} });
+  const loaded = await next.initialize();
+  if (!loaded.ok) throw loaded.error;
+  await next.close();
+  return counts();
+};
+const first = counts();
+const second = await again();
+const third = await again();
+await writeFile(${JSON.stringify(rulesPath())}, ${JSON.stringify(editedRules)});
+const fourth = await again();
+log({ first, second, third, fourth });`;
+
+  it('does not evaluate a file again while it and the files it imports are unchanged', async () => {
+    const result = await inProgram<Record<string, { rules: number; other: number }>>(
+      dataDir,
+      readThreeTimesThenEditRules(rulesRequiring('email')),
+    );
+
+    expect([result.first, result.second, result.third]).toEqual([
+      { rules: 1, other: 1 },
+      { rules: 1, other: 1 },
+      { rules: 1, other: 1 },
+    ]);
+  });
+
+  it('evaluates only the file that changed, among the files a schema imports', async () => {
+    const result = await inProgram<Record<string, { rules: number; other: number }>>(
+      dataDir,
+      readThreeTimesThenEditRules(rulesRequiring('email')),
+    );
+
+    expect(result.fourth).toEqual({ rules: 2, other: 1 });
+  });
+
+  it('leaves a file outside the package of the schema as one module', async () => {
+    const pkg = join(root, 'package-with-schema');
+    const data = join(pkg, 'data');
+    await mkdir(data, { recursive: true });
+    await mkdir(join(root, 'elsewhere'));
+    await writeFile(join(pkg, 'package.json'), JSON.stringify({ name: 'package-with-schema', type: 'module' }));
+    const outside = join(root, 'elsewhere', 'outside.ts');
+    await writeFile(
+      outside,
+      "globalThis.outsideEvaluated = (globalThis.outsideEvaluated ?? 0) + 1;\nexport const outside = 'a';\n",
+    );
+    await writeFile(
+      join(data, 'users.schema.ts'),
+      `import { outside } from '../../elsewhere/outside.ts';
+export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: { ...data, outside } }) } };
+`,
+    );
+    await writeFile(join(data, 'users.jsonl'), '{"id":1}\n');
+
+    const result = await inProgram<{ evaluated: number }>(
+      data,
+      `await writeFile(${JSON.stringify(outside)}, "globalThis.outsideEvaluated = (globalThis.outsideEvaluated ?? 0) + 1;\\nexport const outside = 'b';\\n");
+const next = LinesDB.create({ dataDir: ${JSON.stringify(data)} });
+const reloaded = await next.initialize();
+if (!reloaded.ok) throw reloaded.error;
+await next.close();
+log({ evaluated: globalThis.outsideEvaluated });`,
+    );
+
+    expect(result.evaluated).toBe(1);
   });
 });

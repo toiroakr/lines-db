@@ -29,10 +29,8 @@ export class SchemaLoader {
       );
     }
 
-    // Not shared with the other schema files read at the same time: each load evaluates the files it imports anew
-    const own = imports ?? createSchemaImports();
     try {
-      const module = await own.import(schemaPath);
+      const module = await (imports ?? createSchemaImports()).import(schemaPath);
       const schema = module.default || module.schema;
 
       if (schema && this.isStandardSchema(schema)) {
@@ -45,8 +43,6 @@ export class SchemaLoader {
         `Failed to load schema for table '${tableName}' from ${schemaPath}: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error instanceof Error ? error : undefined },
       );
-    } finally {
-      if (!imports) own.dispose();
     }
   }
 

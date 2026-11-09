@@ -319,7 +319,6 @@ export class LinesDB<Tables extends TableDefs> {
     } finally {
       this.schemaImports = undefined;
       await this.recordSchemaDependencies(imports.files(), tableName === undefined);
-      imports.dispose();
     }
 
     // Validate deferred foreign keys (from circular dependencies) now that all tables are loaded
@@ -355,14 +354,8 @@ export class LinesDB<Tables extends TableDefs> {
     };
   }
 
-  private async importSchemaModule(schemaPath: string): Promise<Record<string, any>> {
-    if (this.schemaImports) return this.schemaImports.import(schemaPath);
-    const imports = createSchemaImports();
-    try {
-      return await imports.import(schemaPath);
-    } finally {
-      imports.dispose();
-    }
+  private importSchemaModule(schemaPath: string): Promise<Record<string, any>> {
+    return (this.schemaImports ?? createSchemaImports()).import(schemaPath);
   }
 
   /**
@@ -3050,8 +3043,8 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
-   * The files the schemas read: the schema files and the project files they import, as paths. A package
-   * from node_modules is not listed. An edit to one of them is among {@link findExternalChanges}
+   * The project files the schemas import, as paths: not the schema files, and not a package from
+   * node_modules. An edit to one of them is among {@link findExternalChanges}
    */
   listSchemaDependencies(): string[] {
     return [...this.schemaDependencyHashes.keys()];

@@ -751,16 +751,13 @@ async function referencesOf(db: LinesDB<TableDefs>, dataDir: string, tableName: 
 async function foreignKeysInFile(dataDir: string, tableName: string): Promise<ForeignKeyDefinition[]> {
   const schemaPath = await findSchemaFile(dataDir, tableName);
   if (!schemaPath) return [];
-  const imports = createSchemaImports();
   try {
-    const module = await imports.import(schemaPath);
+    const module = await createSchemaImports().import(schemaPath);
     const exported = (module.schema ?? module.default) as { foreignKeys?: ForeignKeyDefinition[] } | undefined;
     return exported?.foreignKeys ?? (module.foreignKeys as ForeignKeyDefinition[] | undefined) ?? [];
   } catch {
     // Not failing the listing: the file failed to load on start too, and its problem is listed there
     return [];
-  } finally {
-    imports.dispose();
   }
 }
 

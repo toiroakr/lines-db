@@ -88,24 +88,20 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
   const tablesWithoutSchema: string[] = [];
   const tables: Array<{ table: string; file: string; target: string; fields: readonly string[]; fill: RowFiller }> = [];
   const imports = createSchemaImports();
-  try {
-    for (const { table, file, target, schemaDir } of sources.values()) {
-      const schemaPath = await findSchemaFile(schemaDir, table);
-      if (!schemaPath) {
-        if (!tablesWithoutSchema.includes(table)) tablesWithoutSchema.push(table);
-        continue;
-      }
-      const schemaModule = await imports.import(schemaPath);
-      tables.push({
-        table,
-        file,
-        target,
-        fields: options.fields ?? [primaryKeyOf(schemaModule)],
-        fill: loadFiller(schemaModule, { tableName: table, schemaPath }),
-      });
+  for (const { table, file, target, schemaDir } of sources.values()) {
+    const schemaPath = await findSchemaFile(schemaDir, table);
+    if (!schemaPath) {
+      if (!tablesWithoutSchema.includes(table)) tablesWithoutSchema.push(table);
+      continue;
     }
-  } finally {
-    imports.dispose();
+    const schemaModule = await imports.import(schemaPath);
+    tables.push({
+      table,
+      file,
+      target,
+      fields: options.fields ?? [primaryKeyOf(schemaModule)],
+      fill: loadFiller(schemaModule, { tableName: table, schemaPath }),
+    });
   }
 
   const produced = new Set<string>();
