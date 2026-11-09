@@ -132,6 +132,9 @@ describe('reading the tables again after a file a schema imports changed', () =>
   });
 });
 
+// Not compared as the module loader spells them: on Windows the temporary directory can come as a short 8.3 name
+const named = (files: string[]) => Promise.all(files.map((file) => realpath(file)));
+
 describe('noticing a change to a file a schema imports', () => {
   let dataDir: string;
   const rulesPath = () => join(dataDir, 'shared', 'rules.ts');
@@ -175,7 +178,7 @@ log({ changed: checked.ok && checked.value, files: found.ok ? found.value : [] }
 
     expect(result.changed).toBe(true);
     // As the module loader names it, with a link such as the temporary directory of macOS resolved
-    expect(result.files).toContain(await realpath(rulesPath()));
+    expect(await named(result.files)).toContain(await realpath(rulesPath()));
   });
 
   it('reports no change after its own write, as only an outside edit counts', async () => {
@@ -192,7 +195,7 @@ log({ changed: checked.ok && checked.value });`,
   it('lists the project files the schemas import, and not the schemas or a package from node_modules', async () => {
     const result = await inProgram<{ files: string[] }>(dataDir, 'log({ files: db.listSchemaDependencies() });');
 
-    expect(result.files).toContain(await realpath(rulesPath()));
+    expect(await named(result.files)).toContain(await realpath(rulesPath()));
     expect(result.files.some((file) => file.includes('node_modules') || file.endsWith('.schema.ts'))).toBe(false);
   });
 });
