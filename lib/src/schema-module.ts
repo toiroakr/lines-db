@@ -20,12 +20,17 @@ interface Shared {
   graph: Map<string, Set<string>>;
   /** The version of each file, as of the import in progress */
   versions: Map<string, string>;
+  /** Changes after an import failed, so that every file is imported anew: Node.js 22 keeps a failed import under its URL */
+  salt: string;
   hooked: boolean;
 }
+
+let counter = 0;
 
 const shared: Shared = ((globalThis as Record<symbol, unknown>)[SHARED] ??= {
   graph: new Map(),
   versions: new Map(),
+  salt: '',
   hooked: false,
 }) as Shared;
 
@@ -53,10 +58,10 @@ function contentOf(file: string): Buffer | string {
 function versionOf(file: string, visiting = new Set<string>()): string {
   const known = shared.versions.get(file);
   if (known) return known;
-  if (visiting.has(file)) return hashOf([contentOf(file)]);
+  if (visiting.has(file)) return hashOf([shared.salt, contentOf(file)]);
   visiting.add(file);
   const imports = [...(shared.graph.get(file) ?? [])].sort();
-  const version = hashOf([contentOf(file), ...imports.map((imported) => versionOf(imported, visiting))]);
+  const version = hashOf([shared.salt, contentOf(file), ...imports.map((imported) => versionOf(imported, visiting))]);
   visiting.delete(file);
   shared.versions.set(file, version);
   return version;
@@ -148,6 +153,10 @@ export function createSchemaImports(): SchemaImports {
       const url = new URL(pathToFileURL(file).href);
       url.searchParams.set(VERSION_PARAM, hooks ? versionOf(file) : `${Date.now()}`);
       const loaded = import(url.href) as Promise<Record<string, unknown>>;
+      // Not by the file that failed: a missing file added later does not change the version of the one importing it
+      loaded.catch(() => {
+        shared.salt = `${Date.now()}-${++counter}`;
+      });
       modules.set(file, loaded);
       return loaded;
     },

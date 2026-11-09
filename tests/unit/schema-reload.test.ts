@@ -373,3 +373,43 @@ process.exit(0);
     expect(await changedAfterEach([null])).toEqual([false]);
   }, 15000);
 });
+
+describe('reading the tables again after a read that failed', () => {
+  let dataDir: string;
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'lines-db-failed-'));
+    await mkdir(join(dataDir, 'shared'));
+    await writeFile(
+      join(dataDir, 'users.schema.ts'),
+      `import { requiredField } from './shared/rules.ts';
+export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => (data[requiredField] ? { value: data } : { issues: [{ message: 'missing', path: [{ key: requiredField }] }] }) } };
+`,
+    );
+    await writeFile(join(dataDir, 'users.jsonl'), '{"id":1,"name":"Alice"}\n');
+  });
+
+  afterEach(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('reads a file the schema imports once it is added, though the schema did not change', async () => {
+    const script = join(dataDir, 'program.mjs');
+    await writeFile(
+      script,
+      `import { LinesDB } from '${library}';
+import { writeFile } from 'node:fs/promises';
+const first = LinesDB.create({ dataDir: ${JSON.stringify(dataDir)} });
+const failed = await first.initialize();
+await writeFile(${JSON.stringify(join(dataDir, 'shared', 'rules.ts'))}, ${JSON.stringify(rulesRequiring('name'))});
+const second = LinesDB.create({ dataDir: ${JSON.stringify(dataDir)} });
+const retried = await second.initialize();
+console.log(JSON.stringify({ failed: !failed.ok, retried: retried.ok }));
+process.exit(0);
+`,
+    );
+    const { stdout } = await run(process.execPath, [script]);
+
+    expect(JSON.parse(stdout.trim().split('\n').at(-1) as string)).toEqual({ failed: true, retried: true });
+  });
+});
