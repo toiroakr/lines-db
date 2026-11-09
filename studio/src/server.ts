@@ -99,6 +99,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     const previous = snapshot;
     snapshot = await load();
     await previous.db.close();
+    watchDependencies();
   };
   const reloadIfChangedUnlocked = async (): Promise<boolean> => {
     if (!unwrap(await snapshot.db.hasExternalChanges())) return false;
@@ -165,18 +166,19 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
   let watchTimer: NodeJS.Timeout | undefined;
   // Not checking on each event: an editor saving a file fires several (a temporary file, then a rename)
+  const scheduleReload = (): void => {
+    clearTimeout(watchTimer);
+    watchTimer = setTimeout(() => {
+      // Not reporting the error here: the page asks again on 'changed' and shows the error it gets
+      reloadIfChanged().catch(notifyChanged);
+    }, 100);
+  };
   const watchers = (
     await Promise.all(
       [...new Set([...dataDirs, resolvePath(schemaDir)])].map(async (dir): Promise<FSWatcher[]> => {
         try {
           const watcher = watch(dir, { ignoreInitial: true, depth: 0 });
-          watcher.on('all', () => {
-            clearTimeout(watchTimer);
-            watchTimer = setTimeout(() => {
-              // Not reporting the error here: the page asks again on 'changed' and shows the error it gets
-              reloadIfChanged().catch(notifyChanged);
-            }, 100);
-          });
+          watcher.on('all', scheduleReload);
           // Not letting the error end the process: Reload still loads the current files without the watcher
           watcher.on('error', (error) => {
             console.warn(`Live reload is off for '${dir}': ${errorMessage(error)}`);
@@ -197,6 +199,35 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       }),
     )
   ).flat();
+
+  // The files the schemas import are watched one by one: they are in directories the schema directory does not hold
+  let dependencyWatcher: FSWatcher | undefined;
+  let watchedDependencies: string[] = [];
+  const watchDependencies = (): void => {
+    const wanted = snapshot.db.listSchemaDependencies();
+    if (!dependencyWatcher) {
+      if (wanted.length === 0) return;
+      try {
+        const created = watch(wanted, { ignoreInitial: true, depth: 0 });
+        created.on('all', scheduleReload);
+        // Not letting the error end the process: Reload still loads the current files without the watcher
+        created.on('error', (error) => {
+          console.warn(`Live reload is off for the files the schemas import: ${errorMessage(error)}`);
+          void created.close();
+          if (dependencyWatcher === created) dependencyWatcher = undefined;
+        });
+        dependencyWatcher = created;
+      } catch (error) {
+        console.warn(`Live reload is off for the files the schemas import: ${errorMessage(error)}`);
+        return;
+      }
+    } else {
+      dependencyWatcher.unwatch(watchedDependencies.filter((file) => !wanted.includes(file)));
+      dependencyWatcher.add(wanted.filter((file) => !watchedDependencies.includes(file)));
+    }
+    watchedDependencies = wanted;
+  };
+  watchDependencies();
 
   const server = createServer((req, res) => {
     handle(req, res).catch((error) =>
@@ -615,7 +646,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       });
     });
   } catch (error) {
-    await Promise.all(watchers.map((watcher) => watcher.close()));
+    await Promise.all([...watchers, dependencyWatcher].map((watcher) => watcher?.close()));
     await snapshot.db.close();
     throw error;
   }
@@ -626,7 +657,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     url,
     token,
     close: async () => {
-      await Promise.all(watchers.map((watcher) => watcher.close()));
+      await Promise.all([...watchers, dependencyWatcher].map((watcher) => watcher?.close()));
       clearTimeout(watchTimer);
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

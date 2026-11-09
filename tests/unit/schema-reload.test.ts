@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 const library = pathToFileURL(fileURLToPath(new URL('../../lib/dist/index.mjs', import.meta.url))).href;
+const studioLibrary = pathToFileURL(fileURLToPath(new URL('../../studio/dist/index.mjs', import.meta.url))).href;
 
 const SCHEMA_USING_RULES = `import { requiredField } from './shared/rules.ts';
 import { marker } from 'shared-package';
@@ -298,4 +299,77 @@ log({ evaluated: globalThis.outsideEvaluated });`,
 
     expect(result.evaluated).toBe(1);
   });
+});
+
+describe('the studio telling a page that a file a schema imports changed', () => {
+  let dataDir: string;
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'lines-db-studio-imports-'));
+    await mkdir(join(dataDir, 'shared'));
+    await writeFile(join(dataDir, 'shared', 'rules.ts'), rulesRequiring('name'));
+    await writeFile(
+      join(dataDir, 'users.schema.ts'),
+      `import { requiredField } from './shared/rules.ts';
+export const schema = {
+  '~standard': {
+    version: 1,
+    vendor: 'test',
+    validate: (data) => (data[requiredField] ? { value: data } : { issues: [{ message: requiredField, path: [{ key: requiredField }] }] }),
+  },
+};
+`,
+    );
+    await writeFile(join(dataDir, 'users.jsonl'), '{"id":1,"name":"Alice","email":"alice@example.com"}\n');
+  });
+
+  afterEach(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  // Not run in this process: the module hook that finds the files a schema imports does not see imports made through the test runner
+  async function changedAfterEach(edits: Array<{ file: string; content: string } | null>): Promise<boolean[]> {
+    const script = join(dataDir, 'studio.mjs');
+    await writeFile(
+      script,
+      `import { startStudioServer } from '${studioLibrary}';
+import { writeFile } from 'node:fs/promises';
+const studio = await startStudioServer({ dataDir: ${JSON.stringify(dataDir)}, port: 0 });
+const response = await fetch(studio.url + '/api/events?token=' + studio.token);
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+const changes = [];
+for (const edit of ${JSON.stringify(edits)}) {
+  let received = '';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  if (edit) await writeFile(edit.file, edit.content);
+  const deadline = Date.now() + 3000;
+  while (!received.includes('event: changed') && Date.now() < deadline) {
+    const next = await Promise.race([reader.read(), new Promise((resolve) => setTimeout(() => resolve(null), 500))]);
+    if (next && !next.done) received += decoder.decode(next.value, { stream: true });
+  }
+  changes.push(received.includes('event: changed'));
+}
+console.log(JSON.stringify(changes));
+await studio.close();
+process.exit(0);
+`,
+    );
+    const { stdout } = await run(process.execPath, [script]);
+    return JSON.parse(stdout.trim().split('\n').at(-1) as string) as boolean[];
+  }
+
+  const editRules = (field: string) => ({ file: join(dataDir, 'shared', 'rules.ts'), content: rulesRequiring(field) });
+
+  it('tells the page once a file a schema imports is edited, though it is not in a watched directory', async () => {
+    expect(await changedAfterEach([editRules('active')])).toEqual([true]);
+  }, 15000);
+
+  it('keeps telling the page after it reloaded for an edit', async () => {
+    expect(await changedAfterEach([editRules('active'), editRules('email')])).toEqual([true, true]);
+  }, 20000);
+
+  it('tells nothing while nothing is edited', async () => {
+    expect(await changedAfterEach([null])).toEqual([false]);
+  }, 15000);
 });

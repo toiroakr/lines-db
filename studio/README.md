@@ -69,7 +69,7 @@ Updates and deletions go back to each row's source file. In **Add record**, choo
 
 ## Changes made outside Studio
 
-Studio watches the files on disk. With no pending edits, it reloads changed data automatically. With pending edits, it shows a notice.
+Studio watches the files on disk, including the project files the schemas import, such as a table definition. With no pending edits, it reloads changed data automatically. With pending edits, it shows a notice.
 
 Before saving, Studio reloads changed schemas and validates against them. If a file that the save would write has changed, the save stops, names the file, and reloads the tables without writing. This includes tables affected by foreign key actions such as `CASCADE` or `SET NULL`. Changes to unrelated table files do not stop the save.
 
