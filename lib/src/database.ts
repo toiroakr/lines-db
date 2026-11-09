@@ -3,6 +3,7 @@ import { JsonlReader, hashJsonlContent } from './jsonl-reader.js';
 import { JsonlWriter } from './jsonl-writer.js';
 import { replaceFile } from './replace-file.js';
 import { SchemaLoader } from './schema-loader.js';
+import { createSchemaImports, type SchemaImports } from './schema-module.js';
 import { DirectoryScanner } from './directory-scanner.js';
 import { hasBackward } from './schema.js';
 import { keepUnknownFields, mergeFields } from './merge-fields.js';
@@ -185,6 +186,8 @@ export class LinesDB<Tables extends TableDefs> {
   private tablesFromGivenColumns: Set<string> = new Set();
   /** Each table's schema file and a hash of its content as the tables were loaded, or '' for none */
   private schemaFileStates: Map<string, string> = new Map();
+  // The imports of the schema files of one load, which evaluate a project file they share once
+  private schemaImports: SchemaImports | undefined;
 
   private constructor(config: DatabaseConfig<Tables>, dbPath?: string) {
     this.config = config;
@@ -283,30 +286,37 @@ export class LinesDB<Tables extends TableDefs> {
     }> = [];
 
     // Load tables with dependency resolution
-    for (const tableNameToLoad of tablesToLoad) {
-      if (!attemptedTables.has(tableNameToLoad)) {
-        // Only apply transform to the specified table
-        const tableTransform = tableNameToLoad === tableName ? transform : undefined;
-        const {
-          errors,
-          warnings,
-          rowCounts: tableRowCounts,
-          deferredForeignKeys,
-        } = await this.loadTableWithDependencies(
-          tableNameToLoad,
-          loadedTables,
-          loadingTables,
-          attemptedTables,
-          detailedValidate,
-          tableTransform,
-        );
-        allErrors.push(...errors);
-        allWarnings.push(...warnings);
-        allDeferredForeignKeys.push(...deferredForeignKeys);
-        for (const [k, v] of tableRowCounts) {
-          allRowCounts.set(k, v);
+    const imports = createSchemaImports();
+    this.schemaImports = imports;
+    try {
+      for (const tableNameToLoad of tablesToLoad) {
+        if (!attemptedTables.has(tableNameToLoad)) {
+          // Only apply transform to the specified table
+          const tableTransform = tableNameToLoad === tableName ? transform : undefined;
+          const {
+            errors,
+            warnings,
+            rowCounts: tableRowCounts,
+            deferredForeignKeys,
+          } = await this.loadTableWithDependencies(
+            tableNameToLoad,
+            loadedTables,
+            loadingTables,
+            attemptedTables,
+            detailedValidate,
+            tableTransform,
+          );
+          allErrors.push(...errors);
+          allWarnings.push(...warnings);
+          allDeferredForeignKeys.push(...deferredForeignKeys);
+          for (const [k, v] of tableRowCounts) {
+            allRowCounts.set(k, v);
+          }
         }
       }
+    } finally {
+      this.schemaImports = undefined;
+      imports.dispose();
     }
 
     // Validate deferred foreign keys (from circular dependencies) now that all tables are loaded
@@ -340,6 +350,16 @@ export class LinesDB<Tables extends TableDefs> {
       warnings: allWarnings,
       tableResults,
     };
+  }
+
+  private async importSchemaModule(schemaPath: string): Promise<Record<string, any>> {
+    if (this.schemaImports) return this.schemaImports.import(schemaPath);
+    const imports = createSchemaImports();
+    try {
+      return await imports.import(schemaPath);
+    } finally {
+      imports.dispose();
+    }
   }
 
   /**
@@ -399,11 +419,9 @@ export class LinesDB<Tables extends TableDefs> {
       let foreignKeys: BiDirectionalSchema['foreignKeys'];
 
       try {
-        const { pathToFileURL } = await import('node:url');
         const schemaPath = await this.findTableSchemaFile(tableName, tableConfig);
         if (schemaPath) {
-          const schemaUrl = pathToFileURL(schemaPath).href;
-          const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
+          const schemaModule = await this.importSchemaModule(schemaPath);
 
           // Try to get foreign keys from exported 'schema' or directly from module
           const schemaExport = schemaModule.schema || schemaModule.default;
@@ -583,7 +601,7 @@ export class LinesDB<Tables extends TableDefs> {
     if (!validationSchema && schemaPath) {
       // Not loaded without validation when its schema file fails to load: rows written then would skip
       // the checks the file means to make; the error names the file and why it failed
-      validationSchema = await SchemaLoader.loadSchema(config.jsonlPath, dirname(schemaPath));
+      validationSchema = await SchemaLoader.loadSchema(config.jsonlPath, dirname(schemaPath), this.schemaImports);
     }
 
     // Load schema metadata (foreignKeys, primaryKey, indexes) from schema module
@@ -591,10 +609,8 @@ export class LinesDB<Tables extends TableDefs> {
     if (!config.validationSchema) {
       // Only load if not already provided via config
       try {
-        const { pathToFileURL } = await import('node:url');
         if (!schemaPath) throw new Error('Schema file not found');
-        const schemaUrl = pathToFileURL(schemaPath).href;
-        const schemaModule = await import(`${schemaUrl}?t=${Date.now()}`);
+        const schemaModule = await this.importSchemaModule(schemaPath);
 
         // Try to get metadata from exported 'schema' or directly from module
         const schemaExport = schemaModule.schema || schemaModule.default;

@@ -3,7 +3,7 @@ import { readFile, realpath, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, dirname, extname, relative, resolve as resolvePath } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { watch, type FSWatcher } from 'zygiella';
 import {
   LinesDB,
@@ -24,7 +24,7 @@ import {
   type ValidationErrorDetail,
   type WriteFilledValues,
 } from 'lines-db';
-import { hashJsonlContent, replaceFile } from 'lines-db/internal';
+import { createSchemaImports, hashJsonlContent, replaceFile } from 'lines-db/internal';
 import { readDeclaredColumns, tableSchemaOf } from './declared-columns.js';
 import { replaceRows } from './file-rows.js';
 
@@ -751,13 +751,16 @@ async function referencesOf(db: LinesDB<TableDefs>, dataDir: string, tableName: 
 async function foreignKeysInFile(dataDir: string, tableName: string): Promise<ForeignKeyDefinition[]> {
   const schemaPath = await findSchemaFile(dataDir, tableName);
   if (!schemaPath) return [];
+  const imports = createSchemaImports();
   try {
-    const module = await import(`${pathToFileURL(schemaPath).href}?t=${Date.now()}`);
-    const exported = module.schema ?? module.default;
-    return exported?.foreignKeys ?? module.foreignKeys ?? [];
+    const module = await imports.import(schemaPath);
+    const exported = (module.schema ?? module.default) as { foreignKeys?: ForeignKeyDefinition[] } | undefined;
+    return exported?.foreignKeys ?? (module.foreignKeys as ForeignKeyDefinition[] | undefined) ?? [];
   } catch {
     // Not failing the listing: the file failed to load on start too, and its problem is listed there
     return [];
+  } finally {
+    imports.dispose();
   }
 }
 

@@ -1,10 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { chmod, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { type Result, ok, err, toError } from './result.js';
 import { hasBackward, type BiDirectionalSchema } from './schema.js';
 import { findSchemaFile } from './schema-extensions.js';
+import { createSchemaImports } from './schema-module.js';
 import type { JsonlConflictError, JsonObject, JsonValue, StandardSchema, Table } from './types.js';
 
 /** Computes the values a row gets, from the row as its line holds it */
@@ -87,20 +87,25 @@ async function fillFieldsInternal(options: FillFieldsOptions): Promise<FillField
 
   const tablesWithoutSchema: string[] = [];
   const tables: Array<{ table: string; file: string; target: string; fields: readonly string[]; fill: RowFiller }> = [];
-  for (const { table, file, target, schemaDir } of sources.values()) {
-    const schemaPath = await findSchemaFile(schemaDir, table);
-    if (!schemaPath) {
-      if (!tablesWithoutSchema.includes(table)) tablesWithoutSchema.push(table);
-      continue;
+  const imports = createSchemaImports();
+  try {
+    for (const { table, file, target, schemaDir } of sources.values()) {
+      const schemaPath = await findSchemaFile(schemaDir, table);
+      if (!schemaPath) {
+        if (!tablesWithoutSchema.includes(table)) tablesWithoutSchema.push(table);
+        continue;
+      }
+      const schemaModule = await imports.import(schemaPath);
+      tables.push({
+        table,
+        file,
+        target,
+        fields: options.fields ?? [primaryKeyOf(schemaModule)],
+        fill: loadFiller(schemaModule, { tableName: table, schemaPath }),
+      });
     }
-    const schemaModule = (await import(`${pathToFileURL(schemaPath).href}?t=${Date.now()}`)) as Record<string, unknown>;
-    tables.push({
-      table,
-      file,
-      target,
-      fields: options.fields ?? [primaryKeyOf(schemaModule)],
-      fill: loadFiller(schemaModule, { tableName: table, schemaPath }),
-    });
+  } finally {
+    imports.dispose();
   }
 
   const produced = new Set<string>();
