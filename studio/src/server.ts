@@ -1,4 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { readFile, realpath, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -84,7 +85,15 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const uiDir = options.uiDir ?? shippedUiDir();
   const token = randomBytes(24).toString('base64url');
   const writeFilledValues = options.writeFilledValues ?? 'primaryKey';
-  const load = () => loadSnapshot(dataDirs, options.schemaDir, writeFilledValues);
+  // The files the schemas import in the last read that failed: the snapshot kept is the one before it, which does not hold them
+  let failedDependencies: string[] = [];
+  const load = async (): Promise<Snapshot> => {
+    const loaded = await loadSnapshot(dataDirs, options.schemaDir, writeFilledValues, (files) => {
+      failedDependencies = files;
+    });
+    failedDependencies = [];
+    return loaded;
+  };
   let snapshot = await load();
 
   let queue: Promise<unknown> = Promise.resolve();
@@ -97,9 +106,12 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   /** Reload the tables when a JSONL file no longer holds what they were read from; true if it did */
   const reloadUnlocked = async (): Promise<void> => {
     const previous = snapshot;
-    snapshot = await load();
+    try {
+      snapshot = await load();
+    } finally {
+      watchDependencies();
+    }
     await previous.db.close();
-    watchDependencies();
   };
   const reloadIfChangedUnlocked = async (): Promise<boolean> => {
     if (!unwrap(await snapshot.db.hasExternalChanges())) return false;
@@ -200,11 +212,18 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     )
   ).flat();
 
+  const existingPathOf = (file: string): string => {
+    let path = file;
+    while (!existsSync(path) && dirname(path) !== path) path = dirname(path);
+    return path;
+  };
+
   // The files the schemas import are watched one by one: they are in directories the schema directory does not hold
   let dependencyWatcher: FSWatcher | undefined;
   let watchedDependencies: string[] = [];
   const watchDependencies = (): void => {
-    const wanted = snapshot.db.listSchemaDependencies();
+    // A file that is not there yet is watched through the directory that would hold it, or the nearest one that exists
+    const wanted = [...new Set([...snapshot.db.listSchemaDependencies(), ...failedDependencies].map(existingPathOf))];
     if (!dependencyWatcher) {
       if (wanted.length === 0) return;
       try {
@@ -678,6 +697,7 @@ async function loadSnapshot(
   dataDir: string | string[],
   schemaDir: string | undefined,
   writeFilledValues: WriteFilledValues,
+  onFailure: (dependencies: string[]) => void,
 ): Promise<Snapshot> {
   const db = LinesDB.create<TableDefs>({
     dataDir,
@@ -694,6 +714,7 @@ async function loadSnapshot(
   // marking the row, which the studio then cannot show to be fixed
   const loaded = await db.initialize({ detailedValidate: true });
   if (!loaded.ok) {
+    onFailure(db.listSchemaDependencies());
     await db.close();
     if (loaded.error.name === 'JsonlParseError') {
       const { file, line, message } = loaded.error as JsonlParseError;

@@ -336,12 +336,14 @@ export const schema = {
   });
 
   // Not run in this process: the module hook that finds the files a schema imports does not see imports made through the test runner
-  async function changedAfterEach(edits: Array<{ file: string; content: string } | null>): Promise<boolean[]> {
+  async function changedAfterEach(
+    edits: Array<{ file?: string; content?: string; directory?: string } | null>,
+  ): Promise<boolean[]> {
     const script = join(dataDir, 'studio.mjs');
     await writeFile(
       script,
       `import { startStudioServer } from '${studioLibrary}';
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 const studio = await startStudioServer({ dataDir: ${JSON.stringify(dataDir)}, port: 0 });
 const response = await fetch(studio.url + '/api/events?token=' + studio.token);
 const reader = response.body.getReader();
@@ -352,7 +354,8 @@ let pending;
 for (const edit of ${JSON.stringify(edits)}) {
   let received = '';
   await new Promise((resolve) => setTimeout(resolve, 300));
-  if (edit) await writeFile(edit.file, edit.content);
+  if (edit?.directory) await mkdir(edit.directory, { recursive: true });
+  if (edit?.file) await writeFile(edit.file, edit.content);
   const deadline = Date.now() + 3000;
   while (!received.includes('event: changed') && Date.now() < deadline) {
     pending ??= reader.read();
@@ -425,6 +428,25 @@ process.exit(0);
     expect(result.file).toBe('{"id":1,"email":"a@example.com"}\n{"id":2,"email":"b@example.com"}\n');
   }, 15000);
 
+  it('tells the page once a file is added that a schema imported before it was there, though it is not in a watched directory', async () => {
+    const importAdded = { file: join(dataDir, 'users.schema.ts'), content: SCHEMA_IMPORTING_ADDED };
+    const added = { file: join(dataDir, 'shared', 'added.ts'), content: rulesRequiring('name') };
+
+    expect(await changedAfterEach([importAdded, added])).toEqual([true, true]);
+  }, 20000);
+
+  it('tells the page once a file is added in a directory that was not there either, made before the file', async () => {
+    const importDeep = {
+      file: join(dataDir, 'users.schema.ts'),
+      content: SCHEMA_IMPORTING_ADDED.replace('./shared/added.ts', './shared/deep/added.ts'),
+    };
+    const madeDirectory = { directory: join(dataDir, 'shared', 'deep') };
+    const added = { file: join(dataDir, 'shared', 'deep', 'added.ts'), content: rulesRequiring('name') };
+
+    // The directory is told too, as the read that failed is tried again; the file is told by the watch of the new directory
+    expect(await changedAfterEach([importDeep, madeDirectory, added])).toEqual([true, true, true]);
+  }, 25000);
+
   it('tells nothing while nothing is edited', async () => {
     expect(await changedAfterEach([null])).toEqual([false]);
   }, 15000);
@@ -467,6 +489,122 @@ process.exit(0);
     const { stdout } = await run(process.execPath, [script]);
 
     expect(JSON.parse(stdout.trim().split('\n').at(-1) as string)).toEqual({ failed: true, retried: true });
+  });
+});
+
+const SCHEMA_IMPORTING_ADDED = `import { requiredField } from './shared/added.ts';
+export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => (data[requiredField] ? { value: data } : { issues: [{ message: 'missing', path: [{ key: requiredField }] }] }) } };
+`;
+
+describe('noticing a file a schema imports that was not there when the tables were read', () => {
+  let dataDir: string;
+  const addedPath = () => join(dataDir, 'shared', 'added.ts');
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'lines-db-added-'));
+    await mkdir(join(dataDir, 'shared'));
+    await writeFile(join(dataDir, 'users.schema.ts'), SCHEMA_IMPORTING_ADDED);
+    await writeFile(join(dataDir, 'users.jsonl'), '{"id":1,"name":"Alice"}\n');
+  });
+
+  afterEach(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  async function readThenAdd(content: string) {
+    const script = join(dataDir, 'program.mjs');
+    await writeFile(
+      script,
+      `import { LinesDB } from '${library}';
+import { writeFile } from 'node:fs/promises';
+const db = LinesDB.create({ dataDir: ${JSON.stringify(dataDir)} });
+const loaded = await db.initialize();
+const listed = db.listSchemaDependencies();
+const before = await db.hasExternalChanges();
+await writeFile(${JSON.stringify(addedPath())}, ${JSON.stringify(content)});
+const after = await db.hasExternalChanges();
+const found = await db.findExternalChanges();
+console.log(JSON.stringify({ loaded: loaded.ok, listed, before: before.value, after: after.value, files: found.value }));
+process.exit(0);
+`,
+    );
+    const { stdout } = await run(process.execPath, [script]);
+    return JSON.parse(stdout.trim().split('\n').at(-1) as string) as {
+      loaded: boolean;
+      listed: string[];
+      before: boolean;
+      after: boolean;
+      files: string[];
+    };
+  }
+
+  it('lists the file the schema imports, though the read failed for it', async () => {
+    const result = await readThenAdd(rulesRequiring('name'));
+
+    expect(result.loaded).toBe(false);
+    expect(
+      result.listed.map((file) => file.replaceAll('\\', '/')).some((file) => file.endsWith('/shared/added.ts')),
+    ).toBe(true);
+  });
+
+  it('reports no change while the file is still not there', async () => {
+    const result = await readThenAdd(rulesRequiring('name'));
+
+    expect(result.before).toBe(false);
+  });
+
+  it('reports a change once the file is added, and names it', async () => {
+    const result = await readThenAdd(rulesRequiring('name'));
+
+    expect(result.after).toBe(true);
+    expect(
+      result.files.map((file) => file.replaceAll('\\', '/')).some((file) => file.endsWith('/shared/added.ts')),
+    ).toBe(true);
+  });
+});
+
+describe('a file the schema imports whose content could be taken for a file that is not there', () => {
+  let dataDir: string;
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'lines-db-lookalike-'));
+    await mkdir(join(dataDir, 'shared'));
+    await writeFile(
+      join(dataDir, 'users.schema.ts'),
+      `globalThis.missing = 1;
+const loaded = await import('./shared/added.ts').then(() => true, () => false);
+export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => (loaded ? { value: data } : { issues: [{ message: 'not loaded' }] }) } };
+`,
+    );
+    await writeFile(join(dataDir, 'users.jsonl'), '{"id":1,"name":"Alice"}\n');
+  });
+
+  afterEach(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('reads the schema again once a file holding only the word missing is added', async () => {
+    const script = join(dataDir, 'program.mjs');
+    await writeFile(
+      script,
+      `import { LinesDB } from '${library}';
+import { writeFile } from 'node:fs/promises';
+const row = { id: 2, name: 'Bob' };
+const read = async () => {
+  const db = LinesDB.create({ dataDir: ${JSON.stringify(dataDir)} });
+  await db.initialize();
+  return db.validateRow('users', row).ok;
+};
+// Twice before the file is added: the second read is the first to have the import in the version of the schema
+const before = [await read(), await read()];
+await writeFile(${JSON.stringify(join(dataDir, 'shared', 'added.ts'))}, 'missing');
+console.log(JSON.stringify({ before, after: await read() }));
+process.exit(0);
+`,
+    );
+    const { stdout } = await run(process.execPath, [script]);
+
+    expect(JSON.parse(stdout.trim().split('\n').at(-1) as string)).toEqual({ before: [false, false], after: true });
   });
 });
 
