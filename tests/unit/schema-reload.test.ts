@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 const library = pathToFileURL(fileURLToPath(new URL('../../lib/dist/index.mjs', import.meta.url))).href;
+const internalLibrary = pathToFileURL(fileURLToPath(new URL('../../lib/dist/internal.mjs', import.meta.url))).href;
 const studioLibrary = pathToFileURL(fileURLToPath(new URL('../../studio/dist/index.mjs', import.meta.url))).href;
 
 const SCHEMA_USING_RULES = `import { requiredField } from './shared/rules.ts';
@@ -411,5 +412,120 @@ process.exit(0);
     const { stdout } = await run(process.execPath, [script]);
 
     expect(JSON.parse(stdout.trim().split('\n').at(-1) as string)).toEqual({ failed: true, retried: true });
+  });
+});
+
+describe('edge cases of the versions of the files a schema imports', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'lines-db-edges-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  async function runProgram<Result>(source: string): Promise<Result> {
+    const script = join(dir, 'program.mjs');
+    await writeFile(script, source);
+    const { stdout } = await run(process.execPath, [script]);
+    return JSON.parse(stdout.trim().split('\n').at(-1) as string) as Result;
+  }
+
+  it('notices an edit made to an imported file while the tables were being read', async () => {
+    await mkdir(join(dir, 'shared'));
+    await writeFile(
+      join(dir, 'shared', 'rules.ts'),
+      `import { appendFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+appendFileSync(fileURLToPath(import.meta.url), '// edited right after it was read\\n');
+export const requiredField = 'name';
+`,
+    );
+    await writeFile(
+      join(dir, 'users.schema.ts'),
+      `import { requiredField } from './shared/rules.ts';
+export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => (data[requiredField] ? { value: data } : { issues: [{ message: 'x', path: [{ key: requiredField }] }] }) } };
+`,
+    );
+    await writeFile(join(dir, 'users.jsonl'), '{"id":1,"name":"Alice"}\n');
+
+    const result = await runProgram<{ changed: boolean }>(`import { LinesDB } from '${library}';
+const db = LinesDB.create({ dataDir: ${JSON.stringify(dir)} });
+const loaded = await db.initialize();
+if (!loaded.ok) throw loaded.error;
+const checked = await db.hasExternalChanges();
+console.log(JSON.stringify({ changed: checked.ok && checked.value }));
+await db.close();
+`);
+
+    expect(result.changed).toBe(true);
+  });
+
+  it('gives each file of a cycle the edits of the files it imports through the cycle', async () => {
+    await writeFile(join(dir, 'c.mjs'), "export const c = 'c1';\n");
+    await writeFile(
+      join(dir, 'a.mjs'),
+      "import { c } from './c.mjs';\nimport { b } from './b.mjs';\nexport const a = 'a:' + c;\nexport const fromB = () => b;\n",
+    );
+    await writeFile(join(dir, 'b.mjs'), "import { a } from './a.mjs';\nexport const b = () => 'b:' + a;\n");
+    await writeFile(join(dir, 't.schema.mjs'), "import { a } from './a.mjs';\nexport const seen = a;\n");
+    await writeFile(join(dir, 's.schema.mjs'), "import { b } from './b.mjs';\nexport const seen = b();\n");
+
+    const result = await runProgram<{
+      first: string[];
+      edited: string[];
+    }>(`import { createSchemaImports } from '${internalLibrary}';
+import { writeFile } from 'node:fs/promises';
+const read = async () => {
+  const imports = createSchemaImports();
+  const t = await imports.import(${JSON.stringify(join(dir, 't.schema.mjs'))});
+  const s = await imports.import(${JSON.stringify(join(dir, 's.schema.mjs'))});
+  return [t.seen, s.seen];
+};
+const first = await read();
+await read();
+await writeFile(${JSON.stringify(join(dir, 'c.mjs'))}, "export const c = 'c2';\\n");
+const edited = await read();
+console.log(JSON.stringify({ first, edited }));
+`);
+
+    expect(result.first).toEqual(['a:c1', 'b:a:c1']);
+    expect(result.edited).toEqual(['a:c2', 'b:a:c2']);
+  });
+
+  it('follows an import through a subpath import of the package', async () => {
+    await mkdir(join(dir, 'shared'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ type: 'module', imports: { '#rules': './shared/rules.ts' } }),
+    );
+    await writeFile(join(dir, 'shared', 'rules.ts'), rulesRequiring('name'));
+    await writeFile(
+      join(dir, 'users.schema.ts'),
+      `import { requiredField } from '#rules';
+export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => (data[requiredField] ? { value: data } : { issues: [{ message: 'x', path: [{ key: requiredField }] }] }) } };
+`,
+    );
+    await writeFile(join(dir, 'users.jsonl'), '{"id":1,"name":"Alice","email":"alice@example.com"}\n');
+
+    const result = await runProgram<{ before: boolean; after: boolean }>(`import { LinesDB } from '${library}';
+import { writeFile } from 'node:fs/promises';
+const open = async () => {
+  const db = LinesDB.create({ dataDir: ${JSON.stringify(dir)} });
+  const loaded = await db.initialize();
+  if (!loaded.ok) throw loaded.error;
+  return db;
+};
+const row = { id: 2, email: 'bob@example.com' };
+const before = (await open()).validateRow('users', row).ok;
+await writeFile(${JSON.stringify(join(dir, 'shared', 'rules.ts'))}, ${JSON.stringify(rulesRequiring('email'))});
+const after = (await open()).validateRow('users', row).ok;
+console.log(JSON.stringify({ before, after }));
+process.exit(0);
+`);
+
+    expect(result).toEqual({ before: false, after: true });
   });
 });

@@ -3,7 +3,7 @@ import { JsonlReader, hashJsonlContent } from './jsonl-reader.js';
 import { JsonlWriter } from './jsonl-writer.js';
 import { replaceFile } from './replace-file.js';
 import { SchemaLoader } from './schema-loader.js';
-import { createSchemaImports, type SchemaImports } from './schema-module.js';
+import { createSchemaImports, hashContent, type SchemaImports } from './schema-module.js';
 import { DirectoryScanner } from './directory-scanner.js';
 import { hasBackward } from './schema.js';
 import { keepUnknownFields, mergeFields } from './merge-fields.js';
@@ -318,7 +318,7 @@ export class LinesDB<Tables extends TableDefs> {
       }
     } finally {
       this.schemaImports = undefined;
-      await this.recordSchemaDependencies(imports.files(), tableName === undefined);
+      this.recordSchemaDependencies(imports.dependencies(), tableName === undefined);
     }
 
     // Validate deferred foreign keys (from circular dependencies) now that all tables are loaded
@@ -3001,11 +3001,11 @@ export class LinesDB<Tables extends TableDefs> {
     }
 
     for (const [file, knownHash] of this.schemaDependencyHashes) {
-      const content = await readFile(file, 'utf-8').catch((error: NodeJS.ErrnoException) => {
+      const content = await readFile(file).catch((error: NodeJS.ErrnoException) => {
         if (error.code === 'ENOENT') return undefined;
         throw error;
       });
-      if (content === undefined || hashJsonlContent(content) !== knownHash) changed.add(file);
+      if (content === undefined || hashContent(content) !== knownHash) changed.add(file);
     }
 
     const tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
@@ -3033,13 +3033,9 @@ export class LinesDB<Tables extends TableDefs> {
     return content === undefined ? '' : `${schemaPath}\0${hashJsonlContent(content)}`;
   }
 
-  private async recordSchemaDependencies(files: string[], replace: boolean): Promise<void> {
+  private recordSchemaDependencies(dependencies: Map<string, string>, replace: boolean): void {
     if (replace) this.schemaDependencyHashes.clear();
-    for (const file of files) {
-      // Not failing the load: a file read and gone again is a change the next check reports
-      const content = await readFile(file, 'utf-8').catch(() => undefined);
-      if (content !== undefined) this.schemaDependencyHashes.set(file, hashJsonlContent(content));
-    }
+    for (const [file, hash] of dependencies) this.schemaDependencyHashes.set(file, hash);
   }
 
   /**
