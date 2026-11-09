@@ -383,6 +383,48 @@ process.exit(0);
     expect(await changedAfterEach([editRules('active'), editRules('email')])).toEqual([true, true]);
   }, 20000);
 
+  it('refuses a save made after a file the edited table schema imports changed, as its primary key may be another column', async () => {
+    await writeFile(join(dataDir, 'shared', 'rules.ts'), "export const key = 'id';\n");
+    await writeFile(
+      join(dataDir, 'users.schema.ts'),
+      `import { key } from './shared/rules.ts';
+export const schema = { primaryKey: key, '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };
+`,
+    );
+    await writeFile(
+      join(dataDir, 'users.jsonl'),
+      '{"id":1,"email":"a@example.com"}\n{"id":2,"email":"b@example.com"}\n',
+    );
+    const script = join(dataDir, 'save.mjs');
+    await writeFile(
+      script,
+      `import { startStudioServer } from '${studioLibrary}';
+import { readFile, writeFile } from 'node:fs/promises';
+const studio = await startStudioServer({ dataDir: ${JSON.stringify(dataDir)}, port: 0 });
+await writeFile(${JSON.stringify(join(dataDir, 'shared', 'rules.ts'))}, "export const key = 'email';\\n");
+const response = await fetch(studio.url + '/api/tables/users/rows/' + encodeURIComponent(JSON.stringify(1)), {
+  method: 'PATCH',
+  headers: { Authorization: 'Bearer ' + studio.token, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ changes: { email: 'changed@example.com' } }),
+});
+const body = await response.json();
+console.log(JSON.stringify({ status: response.status, message: body.message, file: await readFile(${JSON.stringify(join(dataDir, 'users.jsonl'))}, 'utf8') }));
+await studio.close();
+process.exit(0);
+`,
+    );
+    const { stdout } = await run(process.execPath, [script]);
+    const result = JSON.parse(stdout.trim().split('\n').at(-1) as string) as {
+      status: number;
+      message: string;
+      file: string;
+    };
+
+    expect(result.status).toBe(409);
+    expect(result.message).toContain('rules.ts');
+    expect(result.file).toBe('{"id":1,"email":"a@example.com"}\n{"id":2,"email":"b@example.com"}\n');
+  }, 15000);
+
   it('tells nothing while nothing is edited', async () => {
     expect(await changedAfterEach([null])).toEqual([false]);
   }, 15000);

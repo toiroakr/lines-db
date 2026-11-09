@@ -552,16 +552,20 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       // conflict a write-back detects, so the rows would be validated against the old schema
       const changedFiles = unwrap(await snapshot.db.findExternalChanges());
       if (changedFiles.length > 0) {
+        // Taken before the reload, which replaces what the database knows of the table's imports
+        const tableImports = snapshot.db.listSchemaDependencies(tableName);
         await reloadUnlocked();
         reloaded = true;
         if (write.kind === 'check') changedFiles.length = 0;
         // Not saved over an outside edit of the edited table's own file: the change was made on rows
         // the page showed before that edit
-        // A changed schema file of the edited table counts too: its primary key may name another column
+        // A changed schema file of the edited table counts too, and so does a file it imports: its primary key
+        // may name another column
         const ownFile = changedFiles.find(
           (file) =>
             dataDirs.some((dir) => resolvePath(file) === resolvePath(dir, `${tableName}.jsonl`)) ||
-            basename(file).startsWith(`${tableName}.schema.`),
+            basename(file).startsWith(`${tableName}.schema.`) ||
+            tableImports.includes(file),
         );
         if (ownFile) {
           const message = `${relative(dataDir, ownFile) || ownFile} changed on disk, so the tables were reloaded. Check the rows and try again.`;

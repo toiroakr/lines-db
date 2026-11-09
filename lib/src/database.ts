@@ -3058,10 +3058,15 @@ export class LinesDB<Tables extends TableDefs> {
 
   /**
    * The project files the schemas import, as paths: not the schema files, and not a package from
-   * node_modules. An edit to one of them is among {@link findExternalChanges}
+   * node_modules. Those of one table when it is given. An edit to one of them is among
+   * {@link findExternalChanges}
    */
-  listSchemaDependencies(): string[] {
-    return [...new Set([...this.schemaDependencyHashes.values()].flatMap((files) => [...files.keys()]))];
+  listSchemaDependencies(tableName?: string): string[] {
+    const tables =
+      tableName === undefined
+        ? [...this.schemaDependencyHashes.values()]
+        : [this.schemaDependencyHashes.get(tableName) ?? new Map()];
+    return [...new Set(tables.flatMap((files) => [...files.keys()]))];
   }
 
   private async schemaFileState(tableName: string, config: TableConfig): Promise<string> {
