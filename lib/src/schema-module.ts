@@ -46,6 +46,10 @@ const shared: Shared = ((globalThis as Record<symbol, unknown>)[SHARED] ??= {
   hooked: false,
 }) as Shared;
 
+// Not only in the initializer above: a copy of the package that ran before this one left the record without them
+shared.evaluated ??= new Map();
+shared.evaluatedUrls ??= new Set();
+
 const packageRoots = new Map<string, string>();
 
 function hashOf(parts: Array<string | Buffer>): string {

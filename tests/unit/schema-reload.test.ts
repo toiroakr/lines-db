@@ -637,13 +637,14 @@ console.log(JSON.stringify({ before, after }));
     expect(result.after).toEqual([]);
   });
 
-  it('keeps the files a table imports when reading all the tables stopped at another table that failed', async () => {
+  it('keeps the files of the table a read did not reach, when it stopped at another table that failed', async () => {
     const schema = (imports: string) =>
       `${imports}export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => ({ value: data }) } };\n`;
-    await writeFile(join(dir, 'a.schema.ts'), schema(''));
-    await writeFile(join(dir, 'a.jsonl'), '{"id":1}\n');
-    await writeFile(join(dir, 'b.schema.ts'), schema("import { rule } from './helper.ts';\n"));
-    await writeFile(join(dir, 'b.jsonl'), '{"id":1}\n');
+    // Both tables break, so that whichever the read takes first is the one it stops at, whatever order the directory lists them in
+    for (const table of ['a', 'b']) {
+      await writeFile(join(dir, `${table}.schema.ts`), schema("import { rule } from './helper.ts';\n"));
+      await writeFile(join(dir, `${table}.jsonl`), '{"id":1}\n');
+    }
     await writeFile(join(dir, 'helper.ts'), "export const rule = 'x';\n");
 
     const result = await runProgram<{
@@ -658,7 +659,7 @@ const db = LinesDB.create({ dataDir: ${JSON.stringify(dir)} });
 const loaded = await db.initialize();
 if (!loaded.ok) throw loaded.error;
 const first = names(db.listSchemaDependencies());
-await writeFile(${JSON.stringify(join(dir, 'a.schema.ts'))}, "throw new Error('broken');\\n");
+for (const table of ['a', 'b']) await writeFile(${JSON.stringify(dir)} + '/' + table + '.schema.ts', "throw new Error('broken');\\n");
 await db.initialize();
 const afterFailure = names(db.listSchemaDependencies());
 await writeFile(${JSON.stringify(join(dir, 'helper.ts'))}, "export const rule = 'changed';\\n");
@@ -671,6 +672,21 @@ await db.close();
     expect(result.first).toEqual(['helper.ts']);
     expect(result.afterFailure).toEqual(['helper.ts']);
     expect(result.reported).toContain('helper.ts');
+  });
+
+  it('imports through the state an earlier copy of the package left, which has no record of the URLs', async () => {
+    await writeFile(join(dir, 'a.mjs'), "export const a = 'a';\n");
+    await writeFile(join(dir, 't.schema.mjs'), "import { a } from './a.mjs';\nexport const seen = a;\n");
+
+    const result = await runProgram<{ files: string[] }>(`import { basename } from 'node:path';
+globalThis[Symbol.for('lines-db:schema-imports:1')] = { graph: new Map(), versions: new Map(), hashes: new Map(), salt: '', hooked: false };
+const { createSchemaImports } = await import('${internalLibrary}');
+const imports = createSchemaImports();
+await imports.import(${JSON.stringify(join(dir, 't.schema.mjs'))});
+console.log(JSON.stringify({ files: [...imports.dependencies().keys()].map((file) => basename(file)) }));
+`);
+
+    expect(result.files).toEqual(['a.mjs']);
   });
 
   it('follows an import through a subpath import of the package', async () => {
