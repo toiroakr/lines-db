@@ -58,16 +58,24 @@ function hashOf(parts: Array<string | Buffer>): string {
   return hash.digest('hex');
 }
 
-function contentOf(file: string): Buffer | string {
+function contentOf(file: string): Buffer | undefined {
   try {
     return readFileSync(file);
   } catch {
-    return 'missing';
+    return undefined;
   }
 }
 
 export function hashContent(content: Buffer | string): string {
   return createHash('sha1').update(content).digest('hex');
+}
+
+/** What a file that is not there holds: not a hash, so that no file can have it */
+export const MISSING_HASH = 'missing';
+
+function hashOfFile(file: string): string {
+  const content = contentOf(file);
+  return content === undefined ? MISSING_HASH : hashContent(content);
 }
 
 /**
@@ -79,8 +87,8 @@ export function hashContent(content: Buffer | string): string {
 function versionOf(file: string, visiting = new Set<string>()): { version: string; whole: boolean } {
   const known = shared.versions.get(file);
   if (known) return { version: known, whole: true };
-  const content = contentOf(file);
-  if (!shared.hashes.has(file)) shared.hashes.set(file, hashContent(content));
+  const content = contentOf(file) ?? 'missing';
+  if (!shared.hashes.has(file)) shared.hashes.set(file, hashOfFile(file));
   if (visiting.has(file)) return { version: hashOf([shared.salt, content]), whole: false };
   visiting.add(file);
   let whole = true;
@@ -127,32 +135,49 @@ function startEvaluation(file: string, url: string): void {
   shared.evaluated.set(file, url);
 }
 
+/** Records the import of a file by a file that is read with versions; false for a file that is not one of the project */
+function recordImport(parentURL: string, imported: string): boolean {
+  if (!new URL(parentURL).searchParams.has(VERSION_PARAM)) return false;
+  const parent = fileURLToPath(parentURL);
+  // Not beyond the package of the importing file, whatever the specifier: a file of another package, such
+  // as one linked from a workspace, is shared with the program and stays one module
+  if (packageRootOf(imported) !== packageRootOf(parent)) return false;
+  // Not added to what an earlier evaluation of the parent imported: a file it no longer imports is not a dependency
+  let imports = shared.graph.get(parent);
+  if (!imports || shared.evaluated.get(parent) !== parentURL) {
+    imports = new Set<string>();
+    shared.graph.set(parent, imports);
+    shared.evaluated.set(parent, parentURL);
+  }
+  imports.add(imported);
+  // Its hash taken now, before it is evaluated or added
+  versionOf(imported);
+  return true;
+}
+
 function hookImports(): boolean {
   if (shared.hooked) return true;
   // Without synchronous hooks (a runtime other than Node.js) only the schema file itself is read again
   if (typeof nodeModule.registerHooks !== 'function') return false;
   nodeModule.registerHooks({
     resolve(specifier, context, nextResolve) {
-      const resolved = nextResolve(specifier, context);
-      if (!context.parentURL?.includes(VERSION_PARAM) || !resolved.url.startsWith('file:')) return resolved;
-      if (!new URL(context.parentURL).searchParams.has(VERSION_PARAM) || resolved.url.includes('/node_modules/')) {
-        return resolved;
+      let resolved;
+      try {
+        resolved = nextResolve(specifier, context);
+      } catch (error) {
+        // The file is imported again once it is added: a schema failing for it is then read anew
+        if ((error as NodeJS.ErrnoException).code === 'ERR_MODULE_NOT_FOUND' && /^\.\.?\//.test(specifier)) {
+          if (context.parentURL?.startsWith('file:'))
+            recordImport(context.parentURL, fileURLToPath(new URL(specifier, context.parentURL)));
+        }
+        throw error;
       }
+      if (!context.parentURL?.includes(VERSION_PARAM) || !resolved.url.startsWith('file:')) return resolved;
+      if (resolved.url.includes('/node_modules/')) return resolved;
       const url = new URL(resolved.url);
       if (url.searchParams.has(VERSION_PARAM)) return resolved;
-      const parent = fileURLToPath(context.parentURL);
       const imported = fileURLToPath(url);
-      // Not beyond the package of the importing file, whatever the specifier: a file of another package, such
-      // as one linked from a workspace, is shared with the program and stays one module
-      if (packageRootOf(imported) !== packageRootOf(parent)) return resolved;
-      // Not added to what an earlier evaluation of the parent imported: a file it no longer imports is not a dependency
-      let imports = shared.graph.get(parent);
-      if (!imports || shared.evaluated.get(parent) !== context.parentURL) {
-        imports = new Set<string>();
-        shared.graph.set(parent, imports);
-        shared.evaluated.set(parent, context.parentURL);
-      }
-      imports.add(imported);
+      if (!recordImport(context.parentURL, imported)) return resolved;
       url.searchParams.set(VERSION_PARAM, versionOf(imported).version);
       startEvaluation(imported, url.href);
       return { ...resolved, url: url.href };
@@ -212,7 +237,7 @@ export function createSchemaImports(): SchemaImports {
       new Map(
         importedBy(new Set(schemaPath ? [realFile(schemaPath)] : modules.keys())).map((file) => [
           file,
-          shared.hashes.get(file) ?? hashContent(contentOf(file)),
+          shared.hashes.get(file) ?? hashOfFile(file),
         ]),
       ),
   };

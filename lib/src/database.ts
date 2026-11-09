@@ -3,7 +3,7 @@ import { JsonlReader, hashJsonlContent } from './jsonl-reader.js';
 import { JsonlWriter } from './jsonl-writer.js';
 import { replaceFile } from './replace-file.js';
 import { SchemaLoader } from './schema-loader.js';
-import { createSchemaImports, hashContent, type SchemaImports } from './schema-module.js';
+import { createSchemaImports, hashContent, MISSING_HASH, type SchemaImports } from './schema-module.js';
 import { DirectoryScanner } from './directory-scanner.js';
 import { hasBackward } from './schema.js';
 import { keepUnknownFields, mergeFields } from './merge-fields.js';
@@ -3016,7 +3016,8 @@ export class LinesDB<Tables extends TableDefs> {
         if (error.code === 'ENOENT') return undefined;
         throw error;
       });
-      if (content === undefined || [...hashes].some((hash) => hash !== hashContent(content))) changed.add(file);
+      const current = content === undefined ? MISSING_HASH : hashContent(content);
+      if ([...hashes].some((hash) => hash !== current)) changed.add(file);
     }
 
     const tables = await DirectoryScanner.scanDirectory(this.config.dataDir);

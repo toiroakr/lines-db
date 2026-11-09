@@ -470,6 +470,77 @@ process.exit(0);
   });
 });
 
+const SCHEMA_IMPORTING_ADDED = `import { requiredField } from './shared/added.ts';
+export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => (data[requiredField] ? { value: data } : { issues: [{ message: 'missing', path: [{ key: requiredField }] }] }) } };
+`;
+
+describe('noticing a file a schema imports that was not there when the tables were read', () => {
+  let dataDir: string;
+  const addedPath = () => join(dataDir, 'shared', 'added.ts');
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'lines-db-added-'));
+    await mkdir(join(dataDir, 'shared'));
+    await writeFile(join(dataDir, 'users.schema.ts'), SCHEMA_IMPORTING_ADDED);
+    await writeFile(join(dataDir, 'users.jsonl'), '{"id":1,"name":"Alice"}\n');
+  });
+
+  afterEach(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  async function readThenAdd(content: string) {
+    const script = join(dataDir, 'program.mjs');
+    await writeFile(
+      script,
+      `import { LinesDB } from '${library}';
+import { writeFile } from 'node:fs/promises';
+const db = LinesDB.create({ dataDir: ${JSON.stringify(dataDir)} });
+const loaded = await db.initialize();
+const listed = db.listSchemaDependencies();
+const before = await db.hasExternalChanges();
+await writeFile(${JSON.stringify(addedPath())}, ${JSON.stringify(content)});
+const after = await db.hasExternalChanges();
+const found = await db.findExternalChanges();
+console.log(JSON.stringify({ loaded: loaded.ok, listed, before: before.value, after: after.value, files: found.value }));
+process.exit(0);
+`,
+    );
+    const { stdout } = await run(process.execPath, [script]);
+    return JSON.parse(stdout.trim().split('\n').at(-1) as string) as {
+      loaded: boolean;
+      listed: string[];
+      before: boolean;
+      after: boolean;
+      files: string[];
+    };
+  }
+
+  it('lists the file the schema imports, though the read failed for it', async () => {
+    const result = await readThenAdd(rulesRequiring('name'));
+
+    expect(result.loaded).toBe(false);
+    expect(
+      result.listed.map((file) => file.replaceAll('\\', '/')).some((file) => file.endsWith('/shared/added.ts')),
+    ).toBe(true);
+  });
+
+  it('reports no change while the file is still not there', async () => {
+    const result = await readThenAdd(rulesRequiring('name'));
+
+    expect(result.before).toBe(false);
+  });
+
+  it('reports a change once the file is added, and names it', async () => {
+    const result = await readThenAdd(rulesRequiring('name'));
+
+    expect(result.after).toBe(true);
+    expect(
+      result.files.map((file) => file.replaceAll('\\', '/')).some((file) => file.endsWith('/shared/added.ts')),
+    ).toBe(true);
+  });
+});
+
 describe('edge cases of the versions of the files a schema imports', () => {
   let dir: string;
 
