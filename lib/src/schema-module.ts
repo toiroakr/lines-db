@@ -23,6 +23,8 @@ interface Shared {
   graph: Map<string, Set<string>>;
   /** The URL of the evaluation of each file that `graph` records the imports of */
   evaluated: Map<string, string>;
+  /** The URLs the files were imported under: one imported under a new URL is evaluated, and imports what it imports anew */
+  evaluatedUrls: Set<string>;
   /** The version of each file, as of the import in progress */
   versions: Map<string, string>;
   /** What each file held when its version was taken, before it was evaluated */
@@ -37,6 +39,7 @@ let counter = 0;
 const shared: Shared = ((globalThis as Record<symbol, unknown>)[SHARED] ??= {
   graph: new Map(),
   evaluated: new Map(),
+  evaluatedUrls: new Set(),
   versions: new Map(),
   hashes: new Map(),
   salt: '',
@@ -108,6 +111,18 @@ function packageRootOf(file: string): string {
   return root;
 }
 
+/**
+ * A file imported under a URL not seen before is evaluated, and imports again what it imports: what an earlier
+ * evaluation of it imported is dropped here, as a file that no longer imports anything resolves nothing to
+ * replace it. A URL seen before is a module already evaluated, whose imports stay
+ */
+function startEvaluation(file: string, url: string): void {
+  if (shared.evaluatedUrls.has(url)) return;
+  shared.evaluatedUrls.add(url);
+  shared.graph.set(file, new Set());
+  shared.evaluated.set(file, url);
+}
+
 function hookImports(): boolean {
   if (shared.hooked) return true;
   // Without synchronous hooks (a runtime other than Node.js) only the schema file itself is read again
@@ -135,6 +150,7 @@ function hookImports(): boolean {
       }
       imports.add(imported);
       url.searchParams.set(VERSION_PARAM, versionOf(imported).version);
+      startEvaluation(imported, url.href);
       return { ...resolved, url: url.href };
     },
   });
@@ -179,6 +195,7 @@ export function createSchemaImports(): SchemaImports {
       if (known) return known;
       const url = new URL(pathToFileURL(file).href);
       url.searchParams.set(VERSION_PARAM, hooks ? versionOf(file).version : `${Date.now()}`);
+      if (hooks) startEvaluation(file, url.href);
       const loaded = import(url.href) as Promise<Record<string, unknown>>;
       // Not by the file that failed: a missing file added later does not change the version of the one importing it
       loaded.catch(() => {

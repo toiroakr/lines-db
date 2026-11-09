@@ -3051,7 +3051,12 @@ export class LinesDB<Tables extends TableDefs> {
     schemaPaths: Map<string, string>,
     replace: boolean,
   ): void {
-    if (replace) this.schemaDependencyHashes.clear();
+    // Not cleared whole: a table the read did not reach, as it stopped at another that failed, keeps its validator and its files
+    if (replace) {
+      for (const name of this.schemaDependencyHashes.keys()) {
+        if (!schemaPaths.has(name)) this.schemaDependencyHashes.delete(name);
+      }
+    }
     for (const name of tableNames) {
       const schemaPath = schemaPaths.get(name);
       if (schemaPath) this.schemaDependencyHashes.set(name, imports.dependencies(schemaPath));
