@@ -161,7 +161,8 @@ describe('noticing a change to a file a schema imports', () => {
     const result = await inProgram<{ changed: boolean }>(
       dataDir,
       `const checked = await db.hasExternalChanges();
-log({ changed: checked.ok && checked.value });`,
+if (!checked.ok) throw checked.error;
+log({ changed: checked.value });`,
     );
 
     expect(result.changed).toBe(false);
@@ -173,7 +174,9 @@ log({ changed: checked.ok && checked.value });`,
       `await writeFile(${JSON.stringify(rulesPath())}, ${JSON.stringify(rulesRequiring('email'))});
 const checked = await db.hasExternalChanges();
 const found = await db.findExternalChanges();
-log({ changed: checked.ok && checked.value, files: found.ok ? found.value : [] });`,
+if (!checked.ok) throw checked.error;
+if (!found.ok) throw found.error;
+log({ changed: checked.value, files: found.value });`,
     );
 
     expect(result.changed).toBe(true);
@@ -186,7 +189,8 @@ log({ changed: checked.ok && checked.value, files: found.ok ? found.value : [] }
       dataDir,
       `await db.transaction((tx) => tx.update('users', { name: 'Bob' }, { id: 1 }));
 const checked = await db.hasExternalChanges();
-log({ changed: checked.ok && checked.value });`,
+if (!checked.ok) throw checked.error;
+log({ changed: checked.value });`,
     );
 
     expect(result.changed).toBe(false);
@@ -343,14 +347,20 @@ const response = await fetch(studio.url + '/api/events?token=' + studio.token);
 const reader = response.body.getReader();
 const decoder = new TextDecoder();
 const changes = [];
+// Kept across the waits below: a read given up on would still take the event that arrives after it
+let pending;
 for (const edit of ${JSON.stringify(edits)}) {
   let received = '';
   await new Promise((resolve) => setTimeout(resolve, 300));
   if (edit) await writeFile(edit.file, edit.content);
   const deadline = Date.now() + 3000;
   while (!received.includes('event: changed') && Date.now() < deadline) {
-    const next = await Promise.race([reader.read(), new Promise((resolve) => setTimeout(() => resolve(null), 500))]);
-    if (next && !next.done) received += decoder.decode(next.value, { stream: true });
+    pending ??= reader.read();
+    const next = await Promise.race([pending, new Promise((resolve) => setTimeout(() => resolve(null), 500))]);
+    if (next) {
+      pending = undefined;
+      if (!next.done) received += decoder.decode(next.value, { stream: true });
+    }
   }
   changes.push(received.includes('event: changed'));
 }
@@ -459,7 +469,8 @@ const db = LinesDB.create({ dataDir: ${JSON.stringify(dir)} });
 const loaded = await db.initialize();
 if (!loaded.ok) throw loaded.error;
 const checked = await db.hasExternalChanges();
-console.log(JSON.stringify({ changed: checked.ok && checked.value }));
+if (!checked.ok) throw checked.error;
+console.log(JSON.stringify({ changed: checked.value }));
 await db.close();
 `);
 
@@ -520,7 +531,8 @@ await writeFile(${JSON.stringify(join(dir, 'shared', 'rules.ts'))}, ${JSON.strin
 const again = await db.initialize({ tableName: 'users' });
 if (!again.ok) throw again.error;
 const checked = await db.hasExternalChanges();
-console.log(JSON.stringify({ changed: checked.ok && checked.value }));
+if (!checked.ok) throw checked.error;
+console.log(JSON.stringify({ changed: checked.value }));
 await db.close();
 `);
 
