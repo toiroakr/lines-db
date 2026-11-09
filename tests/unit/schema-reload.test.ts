@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -67,6 +67,25 @@ await second.close();
   };
 }
 
+// Runs `body` in a program of its own, after the tables are read once as `db`, and gives what it logs as JSON
+async function inProgram<Result>(dataDir: string, body: string): Promise<Result> {
+  const script = join(dataDir, 'program.mjs');
+  await writeFile(
+    script,
+    `import { LinesDB } from '${library}';
+import { writeFile } from 'node:fs/promises';
+const db = LinesDB.create({ dataDir: ${JSON.stringify(dataDir)} });
+const loaded = await db.initialize();
+if (!loaded.ok) throw loaded.error;
+const log = (value) => console.log(JSON.stringify(value));
+${body}
+await db.close();
+`,
+  );
+  const { stdout } = await run(process.execPath, [script]);
+  return JSON.parse(stdout.trim().split('\n').at(-1) as string) as Result;
+}
+
 describe('reading the tables again after a file a schema imports changed', () => {
   let dataDir: string;
 
@@ -108,5 +127,71 @@ describe('reading the tables again after a file a schema imports changed', () =>
     const result = await readTwice(dataDir, async () => {});
 
     expect(result.packageEvaluated).toBe(1);
+  });
+});
+
+describe('noticing a change to a file a schema imports', () => {
+  let dataDir: string;
+  const rulesPath = () => join(dataDir, 'shared', 'rules.ts');
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'lines-db-dependencies-'));
+    await mkdir(join(dataDir, 'shared'));
+    await mkdir(join(dataDir, 'node_modules', 'shared-package'), { recursive: true });
+    await writeFile(
+      join(dataDir, 'node_modules', 'shared-package', 'package.json'),
+      JSON.stringify({ name: 'shared-package', type: 'module', main: 'index.js' }),
+    );
+    await writeFile(join(dataDir, 'node_modules', 'shared-package', 'index.js'), "export const marker = '';\n");
+    await writeFile(rulesPath(), rulesRequiring('name'));
+    await writeFile(join(dataDir, 'users.schema.ts'), SCHEMA_USING_RULES);
+    await writeFile(join(dataDir, 'users.jsonl'), '{"id":1,"name":"Alice","email":"alice@example.com"}\n');
+  });
+
+  afterEach(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('reports no change right after the tables were read', async () => {
+    const result = await inProgram<{ changed: boolean }>(
+      dataDir,
+      `const checked = await db.hasExternalChanges();
+log({ changed: checked.ok && checked.value });`,
+    );
+
+    expect(result.changed).toBe(false);
+  });
+
+  it('reports a change once a file a schema imports is edited, and names the file', async () => {
+    const result = await inProgram<{ changed: boolean; files: string[] }>(
+      dataDir,
+      `await writeFile(${JSON.stringify(rulesPath())}, ${JSON.stringify(rulesRequiring('email'))});
+const checked = await db.hasExternalChanges();
+const found = await db.findExternalChanges();
+log({ changed: checked.ok && checked.value, files: found.ok ? found.value : [] });`,
+    );
+
+    expect(result.changed).toBe(true);
+    // As the module loader names it, with a link such as the temporary directory of macOS resolved
+    expect(result.files).toContain(await realpath(rulesPath()));
+  });
+
+  it('reports no change after its own write, as only an outside edit counts', async () => {
+    const result = await inProgram<{ changed: boolean }>(
+      dataDir,
+      `await db.transaction((tx) => tx.update('users', { name: 'Bob' }, { id: 1 }));
+const checked = await db.hasExternalChanges();
+log({ changed: checked.ok && checked.value });`,
+    );
+
+    expect(result.changed).toBe(false);
+  });
+
+  it('lists the project files the schemas import, and not a package from node_modules', async () => {
+    const result = await inProgram<{ files: string[] }>(dataDir, 'log({ files: db.listSchemaDependencies() });');
+
+    expect(result.files).toContain(await realpath(rulesPath()));
+    expect(result.files).toContain(await realpath(join(dataDir, 'users.schema.ts')));
+    expect(result.files.some((file) => file.includes('node_modules'))).toBe(false);
   });
 });

@@ -188,6 +188,8 @@ export class LinesDB<Tables extends TableDefs> {
   private schemaFileStates: Map<string, string> = new Map();
   // The imports of the schema files of one load, which evaluate a project file they share once
   private schemaImports: SchemaImports | undefined;
+  // The files the schemas import, with what they held when read: an edit to one changes what a table validates
+  private schemaDependencyHashes: Map<string, string> = new Map();
 
   private constructor(config: DatabaseConfig<Tables>, dbPath?: string) {
     this.config = config;
@@ -316,6 +318,7 @@ export class LinesDB<Tables extends TableDefs> {
       }
     } finally {
       this.schemaImports = undefined;
+      await this.recordSchemaDependencies(imports.files(), tableName === undefined);
       imports.dispose();
     }
 
@@ -2980,7 +2983,8 @@ export class LinesDB<Tables extends TableDefs> {
 
   /**
    * The files that changed since this database last read or wrote them, as {@link hasExternalChanges}
-   * tells: each JSONL file edited, added or removed, and each schema file edited, added or removed
+   * tells: each JSONL file edited, added or removed, each schema file edited, added or removed, and each
+   * project file a schema imports edited or removed
    */
   async findExternalChanges(): Promise<Result<string[], Error>> {
     try {
@@ -2996,6 +3000,14 @@ export class LinesDB<Tables extends TableDefs> {
     const changed = new Set<string>();
 
     for (const [file, knownHash] of this.observedHashes) {
+      const content = await readFile(file, 'utf-8').catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return undefined;
+        throw error;
+      });
+      if (content === undefined || hashJsonlContent(content) !== knownHash) changed.add(file);
+    }
+
+    for (const [file, knownHash] of this.schemaDependencyHashes) {
       const content = await readFile(file, 'utf-8').catch((error: NodeJS.ErrnoException) => {
         if (error.code === 'ENOENT') return undefined;
         throw error;
@@ -3026,6 +3038,23 @@ export class LinesDB<Tables extends TableDefs> {
       throw error;
     });
     return content === undefined ? '' : `${schemaPath}\0${hashJsonlContent(content)}`;
+  }
+
+  private async recordSchemaDependencies(files: string[], replace: boolean): Promise<void> {
+    if (replace) this.schemaDependencyHashes.clear();
+    for (const file of files) {
+      // Not failing the load: a file read and gone again is a change the next check reports
+      const content = await readFile(file, 'utf-8').catch(() => undefined);
+      if (content !== undefined) this.schemaDependencyHashes.set(file, hashJsonlContent(content));
+    }
+  }
+
+  /**
+   * The files the schemas read: the schema files and the project files they import, as paths. A package
+   * from node_modules is not listed. An edit to one of them is among {@link findExternalChanges}
+   */
+  listSchemaDependencies(): string[] {
+    return [...this.schemaDependencyHashes.keys()];
   }
 
   private async schemaFileState(tableName: string, config: TableConfig): Promise<string> {
