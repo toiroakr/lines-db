@@ -474,7 +474,7 @@ With `sync()` or automatic sync outside a transaction, database changes remain a
 
 Files are not locked between checking their contents and writing. Changes saved by another process during that interval are overwritten. This is intended for one person editing local files; it does not coordinate concurrent writers.
 
-`hasExternalChanges()` detects changes, additions, and deletions of JSONL and schema files since the last read or write. `findExternalChanges()` lists the affected files. Use them to detect edits made by other tools and reload data in a long-running process.
+`hasExternalChanges()` detects changes, additions, and deletions of JSONL and schema files, and of the project files the schemas import (such as a table definition), since the last read or write. `findExternalChanges()` lists the affected files, and `listSchemaDependencies()` lists the files the schemas import. Use them to detect edits made by other tools and reload data in a long-running process. A file is evaluated again on the next read only when it or a file it imports changed.
 
 ```typescript
 if (unwrap(await db.hasExternalChanges())) {
