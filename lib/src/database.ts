@@ -3006,14 +3006,17 @@ export class LinesDB<Tables extends TableDefs> {
       if (content === undefined || hashJsonlContent(content) !== knownHash) changed.add(file);
     }
 
+    // Each file is read once, whatever the number of tables importing it, and is changed for any of them that read another version
+    const knownHashes = new Map<string, Set<string>>();
     for (const files of this.schemaDependencyHashes.values()) {
-      for (const [file, knownHash] of files) {
-        const content = await readFile(file).catch((error: NodeJS.ErrnoException) => {
-          if (error.code === 'ENOENT') return undefined;
-          throw error;
-        });
-        if (content === undefined || hashContent(content) !== knownHash) changed.add(file);
-      }
+      for (const [file, knownHash] of files) knownHashes.set(file, (knownHashes.get(file) ?? new Set()).add(knownHash));
+    }
+    for (const [file, hashes] of knownHashes) {
+      const content = await readFile(file).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return undefined;
+        throw error;
+      });
+      if (content === undefined || [...hashes].some((hash) => hash !== hashContent(content))) changed.add(file);
     }
 
     const tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
