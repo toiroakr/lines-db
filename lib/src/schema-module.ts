@@ -11,13 +11,18 @@ const SHARED = Symbol.for('lines-db:schema-imports:1');
 export interface SchemaImports {
   /** The module a schema file exports, with the project files it imports as they are now */
   import(schemaPath: string): Promise<Record<string, unknown>>;
-  /** The project files the schema files imported so far import, with what each held when it was read; not the schema files themselves */
-  dependencies(): Map<string, string>;
+  /**
+   * The project files a schema file imports, with what each held when it was read; not the schema files
+   * themselves. Of the schema files imported so far when none is given
+   */
+  dependencies(schemaPath?: string): Map<string, string>;
 }
 
 interface Shared {
   /** The files a file imported when it was evaluated */
   graph: Map<string, Set<string>>;
+  /** The URL of the evaluation of each file that `graph` records the imports of */
+  evaluated: Map<string, string>;
   /** The version of each file, as of the import in progress */
   versions: Map<string, string>;
   /** What each file held when its version was taken, before it was evaluated */
@@ -31,6 +36,7 @@ let counter = 0;
 
 const shared: Shared = ((globalThis as Record<symbol, unknown>)[SHARED] ??= {
   graph: new Map(),
+  evaluated: new Map(),
   versions: new Map(),
   hashes: new Map(),
   salt: '',
@@ -120,15 +126,29 @@ function hookImports(): boolean {
       // Not beyond the package of the importing file, whatever the specifier: a file of another package, such
       // as one linked from a workspace, is shared with the program and stays one module
       if (packageRootOf(imported) !== packageRootOf(parent)) return resolved;
-      const imports = shared.graph.get(parent) ?? new Set<string>();
+      // Not added to what an earlier evaluation of the parent imported: a file it no longer imports is not a dependency
+      let imports = shared.graph.get(parent);
+      if (!imports || shared.evaluated.get(parent) !== context.parentURL) {
+        imports = new Set<string>();
+        shared.graph.set(parent, imports);
+        shared.evaluated.set(parent, context.parentURL);
+      }
       imports.add(imported);
-      shared.graph.set(parent, imports);
       url.searchParams.set(VERSION_PARAM, versionOf(imported).version);
       return { ...resolved, url: url.href };
     },
   });
   shared.hooked = true;
   return true;
+}
+
+function realFile(file: string): string {
+  try {
+    return realpathSync(file);
+  } catch {
+    // The import reports a file that is not there
+    return file;
+  }
 }
 
 function importedBy(entries: Set<string>): string[] {
@@ -154,12 +174,7 @@ export function createSchemaImports(): SchemaImports {
   const modules = new Map<string, Promise<Record<string, unknown>>>();
   return {
     import(schemaPath) {
-      let file = schemaPath;
-      try {
-        file = realpathSync(schemaPath);
-      } catch {
-        // The import below reports a file that is not there
-      }
+      const file = realFile(schemaPath);
       const known = modules.get(file);
       if (known) return known;
       const url = new URL(pathToFileURL(file).href);
@@ -172,9 +187,9 @@ export function createSchemaImports(): SchemaImports {
       modules.set(file, loaded);
       return loaded;
     },
-    dependencies: () =>
+    dependencies: (schemaPath) =>
       new Map(
-        importedBy(new Set(modules.keys())).map((file) => [
+        importedBy(new Set(schemaPath ? [realFile(schemaPath)] : modules.keys())).map((file) => [
           file,
           shared.hashes.get(file) ?? hashContent(contentOf(file)),
         ]),

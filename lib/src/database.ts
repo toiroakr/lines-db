@@ -189,7 +189,7 @@ export class LinesDB<Tables extends TableDefs> {
   // The imports of the schema files of one load, which evaluate a project file they share once
   private schemaImports: SchemaImports | undefined;
   // The files the schemas import, with what they held when read: an edit to one changes what a table validates
-  private schemaDependencyHashes: Map<string, string> = new Map();
+  private schemaDependencyHashes: Map<string, Map<string, string>> = new Map();
 
   private constructor(config: DatabaseConfig<Tables>, dbPath?: string) {
     this.config = config;
@@ -290,6 +290,12 @@ export class LinesDB<Tables extends TableDefs> {
     // Load tables with dependency resolution
     const imports = createSchemaImports();
     this.schemaImports = imports;
+    // Taken before the tables are read: a table that fails to load is dropped from `this.tables`, and its imports still matter
+    const schemaPaths = new Map<string, string>();
+    for (const [name, config] of this.tables) {
+      const schemaPath = await this.findTableSchemaFile(name, config);
+      if (schemaPath) schemaPaths.set(name, schemaPath);
+    }
     try {
       for (const tableNameToLoad of tablesToLoad) {
         if (!attemptedTables.has(tableNameToLoad)) {
@@ -318,7 +324,7 @@ export class LinesDB<Tables extends TableDefs> {
       }
     } finally {
       this.schemaImports = undefined;
-      this.recordSchemaDependencies(imports.dependencies(), tableName === undefined);
+      this.recordSchemaDependencies(imports, attemptedTables, schemaPaths, tableName === undefined);
     }
 
     // Validate deferred foreign keys (from circular dependencies) now that all tables are loaded
@@ -3000,12 +3006,14 @@ export class LinesDB<Tables extends TableDefs> {
       if (content === undefined || hashJsonlContent(content) !== knownHash) changed.add(file);
     }
 
-    for (const [file, knownHash] of this.schemaDependencyHashes) {
-      const content = await readFile(file).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === 'ENOENT') return undefined;
-        throw error;
-      });
-      if (content === undefined || hashContent(content) !== knownHash) changed.add(file);
+    for (const files of this.schemaDependencyHashes.values()) {
+      for (const [file, knownHash] of files) {
+        const content = await readFile(file).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return undefined;
+          throw error;
+        });
+        if (content === undefined || hashContent(content) !== knownHash) changed.add(file);
+      }
     }
 
     const tables = await DirectoryScanner.scanDirectory(this.config.dataDir);
@@ -3033,9 +3041,19 @@ export class LinesDB<Tables extends TableDefs> {
     return content === undefined ? '' : `${schemaPath}\0${hashJsonlContent(content)}`;
   }
 
-  private recordSchemaDependencies(dependencies: Map<string, string>, replace: boolean): void {
+  // Kept for each table, as reading one table again must not hide an edit from another that shares the file
+  private recordSchemaDependencies(
+    imports: SchemaImports,
+    tableNames: Iterable<string>,
+    schemaPaths: Map<string, string>,
+    replace: boolean,
+  ): void {
     if (replace) this.schemaDependencyHashes.clear();
-    for (const [file, hash] of dependencies) this.schemaDependencyHashes.set(file, hash);
+    for (const name of tableNames) {
+      const schemaPath = schemaPaths.get(name);
+      if (schemaPath) this.schemaDependencyHashes.set(name, imports.dependencies(schemaPath));
+      else this.schemaDependencyHashes.delete(name);
+    }
   }
 
   /**
@@ -3043,7 +3061,7 @@ export class LinesDB<Tables extends TableDefs> {
    * node_modules. An edit to one of them is among {@link findExternalChanges}
    */
   listSchemaDependencies(): string[] {
-    return [...this.schemaDependencyHashes.keys()];
+    return [...new Set([...this.schemaDependencyHashes.values()].flatMap((files) => [...files.keys()]))];
   }
 
   private async schemaFileState(tableName: string, config: TableConfig): Promise<string> {

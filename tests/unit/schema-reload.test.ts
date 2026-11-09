@@ -498,6 +498,65 @@ console.log(JSON.stringify({ first, edited }));
     expect(result.edited).toEqual(['a:c2', 'b:a:c2']);
   });
 
+  it('keeps noticing an edit for a table that was not read again, when another table sharing the file was', async () => {
+    await mkdir(join(dir, 'shared'));
+    await writeFile(join(dir, 'shared', 'rules.ts'), rulesRequiring('name'));
+    for (const table of ['users', 'posts']) {
+      await writeFile(
+        join(dir, `${table}.schema.ts`),
+        `import { requiredField } from './shared/rules.ts';
+export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) => (data[requiredField] ? { value: data } : { issues: [{ message: 'x', path: [{ key: requiredField }] }] }) } };
+`,
+      );
+      await writeFile(join(dir, `${table}.jsonl`), '{"id":1,"name":"a"}\n');
+    }
+
+    const result = await runProgram<{ changed: boolean }>(`import { LinesDB } from '${library}';
+import { writeFile } from 'node:fs/promises';
+const db = LinesDB.create({ dataDir: ${JSON.stringify(dir)} });
+const loaded = await db.initialize();
+if (!loaded.ok) throw loaded.error;
+await writeFile(${JSON.stringify(join(dir, 'shared', 'rules.ts'))}, ${JSON.stringify(rulesRequiring('email'))});
+const again = await db.initialize({ tableName: 'users' });
+if (!again.ok) throw again.error;
+const checked = await db.hasExternalChanges();
+console.log(JSON.stringify({ changed: checked.ok && checked.value }));
+await db.close();
+`);
+
+    expect(result.changed).toBe(true);
+  });
+
+  it('lists only the files the schema imports now, not the ones it imported before it was edited', async () => {
+    await writeFile(join(dir, 'a.mjs'), "export const a = 'a';\n");
+    await writeFile(join(dir, 'b.mjs'), "export const b = 'b';\n");
+    await writeFile(
+      join(dir, 't.schema.mjs'),
+      "import { a } from './a.mjs';\nimport { b } from './b.mjs';\nexport const seen = a + b;\n",
+    );
+
+    const result = await runProgram<{
+      before: string[];
+      after: string[];
+    }>(`import { createSchemaImports } from '${internalLibrary}';
+import { writeFile } from 'node:fs/promises';
+import { basename } from 'node:path';
+const names = (imports) => [...imports.dependencies().keys()].map((file) => basename(file)).sort();
+const read = async () => {
+  const imports = createSchemaImports();
+  await imports.import(${JSON.stringify(join(dir, 't.schema.mjs'))});
+  return imports;
+};
+const before = names(await read());
+await writeFile(${JSON.stringify(join(dir, 't.schema.mjs'))}, "import { a } from './a.mjs';\\nexport const seen = a;\\n");
+const after = names(await read());
+console.log(JSON.stringify({ before, after }));
+`);
+
+    expect(result.before).toEqual(['a.mjs', 'b.mjs']);
+    expect(result.after).toEqual(['a.mjs']);
+  });
+
   it('follows an import through a subpath import of the package', async () => {
     await mkdir(join(dir, 'shared'));
     await writeFile(
