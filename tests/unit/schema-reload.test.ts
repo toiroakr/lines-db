@@ -425,6 +425,13 @@ process.exit(0);
     expect(result.file).toBe('{"id":1,"email":"a@example.com"}\n{"id":2,"email":"b@example.com"}\n');
   }, 15000);
 
+  it('tells the page once a file is added that a schema imported before it was there, though it is not in a watched directory', async () => {
+    const importAdded = { file: join(dataDir, 'users.schema.ts'), content: SCHEMA_IMPORTING_ADDED };
+    const added = { file: join(dataDir, 'shared', 'added.ts'), content: rulesRequiring('name') };
+
+    expect(await changedAfterEach([importAdded, added])).toEqual([true, true]);
+  }, 20000);
+
   it('tells nothing while nothing is edited', async () => {
     expect(await changedAfterEach([null])).toEqual([false]);
   }, 15000);
