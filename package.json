@@ -47,7 +47,7 @@
     "@changesets/cli": "^3.0.3",
     "lefthook": "^2.2.2",
     "oxfmt": "^0.78.0",
-    "oxlint": "^1.92.0",
+    "oxlint": "^1.93.0",
     "lines-db": "workspace:*",
     "@lines-db/studio": "workspace:*"
   }
