@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Column } from './types';
-import { differs, hasTransformed, inputColumn, inputOf, shownOf } from './sides';
+import { differs, hasTransformed, inputColumn, inputOf, inputSideColumns, shownOf } from './sides';
 
 const row = { id: 1, code: 'ORD-a', age: 20 };
 const input = { id: 1, code: 'a' };
@@ -127,5 +127,30 @@ describe('inputColumn', () => {
     const json: Column = { name: 'meta', type: 'JSON' };
 
     expect(inputColumn(json, [{ meta: { a: 1 } }], [{ meta: 'x' }])).toBe(json);
+  });
+});
+
+describe('inputSideColumns', () => {
+  const columns: Column[] = [
+    { name: 'id', type: 'INTEGER', primaryKey: true },
+    { name: 'name', type: 'TEXT' },
+    { name: 'age', type: 'INTEGER' },
+  ];
+
+  it('adds a field only the lines hold, and marks one only the schema makes', () => {
+    expect(
+      inputSideColumns(columns, [{ id: 1, name: 'A', age: 20 }], [{ id: 1, legacy_name: 'a' }], [['age']]),
+    ).toEqual([
+      { name: 'id', type: 'INTEGER', primaryKey: true },
+      { name: 'name', type: 'TEXT', outputOnly: true },
+      { name: 'age', type: 'INTEGER' },
+      { name: 'legacy_name', type: 'TEXT', inputOnly: true },
+    ]);
+  });
+
+  it('keeps the columns as they are when every field is as written', () => {
+    expect(inputSideColumns(columns, [{ id: 1, name: 'a', age: 2 }], [{ id: 1, name: 'a', age: 2 }], [[]])).toEqual(
+      columns,
+    );
   });
 });

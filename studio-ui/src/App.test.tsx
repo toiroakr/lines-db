@@ -218,6 +218,39 @@ describe('App', () => {
       expect(within(screen.getByRole('dialog')).getByRole('textbox', { name: 'active' })).toBeTruthy();
     });
 
+    describe('a schema that renames a field', () => {
+      beforeEach(() => {
+        rows.users = {
+          rows: [{ id: 1, name: 'A' }],
+          defaulted: [[]],
+          inputs: [{ id: 1, legacy_name: 'a' }],
+        };
+      });
+
+      it('shows the field the file holds, read-only, in the Input view', async () => {
+        render(<App />);
+
+        expect(await screen.findByRole('columnheader', { name: /legacy_name/ })).toBeTruthy();
+        expect(screen.getByText('a')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Edit legacy_name' })).toBeNull();
+      });
+
+      it('does not offer the field only the schema makes as an input to edit', async () => {
+        render(<App />);
+        await screen.findByRole('columnheader', { name: /legacy_name/ });
+
+        expect(screen.queryByRole('button', { name: 'Edit name' })).toBeNull();
+      });
+
+      it('shows only the fields the schema makes in the Output view', async () => {
+        render(<App />);
+        await userEvent.click(await screen.findByRole('button', { name: 'Output' }));
+
+        expect(screen.queryByRole('columnheader', { name: /legacy_name/ })).toBeNull();
+        expect(screen.getByText('A')).toBeTruthy();
+      });
+    });
+
     it('offers no choice of view for a table whose values are as written', async () => {
       rows.users = { rows: [{ id: 1, name: 'Alice' }], defaulted: [[]], inputs: [{ id: 1, name: 'Alice' }] };
       render(<App />);

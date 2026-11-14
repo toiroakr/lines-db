@@ -76,3 +76,36 @@ export function inputColumn(column: Column, rows: JsonObject[], inputs: JsonObje
   // Not text when some values are not strings: a text editor would turn the number 31 into the string "31"
   return { ...rest, type: held.every((value) => typeof value === 'string') ? 'TEXT' : 'JSON' };
 }
+
+/**
+ * The columns of the Input view: the table's, typed by the input side, and those only the lines hold, which the schema
+ * renames or removes (`legacy_name` of a line the schema makes `name` of). A column no line holds and the schema does
+ * not fill in is one the schema makes from others, so it is marked as such rather than offered as an input
+ */
+export function inputSideColumns(
+  columns: Column[],
+  rows: JsonObject[],
+  inputs: JsonObject[] | undefined,
+  defaulted: string[][],
+): Column[] {
+  const typed = columns.map((column) => inputColumn(column, rows, inputs));
+  if (!inputs || rows.length === 0) return typed;
+  const known = new Set(columns.map((column) => column.name));
+  const madeBySchema = (name: string) =>
+    rows.every((_row, index) => !Object.hasOwn(inputs[index] ?? {}, name) && !(defaulted[index] ?? []).includes(name));
+  const lineOnly = [...new Set(inputs.flatMap((input) => Object.keys(input ?? {})))].filter((name) => !known.has(name));
+  return [
+    ...typed.map((column) =>
+      !column.primaryKey && madeBySchema(column.name) ? { ...column, outputOnly: true } : column,
+    ),
+    ...lineOnly.map((name): Column => ({
+      name,
+      type: inputs.every(
+        (input) => input?.[name] === undefined || input[name] === null || typeof input[name] === 'string',
+      )
+        ? 'TEXT'
+        : 'JSON',
+      inputOnly: true,
+    })),
+  ];
+}

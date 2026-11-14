@@ -19,6 +19,10 @@ export interface Column {
    * as `%25`, `%2E` and `%2A`
    */
   nested?: Record<string, NestedLeeway>;
+  /** In the Input view: a field only the lines hold, which the schema renames or removes; shown, not edited */
+  inputOnly?: boolean;
+  /** In the Input view: a field no line holds and the schema does not fill in, as it makes it from others; not edited */
+  outputOnly?: boolean;
 }
 
 /** What the schema takes of an object inside a JSON value: keys it does not name, and leaving a key out */

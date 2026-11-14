@@ -67,7 +67,7 @@ import {
   type Pending,
 } from '@/lib/pending';
 import { cellText, formatValue, isBoolean } from '@/lib/values';
-import { hasTransformed, inputColumn, shownOf, type ValueView } from '@/lib/sides';
+import { hasTransformed, inputColumn, inputSideColumns, shownOf, type ValueView } from '@/lib/sides';
 import type { Column, Issue, JsonObject, JsonValue, Reference, TableInfo } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { fieldIssues, issuePath } from '@/lib/check';
@@ -313,7 +313,13 @@ export function App() {
         : table,
     [table, data],
   );
-  const shownTable = view === 'output' ? table : inputTable;
+  const shownTable = useMemo(
+    () =>
+      view !== 'output' && table && data
+        ? { ...table, columns: inputSideColumns(table.columns, data.rows, data.inputs, data.defaulted) }
+        : table,
+    [table, data, view],
+  );
 
   const rows = useMemo(() => {
     const all =
@@ -419,7 +425,8 @@ export function App() {
         value,
         output: change ? undefined : shown.output,
         state: change?.kind === 'set' ? 'changed' : change?.kind === 'reset' ? 'reset' : isDefault ? 'default' : 'file',
-        readOnly: !writable || deleted || Boolean(column.primaryKey) || shown.readOnly,
+        readOnly:
+          !writable || deleted || Boolean(column.primaryKey || column.inputOnly || column.outputOnly) || shown.readOnly,
         issues: change ? [] : fieldIssues(column.name, issues),
         canUseDefault: byIndex ? Object.hasOwn(row, column.name) : !isDefault || change !== undefined,
         canRevert: change !== undefined,
@@ -810,7 +817,7 @@ export function App() {
               saving={saving}
               revision={data?.revision}
               view={view}
-              insertColumns={(inputTable ?? table).columns}
+              insertColumns={(view === 'output' ? inputTable : shownTable)?.columns ?? table.columns}
               onRemoveField={removeFieldEverywhere}
               openRow={formShown ? openRow : undefined}
               formShown={formShown}
@@ -920,6 +927,20 @@ function Grid({
                   <span className="text-[10px] font-normal text-muted-foreground uppercase">
                     {isBoolean(column) ? 'boolean' : column.type.toLowerCase()}
                   </span>
+                  {column.inputOnly && (
+                    <Tooltip content="Only the file holds this field: the schema renames or removes it, so it cannot be edited here">
+                      <Badge variant="outline" className="font-sans">
+                        file only
+                      </Badge>
+                    </Tooltip>
+                  )}
+                  {column.outputOnly && (
+                    <Tooltip content="The schema makes this field from others; edit the fields of the file instead">
+                      <Badge variant="outline" className="font-sans">
+                        made by the schema
+                      </Badge>
+                    </Tooltip>
+                  )}
                   {column.unknown && (
                     <Tooltip content="The schema refuses this key; a row can only have it removed">
                       <Badge variant="outline" className="border-destructive/50 font-sans text-destructive">
@@ -969,6 +990,7 @@ function Grid({
                   key={column.name}
                   column={column}
                   table={table.name}
+                  readOnly={column.inputOnly}
                   value={insert.row[column.name]}
                   preview={(value) => ({
                     inserts: [{ ...insert.row, [column.name]: value }],
@@ -1091,7 +1113,12 @@ function Grid({
                               ? 'default'
                               : 'file'
                       }
-                      readOnly={!writable || deleted || Boolean(column.primaryKey) || shown.readOnly}
+                      readOnly={
+                        !writable ||
+                        deleted ||
+                        Boolean(column.primaryKey || column.inputOnly || column.outputOnly) ||
+                        shown.readOnly
+                      }
                       formOpen={formOpen}
                       isEditing={
                         editing?.row === 'existing' &&
