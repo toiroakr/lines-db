@@ -63,6 +63,31 @@ describe('data set write-back', () => {
     expect(await readFile(localFile(), 'utf8')).toBe('{"id":2,"name":"Twice"}\n');
   });
 
+  it('writes a row whose key is changed while another file of its table is read', async () => {
+    const failures = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const readSnapshot = JsonlReader.readSnapshot.bind(JsonlReader);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const reading = new Promise<void>((resolve) => (entered = resolve));
+    vi.spyOn(JsonlReader, 'readSnapshot').mockImplementationOnce(async (...args) => {
+      entered();
+      await held;
+      return readSnapshot(...args);
+    });
+
+    unwrap(db.update('users', { name: 'Edited' }, { id: 1 }));
+    unwrap(db.update('users', { name: 'Once' }, { id: 2 }));
+    await reading;
+    unwrap(db.update('users', { id: 9 }, { id: 2 }));
+    release();
+    unwrap(await db.sync('users'));
+
+    expect(await readFile(localFile(), 'utf8')).toBe('{"id":9,"name":"Once"}\n');
+    // Not only the file in the end: the write-back running while the key changed must not fail either
+    expect(failures).not.toHaveBeenCalled();
+  });
+
   it('rejects raw mutations through every SQL interface while typed edits remain writable', async () => {
     expect(db.execute("INSERT INTO users (id, name) VALUES (3, 'Raw')").ok).toBe(false);
     expect(db.query('UPDATE users SET id = 8 WHERE id = 2 RETURNING *').ok).toBe(false);

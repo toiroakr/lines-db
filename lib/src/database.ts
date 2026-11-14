@@ -159,8 +159,29 @@ interface RowMetadataAtRead {
   /** How many changes the table had seen, so the field changes are kept when one came after the rows were read */
   generation: number;
   positions?: Map<string, number>;
+  /** Of several data directories: the file and line each row was read from */
+  origins?: Map<string, RowOrigin>;
   changes?: Map<string, FieldChanges>;
   unknownFieldLines: Map<string, JsonObject>;
+}
+
+/**
+ * What was kept by rowid when a write-back read its rows, brought up to date with the changes made since, in order:
+ * a deleted or reused rowid loses what it had, and a row that moved carries it to its new rowid
+ */
+function replayEdits<T>(byRowid: Map<string, T>, edits: PositionEdit[]): Map<string, T> {
+  for (const edit of edits) {
+    if ('forget' in edit) {
+      byRowid.delete(edit.forget);
+      continue;
+    }
+    // Nothing to carry when the move was already applied - a move is logged both by the update and by its trigger
+    const kept = byRowid.get(edit.from);
+    if (kept === undefined) continue;
+    byRowid.delete(edit.from);
+    byRowid.set(edit.to, kept);
+  }
+  return byRowid;
 }
 
 /** A row's position dropped, as its row was deleted or a new row took its rowid, or moved with its row to another rowid */
@@ -2460,6 +2481,7 @@ export class LinesDB<Tables extends TableDefs> {
     const atRead: RowMetadataAtRead = {
       generation: this.changeGenerations.get(tableName) ?? 0,
       positions: recorded && new Map(recorded),
+      origins: new Map(this.rowOriginsByRowid.get(tableName) ?? []),
       // A change made while the file is read moves these to another rowid too, away from the rows read here
       changes: cloneFieldChanges(new Map([[tableName, this.fieldChanges.get(tableName) ?? new Map()]])).get(tableName),
       unknownFieldLines: new Map(this.linesWithUnknownFields.get(tableName) ?? []),
@@ -2467,7 +2489,7 @@ export class LinesDB<Tables extends TableDefs> {
     if (!this.hasSeveralDataDirs()) {
       return [await this.prepareFileWriteBack(tableName, config.jsonlPath, stored, options, atRead)];
     }
-    const origins = this.rowOriginsByRowid.get(tableName);
+    const origins = atRead.origins;
     const byFile = new Map<string, number[]>(
       [this.config.dataDir].flat().map((dir) => [join(dir, `${tableName}.jsonl`), []]),
     );
@@ -2579,8 +2601,12 @@ export class LinesDB<Tables extends TableDefs> {
     });
     const existingRows = await this.readUnchangedRows(jsonlPath);
 
+    const origins = atRead?.origins ?? this.rowOriginsByRowid.get(tableName);
     const matchedByOrigin = this.hasSeveralDataDirs()
-      ? rowids.map((rowid) => existingRows[this.rowOriginsByRowid.get(tableName)!.get(rowid)!.rowIndex])
+      ? rowids.map((rowid) => {
+          const origin = origins?.get(rowid);
+          return origin && existingRows[origin.rowIndex];
+        })
       : undefined;
     const byPosition = matchedByOrigin ? undefined : linesByPosition(atRead?.positions, rowids, existingRows);
     // Without a primary key the position is all there is to match by; with one it is for a row the key misses
@@ -3059,28 +3085,19 @@ export class LinesDB<Tables extends TableDefs> {
       throw await this.restoreAll(written, error);
     }
     for (const { tableName, jsonlPath, generation, rowids, positions } of written) {
-      if (positions) {
-        // Not dropped for a row that moved: it keeps its line under its new rowid, as its key no longer finds it
-        for (const edit of this.positionEdits.get(tableName) ?? []) {
-          if ('forget' in edit) {
-            positions.delete(edit.forget);
-            continue;
-          }
-          // Nothing to carry when the move was already applied - a move is logged both by the update and by its trigger
-          const position = positions.get(edit.from);
-          if (position === undefined) continue;
-          positions.delete(edit.from);
-          positions.set(edit.to, position);
-        }
-        this.linePositionsByRowid.set(tableName, positions);
-      }
+      const edits = this.positionEdits.get(tableName) ?? [];
+      if (positions) this.linePositionsByRowid.set(tableName, replayEdits(positions, edits));
       if ((this.changeGenerations.get(tableName) ?? 0) === generation) {
         this.fieldChanges.delete(tableName);
         this.rawSqlTables.delete(tableName);
       }
       if (rowids) {
         const origins = this.rowOriginsByRowid.get(tableName)!;
-        rowids.forEach((rowid, rowIndex) => origins.set(rowid, { file: jsonlPath, rowIndex }));
+        const writtenOrigins = new Map(
+          rowids.map((rowid, rowIndex) => [rowid, { file: jsonlPath, rowIndex }] as const),
+        );
+        // Brought up to date like the positions: a row that moved meanwhile has its line under its new rowid
+        for (const [rowid, origin] of replayEdits(writtenOrigins, edits)) origins.set(rowid, origin);
         if (!this.scannedJsonlFiles.includes(jsonlPath)) this.scannedJsonlFiles.push(jsonlPath);
       }
     }
