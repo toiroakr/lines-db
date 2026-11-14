@@ -67,6 +67,7 @@ import {
   type Pending,
 } from '@/lib/pending';
 import { cellText, formatValue, isBoolean } from '@/lib/values';
+import { hasTransformed, shownOf, type ValueView } from '@/lib/sides';
 import type { Column, Issue, JsonObject, JsonValue, Reference, TableInfo } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { fieldIssues, issuePath } from '@/lib/check';
@@ -90,6 +91,7 @@ export function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Editing>();
   const [filter, setFilter] = useState('');
+  const [chosenView, setChosenView] = useState<ValueView>('input');
   const [schemaTable, setSchemaTable] = useState(() => parseHash(location.hash).schema);
   const [schemaTrail, setSchemaTrail] = useState(() => schemaTrailOf(history.state));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
@@ -300,11 +302,16 @@ export function App() {
     setSelected(new Set());
   };
 
+  // Not offered for a table whose values the schema keeps as written: both sides would read the same
+  const transformed = useMemo(() => (data ? hasTransformed(data.rows, data.inputs) : false), [data]);
+  const view: ValueView = transformed ? chosenView : 'input';
+
   const rows = useMemo(() => {
     const all =
       data?.rows.map((row, index) => ({
         row,
         index,
+        input: data.inputs?.[index],
         defaulted: data.defaulted[index] ?? [],
         issues: data.issues?.[index] ?? [],
       })) ?? [];
@@ -383,26 +390,37 @@ export function App() {
     const row = data.rows[index];
     const key = open.key;
     const defaulted = data.defaulted[index] ?? [];
+    const input = data.inputs?.[index];
     const issues = data.issues?.[index] ?? [];
     const byIndex = table.invalidRows > 0;
     const writable = !table.readOnlyReason && (byIndex || table.primaryKey !== null);
     const deleted = writable && !byIndex && isDeleted(pending, key);
     const fields = table.columns.map((column): FieldModel => {
       const change = writable ? cellChange(pending, key, column.name) : undefined;
-      const value = change?.kind === 'set' ? change.value : row[column.name];
+      const shown = shownOf(row, input, column.name, view);
+      const value = change?.kind === 'set' ? change.value : shown.value;
       const isDefault = defaulted.includes(column.name);
       return {
         column,
         value,
+        output: change ? undefined : shown.output,
         state: change?.kind === 'set' ? 'changed' : change?.kind === 'reset' ? 'reset' : isDefault ? 'default' : 'file',
-        readOnly: !writable || deleted || Boolean(column.primaryKey),
+        readOnly: !writable || deleted || Boolean(column.primaryKey) || shown.readOnly,
         issues: change ? [] : fieldIssues(column.name, issues),
         canUseDefault: byIndex ? Object.hasOwn(row, column.name) : !isDefault || change !== undefined,
         canRevert: change !== undefined,
         ...referenceOf(column, value),
         // Not kept as a change when typed back to what the file holds: the form changes a field a keystroke at a time
         onChange: (next) =>
-          setPending((now) => setOrRevertCell(now, key, column.name, next, isDefault ? undefined : row[column.name])),
+          setPending((now) =>
+            setOrRevertCell(
+              now,
+              key,
+              column.name,
+              next,
+              isDefault ? undefined : shownOf(row, input, column.name, 'input').value,
+            ),
+          ),
         onUseDefault: () => setPending((now) => resetCell(now, key, column.name)),
         onRevert: () => setPending((now) => revertCell(now, key, column.name)),
         onValidity: tellValidity(column.name),
@@ -542,6 +560,7 @@ export function App() {
               />
             </div>
             <div className="ml-auto flex items-center gap-2">
+              {transformed && <ViewSwitch view={view} onChange={setChosenView} />}
               {table?.schemaFile && (
                 <Button
                   size="sm"
@@ -775,6 +794,7 @@ export function App() {
               setEditing={setEditing}
               saving={saving}
               revision={data?.revision}
+              view={view}
               onRemoveField={removeFieldEverywhere}
               openRow={formShown ? openRow : undefined}
               formShown={formShown}
@@ -797,7 +817,7 @@ export function App() {
 
 interface GridProps {
   table: TableInfo;
-  rows: Array<{ row: JsonObject; index: number; defaulted: string[]; issues: Issue[] }>;
+  rows: Array<{ row: JsonObject; index: number; input?: JsonObject; defaulted: string[]; issues: Issue[] }>;
   pending: Pending;
   setPending: (pending: Pending) => void;
   selected: Set<string>;
@@ -807,6 +827,8 @@ interface GridProps {
   /** Locks the grid: a change made now would be cleared with the ones being saved, without being saved */
   saving: boolean;
   revision?: string;
+  /** Which side of a value the cells show: what the file holds, what the schema makes of it, or both */
+  view: ValueView;
   /** Removes a field from every row of the table, not only the ones shown */
   onRemoveField: (field: string) => void;
   openRow: OpenRow | undefined;
@@ -828,6 +850,7 @@ function Grid({
   setEditing,
   saving,
   revision,
+  view,
   onRemoveField,
   openRow,
   formShown: formOpen,
@@ -954,7 +977,7 @@ function Grid({
               ))}
             </tr>
           ))}
-          {rows.map(({ row, index: rowIndex, defaulted, issues }, index) => {
+          {rows.map(({ row, index: rowIndex, input, defaulted, issues }, index) => {
             const key = keyOfRow(row, rowIndex);
             const rowKey = keys[index];
             const deleted = selectable && isDeleted(pending, key);
@@ -1029,13 +1052,15 @@ function Grid({
                 )}
                 {table.columns.map((column) => {
                   const change = writable ? cellChange(pending, key, column.name) : undefined;
-                  const value = change?.kind === 'set' ? change.value : row[column.name];
+                  const shown = shownOf(row, input, column.name, view);
+                  const value = change?.kind === 'set' ? change.value : shown.value;
                   return (
                     <Cell
                       key={column.name}
                       column={column}
                       table={table.name}
                       value={value}
+                      output={change ? undefined : shown.output}
                       issues={change ? [] : fieldIssues(column.name, issues)}
                       preview={(next) => ({ ...previewCell(pending, key, column.name, next), revision })}
                       state={
@@ -1047,7 +1072,7 @@ function Grid({
                               ? 'default'
                               : 'file'
                       }
-                      readOnly={!writable || deleted || Boolean(column.primaryKey)}
+                      readOnly={!writable || deleted || Boolean(column.primaryKey) || shown.readOnly}
                       formOpen={formOpen}
                       isEditing={
                         editing?.row === 'existing' &&
@@ -1099,6 +1124,8 @@ interface CellProps {
   table: string;
   column: Column;
   value: JsonValue | undefined;
+  /** The value the schema makes of it, shown beside it when the table shows both sides */
+  output?: JsonValue;
   /** What makes the value fail validation, marked on the cell */
   issues?: Issue[];
   preview: (value: JsonValue) => Batch;
@@ -1119,6 +1146,7 @@ interface CellProps {
 function Cell({
   column,
   value,
+  output,
   issues = [],
   state,
   readOnly,
@@ -1143,6 +1171,13 @@ function Cell({
   const contents = (
     <>
       <span className="truncate">{content}</span>
+      {output !== undefined && (
+        <Tooltip content="What the schema makes of this value; not editable">
+          <span className="truncate text-muted-foreground" data-output>
+            → {output === null ? 'null' : cellText(output)}
+          </span>
+        </Tooltip>
+      )}
       {issues.length > 0 && (
         <Tooltip
           content={
@@ -1219,6 +1254,33 @@ function Cell({
       <PopoverAnchor asChild>{cell}</PopoverAnchor>
       <PopoverContent onOpenAutoFocus={(event) => event.preventDefault()}>{editorOf}</PopoverContent>
     </Popover>
+  );
+}
+
+const VIEWS: Array<{ view: ValueView; label: string; hint: string }> = [
+  { view: 'input', label: 'Input', hint: 'The values the file holds, which can be edited' },
+  { view: 'output', label: 'Output', hint: 'The values the schema makes of them, which cannot be edited' },
+  { view: 'both', label: 'Both', hint: 'Each value beside what the schema makes of it' },
+];
+
+/** Chooses which side of a value the table shows, for a table whose schema transforms some */
+function ViewSwitch({ view, onChange }: { view: ValueView; onChange: (view: ValueView) => void }) {
+  return (
+    <div role="group" aria-label="Values shown" className="flex rounded-md border">
+      {VIEWS.map((choice) => (
+        <Tooltip key={choice.view} content={choice.hint}>
+          <Button
+            size="sm"
+            variant={view === choice.view ? 'secondary' : 'ghost'}
+            className="h-7 rounded-none px-2 first:rounded-l-md last:rounded-r-md"
+            aria-pressed={view === choice.view}
+            onClick={() => onChange(choice.view)}
+          >
+            {choice.label}
+          </Button>
+        </Tooltip>
+      ))}
+    </div>
   );
 }
 

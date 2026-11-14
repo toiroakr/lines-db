@@ -100,6 +100,61 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Add record' })).toHaveProperty('disabled', true);
   });
 
+  describe('a table whose schema transforms a value', () => {
+    beforeEach(() => {
+      rows.users = {
+        rows: [{ id: 1, name: 'ORD-a' }],
+        defaulted: [[]],
+        inputs: [{ id: 1, name: 'a' }],
+      };
+    });
+    afterEach(() => {
+      rows.users = {
+        rows: [
+          { id: 1, name: 'Alice' },
+          { id: 2, name: 'Bob' },
+        ],
+        defaulted: [[], []],
+      };
+    });
+
+    it('shows the value the file holds, which the cell edits', async () => {
+      render(<App />);
+
+      await userEvent.click((await nameCells())[0]);
+
+      expect((screen.getByRole('textbox', { name: 'name' }) as HTMLTextAreaElement).value).toBe('a');
+      expect(screen.queryByText('ORD-a')).toBeNull();
+    });
+
+    it('shows the output read-only when the view is Output', async () => {
+      render(<App />);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Output' }));
+
+      expect(screen.getByText('ORD-a')).toBeTruthy();
+      expect(screen.queryAllByRole('button', { name: 'Edit name' })).toHaveLength(0);
+    });
+
+    it('shows the output beside the editable input when the view is Both', async () => {
+      render(<App />);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Both' }));
+
+      expect(screen.getByText('→ ORD-a')).toBeTruthy();
+      expect(screen.getAllByRole('button', { name: 'Edit name' })).toHaveLength(1);
+    });
+
+    it('offers no choice of view for a table whose values are as written', async () => {
+      rows.users = { rows: [{ id: 1, name: 'Alice' }], defaulted: [[]], inputs: [{ id: 1, name: 'Alice' }] };
+      render(<App />);
+
+      await nameCells();
+
+      expect(screen.queryByRole('group', { name: 'Values shown' })).toBeNull();
+    });
+  });
+
   it('edits a cell from a click while the form is hidden', async () => {
     render(<App />);
 

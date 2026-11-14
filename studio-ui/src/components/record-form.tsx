@@ -19,6 +19,8 @@ export interface FieldModel {
   column: Column;
   /** The value as the row now holds it, with its unsaved change applied */
   value: JsonValue | undefined;
+  /** The value the schema makes of it, shown under the field when the table shows both sides */
+  output?: JsonValue;
   state: FieldState;
   readOnly: boolean;
   /** What makes the value fail validation, shown until the field is edited */
@@ -235,6 +237,11 @@ export function FormField({
           value={text}
           onChange={(event) => hand(event.target.value)}
         />
+      )}
+      {model.output !== undefined && (
+        <p className="font-mono text-xs break-all text-muted-foreground" data-output={column.name}>
+          → {formatValue(model.output)}
+        </p>
       )}
       {'error' in parsed && text !== '' && <p className="text-xs text-destructive">{parsed.error}</p>}
       {listed.length > 0 && (
