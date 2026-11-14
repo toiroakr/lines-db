@@ -100,6 +100,189 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Add record' })).toHaveProperty('disabled', true);
   });
 
+  describe('a table whose schema transforms a value', () => {
+    beforeEach(() => {
+      rows.users = {
+        rows: [{ id: 1, name: 'ORD-a' }],
+        defaulted: [[]],
+        inputs: [{ id: 1, name: 'a' }],
+      };
+    });
+    afterEach(() => {
+      rows.users = {
+        rows: [
+          { id: 1, name: 'Alice' },
+          { id: 2, name: 'Bob' },
+        ],
+        defaulted: [[], []],
+      };
+    });
+
+    it('shows the value the file holds, which the cell edits', async () => {
+      render(<App />);
+
+      await userEvent.click((await nameCells())[0]);
+
+      expect((screen.getByRole('textbox', { name: 'name' }) as HTMLTextAreaElement).value).toBe('a');
+      expect(screen.queryByText('ORD-a')).toBeNull();
+    });
+
+    it('shows the output read-only when the view is Output', async () => {
+      render(<App />);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Output' }));
+
+      expect(screen.getByText('ORD-a')).toBeTruthy();
+      expect(screen.queryAllByRole('button', { name: 'Edit name' })).toHaveLength(0);
+    });
+
+    it('shows the output beside the editable input when the view is Both', async () => {
+      render(<App />);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Both' }));
+
+      expect(screen.getByText('→ ORD-a')).toBeTruthy();
+      expect(screen.getAllByRole('button', { name: 'Edit name' })).toHaveLength(1);
+    });
+
+    it('finds a row by the value its file holds, not only by what the schema makes of it', async () => {
+      rows.users = { rows: [{ id: 1, name: 'X-ORD' }], defaulted: [[]], inputs: [{ id: 1, name: 'raw' }] };
+      render(<App />);
+      await nameCells();
+
+      await userEvent.type(screen.getByRole('textbox', { name: 'Filter rows' }), 'raw');
+
+      expect(screen.getAllByRole('button', { name: 'Edit name' })).toHaveLength(1);
+    });
+
+    it('shows the stored output, not an unsaved input, when the view is Output', async () => {
+      render(<App />);
+      await userEvent.click((await nameCells())[0]);
+      await userEvent.clear(screen.getByRole('textbox', { name: 'name' }));
+      await userEvent.type(screen.getByRole('textbox', { name: 'name' }), 'b{Enter}');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Output' }));
+
+      expect(screen.getByText('ORD-a')).toBeTruthy();
+      expect(screen.queryByText('b')).toBeNull();
+    });
+
+    it('edits as text a boolean column whose lines hold strings, so a value the schema takes can be typed', async () => {
+      vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+        if (String(input) === '/api/tables')
+          return json({
+            dataDir: '/data',
+            tables: [
+              { ...users, columns: [...users.columns, { name: 'active', type: 'INTEGER', valueType: 'boolean' }] },
+            ],
+            problems: [],
+          });
+        return json({
+          rows: [{ id: 1, name: 'x', active: true }],
+          defaulted: [[]],
+          inputs: [{ id: 1, name: 'x', active: 'yes' }],
+        });
+      });
+      render(<App />);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Edit active' }));
+      expect((screen.getByRole('textbox', { name: 'active' }) as HTMLTextAreaElement).value).toBe('yes');
+      await userEvent.clear(screen.getByRole('textbox', { name: 'active' }));
+      await userEvent.type(screen.getByRole('textbox', { name: 'active' }), 'no{Enter}');
+
+      expect(screen.getByRole('button', { name: 'Edit active' }).textContent).toContain('no');
+      expect(screen.queryByRole('button', { name: 'false' })).toBeNull();
+    });
+
+    it('fills a new row by the input types even while the view is Output', async () => {
+      vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+        if (String(input) === '/api/tables')
+          return json({
+            dataDir: '/data',
+            tables: [
+              { ...users, columns: [...users.columns, { name: 'active', type: 'INTEGER', valueType: 'boolean' }] },
+            ],
+            problems: [],
+          });
+        return json({
+          rows: [{ id: 1, name: 'ORD-x', active: true }],
+          defaulted: [[]],
+          inputs: [{ id: 1, name: 'x', active: 'yes' }],
+        });
+      });
+      render(<App />);
+      await userEvent.click(await screen.findByRole('button', { name: 'Output' }));
+
+      await userEvent.click(screen.getByRole('button', { name: 'Add record' }));
+
+      expect(within(screen.getByRole('dialog')).getByRole('textbox', { name: 'active' })).toBeTruthy();
+    });
+
+    describe('a schema that renames a field', () => {
+      beforeEach(() => {
+        rows.users = {
+          rows: [{ id: 1, name: 'A' }],
+          defaulted: [[]],
+          inputs: [{ id: 1, legacy_name: 'a' }],
+        };
+      });
+
+      it('shows the field the file holds, read-only, in the Input view', async () => {
+        render(<App />);
+
+        expect(await screen.findByRole('columnheader', { name: /legacy_name/ })).toBeTruthy();
+        expect(screen.getByText('a')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Edit legacy_name' })).toBeNull();
+      });
+
+      it('does not offer the field only the schema makes as an input to edit', async () => {
+        render(<App />);
+        await screen.findByRole('columnheader', { name: /legacy_name/ });
+
+        expect(screen.getByRole('columnheader', { name: /^name/ })).toBeTruthy();
+        expect(screen.getByText('A')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Edit name' })).toBeNull();
+      });
+
+      it('fills a new row by the field the file holds, not by the one the schema makes', async () => {
+        render(<App />);
+        await screen.findByRole('columnheader', { name: /legacy_name/ });
+
+        await userEvent.click(screen.getByRole('button', { name: 'Add record' }));
+        const dialog = within(screen.getByRole('dialog'));
+
+        expect(dialog.getByRole('textbox', { name: 'legacy_name' })).toHaveProperty('readOnly', false);
+        expect(dialog.getByRole('textbox', { name: 'name' })).toHaveProperty('readOnly', true);
+      });
+
+      it('shows only the fields the schema makes in the Output view', async () => {
+        render(<App />);
+        await userEvent.click(await screen.findByRole('button', { name: 'Output' }));
+
+        expect(screen.queryByRole('columnheader', { name: /legacy_name/ })).toBeNull();
+        expect(screen.getByText('A')).toBeTruthy();
+      });
+    });
+
+    it('offers no choice of view for a table whose values are as written', async () => {
+      rows.users = { rows: [{ id: 1, name: 'Alice' }], defaulted: [[]], inputs: [{ id: 1, name: 'Alice' }] };
+      render(<App />);
+
+      await nameCells();
+
+      expect(screen.queryByRole('group', { name: 'Values shown' })).toBeNull();
+    });
+  });
+
+  it('does not match every row when filtering for null in a table that sent no input side', async () => {
+    render(<App />);
+    await nameCells();
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Filter rows' }), 'null');
+
+    expect(screen.queryAllByRole('button', { name: 'Edit name' })).toHaveLength(0);
+  });
+
   it('edits a cell from a click while the form is hidden', async () => {
     render(<App />);
 

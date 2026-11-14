@@ -12,6 +12,8 @@ export interface TablesResponse {
 export interface RowsResponse {
   rows: JsonObject[];
   defaulted: string[][];
+  /** Each row as its line holds it, before the schema transformed its values; absent for a table with failing rows */
+  inputs?: JsonObject[];
   /** The issues of each row that fails validation, by its index */
   issues?: Record<string, Issue[]>;
   /** For a table with failing rows: the file its rows were read from, sent back with changes to it */

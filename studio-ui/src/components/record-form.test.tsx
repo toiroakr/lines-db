@@ -163,6 +163,15 @@ describe('FormField', () => {
     expect(held.onUseDefault).toHaveBeenCalled();
   });
 
+  it('shows the output of a value under its input, not as a field to edit', () => {
+    const model = field({ name: 'code', type: 'TEXT' }, 'a', { output: 'ORD-a' });
+    render(<FormField model={model} />);
+
+    expect((screen.getByLabelText('code') as HTMLTextAreaElement).value).toBe('a');
+    expect(document.querySelector('[data-output="code"]')?.textContent).toBe('→ ORD-a');
+    expect(document.querySelector('[data-output="code"] input, [data-output="code"] textarea')).toBeNull();
+  });
+
   it('opens the row a foreign key refers to', async () => {
     const onOpenReference = vi.fn();
     const model = field({ name: 'owner', type: 'INTEGER' }, 1, {
