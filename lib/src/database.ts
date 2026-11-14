@@ -158,16 +158,23 @@ function sameValue(a: unknown, b: unknown): boolean {
   return text(a) === text(b);
 }
 
+/** Whether a value is a bigint or holds one at any depth, which a JSONL line cannot hold */
+function holdsBigint(value: unknown): boolean {
+  if (typeof value === 'bigint') return true;
+  if (Array.isArray(value)) return value.some(holdsBigint);
+  return value !== null && typeof value === 'object' && Object.values(value).some(holdsBigint);
+}
+
 /**
  * The values of a row given to an insert that the stored row holds differently, after the schema transformed
- * them. A bigint is left out: a line cannot hold one, so the row keeps the value the schema made of it
+ * them. A value holding a bigint is left out: a line cannot hold one, so the row keeps the value the schema
+ * made of it
  */
 function transformedInputs(given: object, stored: object): Map<string, unknown> | undefined {
   const inputs = new Map(
     Object.entries(given)
       .filter(
-        ([key, value]) =>
-          value !== undefined && typeof value !== 'bigint' && !sameValue(value, (stored as JsonObject)[key]),
+        ([key, value]) => value !== undefined && !holdsBigint(value) && !sameValue(value, (stored as JsonObject)[key]),
       )
       // Copied: the caller may change an object it passed before the write-back runs
       .map(([key, value]) => [key, structuredClone(value)] as const),
@@ -1311,6 +1318,8 @@ export class LinesDB<Tables extends TableDefs> {
       if (this.totalChanges() !== before) {
         for (const tableName of this.schemas.keys()) {
           this.rawSqlTables.add(tableName);
+          // Raw SQL can add and remove rows, and give a new row the rowid of a removed one
+          this.linePositionsByRowid.delete(tableName);
           this.noteChange(tableName);
         }
         this.forgetLinesOfGoneRows(this.schemas.keys());
@@ -2435,9 +2444,7 @@ export class LinesDB<Tables extends TableDefs> {
   /** Whether the rows of a table are matched to their lines by where each stands, as no primary key tells them apart */
   private tracksLinePositions(tableName: string): boolean {
     return (
-      !this.hasSeveralDataDirs() &&
-      !this.config.writeDataSets &&
-      this.schemas.get(tableName)?.columns.some((column) => column.primaryKey) === false
+      !this.hasSeveralDataDirs() && this.schemas.get(tableName)?.columns.some((column) => column.primaryKey) === false
     );
   }
 
@@ -2511,7 +2518,12 @@ export class LinesDB<Tables extends TableDefs> {
       ...(matchedByOrigin
         ? { rowids, unchanged: JsonlWriter.serialize(existingRows) === JsonlWriter.serialize(finalRows) }
         : {}),
-      ...(matchedByPosition ? { positions: positionsAfterWrite(rowids, matchedByPosition, existingRows) } : {}),
+      ...(matchedByPosition
+        ? { positions: positionsAfterWrite(rowids, matchedByPosition, existingRows) }
+        : this.tracksLinePositions(tableName)
+          ? // Written in rowid order, as rows no position is recorded for are
+            { positions: new Map(rowids.map((rowid, position) => [rowid, position])) }
+          : {}),
     };
   }
 
@@ -2547,13 +2559,16 @@ export class LinesDB<Tables extends TableDefs> {
     existingRows: JsonObject[],
     namedFields: readonly string[] = [],
     matchedLines?: Array<JsonObject | undefined>,
-  ): Array<{ written: JsonObject; narrowed: boolean }> {
+    options?: { ignoreActions?: boolean },
+  ): Array<{ written: JsonObject; narrowed: boolean; line?: JsonObject }> {
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
     // Not left to the recorded changes: an ON DELETE / ON UPDATE action changes these columns in SQLite
     // without a write through this database
-    const actionColumns = (this.schemas.get(tableName)?.foreignKeys ?? [])
-      .filter((fk) => [fk.onDelete, fk.onUpdate].some((action) => action === 'CASCADE' || action === 'SET NULL'))
-      .map((fk) => fk.column);
+    const actionColumns = options?.ignoreActions
+      ? []
+      : (this.schemas.get(tableName)?.foreignKeys ?? [])
+          .filter((fk) => [fk.onDelete, fk.onUpdate].some((action) => action === 'CASCADE' || action === 'SET NULL'))
+          .map((fk) => fk.column);
     const lines =
       matchedLines ?? this.matchExistingRows(tableName, lineRows, existingRows, { required: false, byOutputKey: true });
     const changes = this.fieldChanges.get(tableName);
@@ -2566,7 +2581,7 @@ export class LinesDB<Tables extends TableDefs> {
       // Not narrowed without a line unless the row was inserted: a row whose key changed has lost its
       // line too, and narrowing it would drop the fields that line held
       if (renamesFields || this.rawSqlTables.has(tableName) || (!line && !rowChanges?.inserted)) {
-        return { written: lineRow, narrowed: false };
+        return { written: lineRow, narrowed: false, line };
       }
 
       const keep = new Set([...Object.keys(line ?? {}), ...(rowChanges?.set ?? []), ...actionColumns]);
@@ -2596,6 +2611,7 @@ export class LinesDB<Tables extends TableDefs> {
             ]),
         ) as JsonObject,
         narrowed: true,
+        line,
       };
     });
   }
@@ -2780,18 +2796,26 @@ export class LinesDB<Tables extends TableDefs> {
         this.config.writeBackFields,
         matches,
       );
-      // Not narrowed by writeBackFields: a field named there is written from the database, which says
-      // nothing of the value its line holds
-      const lines = this.config.writeBackFields?.length
-        ? this.keepWrittenFields(tableName, rowids, rows, lineRows, existingRows, [], matches)
-        : kept;
+      // Not narrowed by writeBackFields or by a foreign-key action: what the database writes says nothing
+      // of the value a line holds
+      const lines = this.keepWrittenFields(tableName, rowids, rows, lineRows, existingRows, [], matches, {
+        ignoreActions: true,
+      });
       return ok(
         rows.map((row, index) => ({
           row: row as Tables[K],
           defaulted: kept[index].narrowed
             ? Object.keys(row).filter((key) => !Object.hasOwn(kept[index].written, key))
             : [],
-          input: lines[index].written,
+          // A field only the line holds is one the schema removed, which the row lacks
+          input: {
+            ...lines[index].written,
+            ...Object.fromEntries(
+              Object.entries(lines[index].line ?? {}).filter(
+                ([key]) => !Object.hasOwn(lines[index].written, key) && !Object.hasOwn(row, key),
+              ),
+            ),
+          },
         })),
       );
     } catch (error) {
@@ -3032,7 +3056,8 @@ export class LinesDB<Tables extends TableDefs> {
    */
   private outputKeyOfLine(tableName: string, line: JsonObject, pkName: string): unknown {
     const schema = this.validationSchemas.get(tableName);
-    if (!schema || hasBackward(schema)) return line[pkName];
+    // Not validated without a key in the line: a key the schema generates can differ on every validation
+    if (!schema || hasBackward(schema) || line[pkName] === undefined || line[pkName] === null) return line[pkName];
     try {
       return this.validateAndTransform(tableName, line)[pkName] ?? line[pkName];
     } catch {

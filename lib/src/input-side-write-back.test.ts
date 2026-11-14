@@ -190,6 +190,14 @@ describe('LinesDB write-back of an object the caller changes afterwards', () => 
     await rm(dataDir, { recursive: true, force: true });
   });
 
+  it('writes the schema value when an object holds a bigint, which a file cannot hold', async () => {
+    unwrap(
+      await db.transaction((tx) => unwrap(tx.insert('orders', { id: 2, meta: { code: 1n as unknown as string } }))),
+    );
+
+    expect(await readFile(join(dataDir, 'orders.jsonl'), 'utf-8')).toContain('{"id":2,"meta":{"code":"ORD-1"}}');
+  });
+
   it('writes the object as it was when inserted, not as the caller changed it before the write', async () => {
     const meta = { code: 'a' };
 
@@ -293,15 +301,16 @@ describe('LinesDB write-back of a table without a primary key and a transforming
     expect(await read()).toBe('{"code":"a","note":"n"}\n{"code":"b","note":"q"}\n{"code":"c","note":"p"}\n');
   });
 
-  it('does not give a row added after a delete the line of the row it took the rowid from', async () => {
+  it('keeps the line of the surviving row when the first row is deleted, the other updated and a row added', async () => {
     unwrap(
       await db.transaction((tx) => {
-        unwrap(tx.delete('notes', { note: 'o' }));
+        unwrap(tx.delete('notes', { note: 'n' }));
+        unwrap(tx.update('notes', { note: 'q' }, { note: 'o' }));
         unwrap(tx.insert('notes', { code: 'z', note: 'w' }));
       }),
     );
 
-    expect(await read()).toBe('{"code":"a","note":"n"}\n{"code":"z","note":"w"}\n');
+    expect(await read()).toBe('{"code":"b","note":"q"}\n{"code":"z","note":"w"}\n');
   });
 
   it('keeps the lines as they were when the transaction is rolled back', async () => {
@@ -324,5 +333,55 @@ describe('LinesDB write-back of a table without a primary key and a transforming
 
     expect(!result.ok && result.error.name).toBe('JsonlConflictError');
     expect(await read()).toBe('{"code":"x","note":"first"}\n{"code":"a","note":"n"}\n{"code":"b","note":"o"}\n');
+  });
+});
+
+describe('LinesDB.findWithDefaults input side of a field the schema removes', () => {
+  it('gives the field the line holds, which the row lacks', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'linesdb-input-removed-'));
+    await writeFile(join(dataDir, 'orders.jsonl'), '{"id":1,"old":"x"}\n');
+    await writeFile(
+      join(dataDir, 'orders.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { id: data.id } }) } };
+`,
+    );
+    const db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    try {
+      unwrap(await db.initialize());
+
+      const [{ row, input }] = unwrap(await db.findWithDefaults('orders'));
+
+      expect({ row, input }).toEqual({ row: { id: 1 }, input: { id: 1, old: 'x' } });
+    } finally {
+      await db.close();
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('LinesDB write-back of a table without a primary key with writeDataSets', () => {
+  it('keeps the value of each line when a row is added', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'linesdb-input-sets-'));
+    await writeFile(join(dataDir, 'notes.jsonl'), '{"code":"a","note":"n"}\n{"code":"b","note":"o"}\n');
+    await writeFile(
+      join(dataDir, 'notes.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, code: 'ORD-' + data.code } }) } };
+`,
+    );
+    const db = LinesDB.create<TableDefs>({ dataDir, writeDataSets: true, writeFilledValues: 'primaryKey' });
+    try {
+      unwrap(await db.initialize());
+
+      unwrap(await db.transaction((tx) => unwrap(tx.insert('notes', { code: 'c', note: 'p' }))));
+
+      expect(await readFile(join(dataDir, 'notes.jsonl'), 'utf-8')).toBe(
+        '{"code":"a","note":"n"}\n{"code":"b","note":"o"}\n{"code":"c","note":"p"}\n',
+      );
+    } finally {
+      await db.close();
+      await rm(dataDir, { recursive: true, force: true });
+    }
   });
 });
