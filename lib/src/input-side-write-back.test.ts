@@ -497,7 +497,8 @@ describe('LinesDB line positions around a write in progress and keys the schema 
   });
 
   it('does not give a row added while a write is in progress the line of the row it took the rowid from', async () => {
-    await writeFile(join(dataDir, 'notes.jsonl'), '{"code":"a","note":"n"}\n{"code":"b","note":"o"}\n');
+    // `old` is only on the line of the row deleted below, so the row taking its rowid must not get it
+    await writeFile(join(dataDir, 'notes.jsonl'), '{"code":"a","note":"n"}\n{"code":"b","note":"o","old":"x"}\n');
     await writeFile(join(dataDir, 'notes.schema.ts'), NO_KEY);
     db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey', writeBackFields: ['note'] });
     unwrap(await db.initialize());
@@ -522,6 +523,36 @@ describe('LinesDB line positions around a write in progress and keys the schema 
     unwrap(await db.sync('notes'));
 
     expect(await read('notes')).toBe('{"code":"a","note":"m"}\n{"code":"z","note":"q"}\n');
+  });
+
+  it('keeps the line of a row whose key is changed again while a write is in progress', async () => {
+    await writeFile(join(dataDir, 'orders.jsonl'), '{"id":3,"code":"a"}\n{"id":1,"code":"b"}\n');
+    await writeFile(
+      join(dataDir, 'orders.schema.ts'),
+      `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, code: 'ORD-' + data.code } }) } };
+`,
+    );
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize());
+    const write = JsonlWriter.write.bind(JsonlWriter);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const writing = new Promise<void>((resolve) => (entered = resolve));
+    vi.spyOn(JsonlWriter, 'write').mockImplementationOnce(async (...args) => {
+      entered();
+      await held;
+      return write(...args);
+    });
+
+    unwrap(db.update('orders', { id: 2 }, { id: 1 }));
+    await writing;
+    unwrap(db.update('orders', { id: 4 }, { id: 2 }));
+    release();
+    unwrap(await db.sync('orders'));
+
+    expect(await read('orders')).toBe('{"id":3,"code":"a"}\n{"id":4,"code":"b"}\n');
   });
 
   it('keeps the lines of a table whose primary key the schema generates when a row is added', async () => {

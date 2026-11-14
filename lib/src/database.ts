@@ -141,8 +141,14 @@ function positionsAfterWrite(
   );
 }
 
-/** The temporary table the rowid changes of rows are logged to */
-const MOVED_ROWS_LOG = 'temp."__lines_db_moved_rows"';
+/** A row's position dropped, as its row was deleted or a new row took its rowid, or moved with its row to another rowid */
+type PositionEdit = { forget: string } | { from: string; to: string };
+
+/**
+ * The temporary table the rowid changes of rows are logged to. Not qualified with `temp.`: SQLite before 3.53, as Bun
+ * ships, refuses a qualified table name in a trigger body, and an unqualified one is looked up in `temp` first
+ */
+const MOVED_ROWS_LOG = '"__lines_db_moved_rows"';
 
 /** Column alias a query reads a row's rowid under, next to its fields */
 const ROWID_ALIAS = '__lines_db_rowid';
@@ -234,10 +240,10 @@ export class LinesDB<Tables extends TableDefs> {
    */
   private linePositionsByRowid: Map<string, Map<string, number>> = new Map();
   /**
-   * The rows inserted, deleted or moved since a table's rows were read for its write-back: the positions that
-   * write-back computes describe the rows as they were, so they are not kept for these
+   * What happened to the positions of a table's rows since its rows were read for its write-back, in order: the
+   * positions that write-back computes describe the rows as they were, and are brought up to date with these
    */
-  private positionsTouched: Map<string, Set<string>> = new Map();
+  private positionEdits: Map<string, PositionEdit[]> = new Map();
   /** Whether the temporary table that triggers log the rowid changes of rows to exists */
   private movedRowsLogReady = false;
   /** Whether a transaction's callback has returned and its files are being written back */
@@ -2424,7 +2430,7 @@ export class LinesDB<Tables extends TableDefs> {
     this.assertWritable(tableName);
     const config = this.tables.get(tableName);
     if (!config) throw new Error(`Table ${tableName} not found`);
-    this.positionsTouched.set(tableName, new Set());
+    this.positionEdits.set(tableName, []);
     const stored = this.readStoredRows(tableName);
     if (!this.hasSeveralDataDirs()) {
       return [await this.prepareFileWriteBack(tableName, config.jsonlPath, stored, options)];
@@ -2460,7 +2466,7 @@ export class LinesDB<Tables extends TableDefs> {
 
   private forgetPosition(tableName: string, rowid: string): void {
     this.linePositionsByRowid.get(tableName)?.delete(rowid);
-    this.positionsTouched.get(tableName)?.add(rowid);
+    this.positionEdits.get(tableName)?.push({ forget: rowid });
   }
 
   /**
@@ -2717,7 +2723,7 @@ export class LinesDB<Tables extends TableDefs> {
    * later, which must not inherit them
    */
   private moveRowMetadata(tableName: string, from: string, to: string): void {
-    this.positionsTouched.get(tableName)?.add(from).add(to);
+    this.positionEdits.get(tableName)?.push({ from, to });
     for (const byRow of [
       this.fieldChanges.get(tableName),
       this.linesWithUnknownFields.get(tableName),
@@ -3001,7 +3007,18 @@ export class LinesDB<Tables extends TableDefs> {
     }
     for (const { tableName, jsonlPath, generation, rowids, positions } of written) {
       if (positions) {
-        for (const rowid of this.positionsTouched.get(tableName) ?? []) positions.delete(rowid);
+        // Not dropped for a row that moved: it keeps its line under its new rowid, as its key no longer finds it
+        for (const edit of this.positionEdits.get(tableName) ?? []) {
+          if ('forget' in edit) {
+            positions.delete(edit.forget);
+            continue;
+          }
+          // Nothing to carry when the move was already applied - a move is logged both by the update and by its trigger
+          const position = positions.get(edit.from);
+          if (position === undefined) continue;
+          positions.delete(edit.from);
+          positions.set(edit.to, position);
+        }
         this.linePositionsByRowid.set(tableName, positions);
       }
       if ((this.changeGenerations.get(tableName) ?? 0) === generation) {

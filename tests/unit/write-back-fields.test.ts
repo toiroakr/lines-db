@@ -387,15 +387,16 @@ export const schema = defineSchema({
     unwrap(db.insert('User', { id: 'u3', name: 'Judy', nickname: null, computed: 'computed-Judy' }));
 
     unwrap(await db.sync('User'));
+    const ids = Object.fromEntries(unwrap(db.find('User')).map((row) => [row.name, row.id]));
     await db.close();
 
-    const lines = await readJsonl(dataPath);
-    expect(lines.map((line) => line.name)).toEqual(['John', 'Jane', 'Judy']);
-    // The lines read keep only what they held, plus the id named to be written back
-    expect(lines.slice(0, 2).map((line) => Object.keys(line).sort())).toEqual([
-      ['id', 'name'],
-      ['id', 'name'],
+    // Each line read gets the id its own row holds, and keeps only what it held besides
+    expect(await readJsonl(dataPath)).toEqual([
+      { name: 'John', id: ids.John },
+      { name: 'Jane', id: ids.Jane },
+      expect.objectContaining({ id: 'u3', name: 'Judy' }),
     ]);
+    expect(ids.John).not.toBe(ids.Jane);
   });
 
   it('refuses to guess when rows cannot be matched to their lines', async () => {

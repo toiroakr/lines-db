@@ -110,6 +110,12 @@ describe('inputColumn', () => {
     });
   });
 
+  it('looks only at the values the lines hold, not at those the schema filled in', () => {
+    const rows = [{ active: true }, { active: false }];
+
+    expect(inputColumn(boolean, rows, [{ active: 'yes' }, {}])).toEqual({ name: 'active', type: 'TEXT' });
+  });
+
   it('keeps a column when no line holds a value for it, or only null', () => {
     expect([inputColumn(boolean, rows, undefined), inputColumn(boolean, rows, [{ id: 1, active: null }])]).toEqual([
       boolean,

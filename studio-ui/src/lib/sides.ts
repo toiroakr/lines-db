@@ -67,8 +67,9 @@ function strays(column: Column, value: JsonValue): boolean {
  */
 export function inputColumn(column: Column, rows: JsonObject[], inputs: JsonObject[] | undefined): Column {
   if (!inputs) return column;
+  // Not the value the schema filled in for a line without one: that is an output, and says nothing of the input type
   const held = rows
-    .map((row, index) => inputOf(row, inputs[index], column.name))
+    .map((_row, index) => inputs[index]?.[column.name])
     .filter((value): value is JsonValue => value !== undefined && value !== null);
   if (!held.some((value) => strays(column, value))) return column;
   const { valueType: _valueType, ...rest } = column;
