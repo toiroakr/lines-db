@@ -499,6 +499,8 @@ Use `sync(tableName, { writeFilledValues })` to override the setting for one syn
 
 `resetToDefault` restores a field's schema default. With `writeFilledValues: 'primaryKey'`, that field is removed from the file.
 
+A schema can also transform a value you wrote: a TailorDB `create` hook turns the `code` `"1"` into `"ORD-1"`. A seed file holds the value before that transformation, because the platform applies the hook itself, so with `writeFilledValues: 'primaryKey'` a write-back keeps the value a line holds, and writes the value an `insert()` or `update()` was given, not the transformed one. With `'all'` the transformed value is written, and reading the file back transforms it a second time (`"ORD-ORD-1"`) unless the transformation gives the same result when applied again. Use `'primaryKey'` for files that hold input values. `findWithDefaults()` returns each row's `input`, the row as its line holds it, beside the transformed `row`.
+
 ```typescript
 unwrap(db.update('people', {}, { id: 1 }, { resetToDefault: ['age'] }));
 ```

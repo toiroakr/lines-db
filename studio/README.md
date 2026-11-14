@@ -35,6 +35,8 @@ Values supplied by the schema are dimmed and marked **default**. **Remove field*
 
 By default, saves write explicitly supplied fields and generated primary keys. Other schema defaults remain omitted. Use `--write-filled-values all` to write every value, including defaults. See [write-back behavior](https://github.com/toiroakr/lines-db/blob/main/lib/README.md#values-the-schema-fills-in) for details.
 
+When the schema transforms a value (a `create` hook turning `"1"` into `"ORD-1"`), the grid shows an **Input / Output / Both** switch. Input, the default, is what the file holds and what a cell edits; Output is what the schema makes of it and is read-only; Both shows the output beside the editable input. A save writes the input.
+
 ### Fix invalid rows
 
 When a table contains rows that fail validation, Studio displays the original file and marks the affected rows and cells. Saving a correction validates the row and rewrites only that line. Other lines remain unchanged. Once every row passes validation, Studio loads the table normally.

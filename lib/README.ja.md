@@ -498,6 +498,8 @@ unwrap(await db.transaction((tx) => unwrap(tx.update('people', { name: 'Alicia' 
 
 `resetToDefault`で指定したフィールドはスキーマの既定値に戻ります。`writeFilledValues: 'primaryKey'`では、そのフィールドをファイルから削除します。
 
+スキーマは、書いた値そのものを変換することもあります。TailorDBの`create`フックは、`code`の`"1"`を`"ORD-1"`にします。seedファイルにはプラットフォームがフックを自分で適用するため、変換前の値を持たせます。そのため`writeFilledValues: 'primaryKey'`では、書き戻しはファイルの行が持つ値と、`insert()`や`update()`に渡した値を書き、変換後の値は書きません。`'all'`では変換後の値を書くため、変換を2回かけても結果が変わらないスキーマでない限り、読み直すと再び変換されます(`"ORD-ORD-1"`)。入力値を持たせるファイルには`'primaryKey'`を使います。`findWithDefaults()`は、変換後の`row`と並べて、行がファイルで持つ値`input`を返します。
+
 ```typescript
 unwrap(db.update('people', {}, { id: 1 }, { resetToDefault: ['age'] }));
 ```
