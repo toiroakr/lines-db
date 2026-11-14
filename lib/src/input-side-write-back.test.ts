@@ -250,3 +250,79 @@ describe('LinesDB write-back with a schema that transforms the primary key', () 
     expect(unwrap(db.find('orders')).map((row) => row.id)).toEqual(['ORD-b', 'ORD-c']);
   });
 });
+
+describe('LinesDB write-back of a table without a primary key and a transforming schema', () => {
+  let dataDir: string;
+  let db: LinesDB<TableDefs>;
+  const read = () => readFile(join(dataDir, 'notes.jsonl'), 'utf-8');
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'linesdb-input-nopk-'));
+    await writeFile(join(dataDir, 'notes.jsonl'), '{"code":"a","note":"n"}\n{"code":"b","note":"o"}\n');
+    await writeFile(
+      join(dataDir, 'notes.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, code: 'ORD-' + data.code } }) } };
+`,
+    );
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize());
+  });
+
+  afterEach(async () => {
+    await db.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('keeps the value of each line when a row is added', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.insert('notes', { code: 'c', note: 'p' }))));
+
+    expect(await read()).toBe('{"code":"a","note":"n"}\n{"code":"b","note":"o"}\n{"code":"c","note":"p"}\n');
+  });
+
+  it('keeps the value of each line when a row is deleted', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.delete('notes', { note: 'n' }))));
+
+    expect(await read()).toBe('{"code":"b","note":"o"}\n');
+  });
+
+  it('keeps the value of each line when a row is updated after another was added', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.insert('notes', { code: 'c', note: 'p' }))));
+    unwrap(await db.transaction((tx) => unwrap(tx.update('notes', { note: 'q' }, { note: 'o' }))));
+
+    expect(await read()).toBe('{"code":"a","note":"n"}\n{"code":"b","note":"q"}\n{"code":"c","note":"p"}\n');
+  });
+
+  it('does not give a row added after a delete the line of the row it took the rowid from', async () => {
+    unwrap(
+      await db.transaction((tx) => {
+        unwrap(tx.delete('notes', { note: 'o' }));
+        unwrap(tx.insert('notes', { code: 'z', note: 'w' }));
+      }),
+    );
+
+    expect(await read()).toBe('{"code":"a","note":"n"}\n{"code":"z","note":"w"}\n');
+  });
+
+  it('keeps the lines as they were when the transaction is rolled back', async () => {
+    await db.transaction((tx) => {
+      unwrap(tx.insert('notes', { code: 'c', note: 'p' }));
+      throw new Error('stop');
+    });
+    unwrap(await db.transaction((tx) => unwrap(tx.update('notes', { note: 'q' }, { note: 'n' }))));
+
+    expect(await read()).toBe('{"code":"a","note":"q"}\n{"code":"b","note":"o"}\n');
+  });
+
+  it('refuses to write over a file another process changed, so a recorded position never points at a moved line', async () => {
+    await writeFile(
+      join(dataDir, 'notes.jsonl'),
+      '{"code":"x","note":"first"}\n{"code":"a","note":"n"}\n{"code":"b","note":"o"}\n',
+    );
+
+    const result = await db.transaction((tx) => unwrap(tx.update('notes', { note: 'q' }, { note: 'n' })));
+
+    expect(!result.ok && result.error.name).toBe('JsonlConflictError');
+    expect(await read()).toBe('{"code":"x","note":"first"}\n{"code":"a","note":"n"}\n{"code":"b","note":"o"}\n');
+  });
+});

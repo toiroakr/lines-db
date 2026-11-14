@@ -82,6 +82,8 @@ interface PreparedWriteBack {
   /** How many changes the table had seen when its rows were read */
   generation: number;
   rowids?: string[];
+  /** For a table without a primary key: where each row's line stands in the file once this is written */
+  positions?: Map<string, number>;
   unchanged?: boolean;
   completed?: boolean;
 }
@@ -115,6 +117,27 @@ function cloneFieldChanges(changes: Map<string, Map<string, FieldChanges>>): Map
         ]),
       ),
     ]),
+  );
+}
+
+/**
+ * Where each row's line stands in a file once it is written: the lines of rows that kept one stay in order,
+ * and a row without one goes after them, in the order the rows are given
+ */
+function positionsAfterWrite(
+  rowids: string[],
+  matches: Array<JsonObject | undefined>,
+  existingRows: JsonObject[],
+): Map<string, number> {
+  const kept = new Set(matches.filter((line): line is JsonObject => line !== undefined));
+  const positionOfLine = new Map<JsonObject, number>();
+  existingRows.filter((line) => kept.has(line)).forEach((line, position) => positionOfLine.set(line, position));
+  let next = positionOfLine.size;
+  return new Map(
+    rowids.map((rowid, index) => {
+      const line = matches[index];
+      return [rowid, line === undefined ? next++ : positionOfLine.get(line)!];
+    }),
   );
 }
 
@@ -195,6 +218,11 @@ export class LinesDB<Tables extends TableDefs> {
    * back, also once the row's primary key changed and its line can no longer be found by it
    */
   private linesWithUnknownFields: Map<string, Map<string, JsonObject>> = new Map();
+  /**
+   * For a table without a primary key, where each row's line stands in its file: the rows cannot be
+   * matched to their lines by key, and by order only while none is added or removed
+   */
+  private linePositionsByRowid: Map<string, Map<string, number>> = new Map();
   /** Whether a transaction's callback has returned and its files are being written back */
   private transactionClosing = false;
   /** Whether a transaction() call is past its guard but has not begun yet */
@@ -832,6 +860,14 @@ export class LinesDB<Tables extends TableDefs> {
 
     this.fieldChanges.delete(tableName);
     this.linesWithUnknownFields.delete(tableName);
+    this.linePositionsByRowid.delete(tableName);
+    if (this.tracksLinePositions(tableName)) {
+      const positions = new Map<string, number>();
+      this.queryInternal<JsonObject>(
+        `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)} ORDER BY rowid`,
+      ).forEach((row, index) => positions.set(String(row[ROWID_ALIAS]), index));
+      this.linePositionsByRowid.set(tableName, positions);
+    }
     const columnNames = new Set(schema.columns.map((column) => column.name));
     const withUnknown = data.map((row) => Object.keys(row).some((key) => !columnNames.has(key)));
     if (transformedFields.some((fields) => fields.length > 0) || withUnknown.includes(true)) {
@@ -1571,6 +1607,7 @@ export class LinesDB<Tables extends TableDefs> {
       origins.set(String(result.lastInsertRowid), { file: destination, rowIndex: -1 });
       this.rowOriginsByRowid.set(tableName, origins);
     }
+    this.linePositionsByRowid.get(tableName)?.delete(String(result.lastInsertRowid));
     this.noteFieldChanges(tableName, result.lastInsertRowid, {
       set: givenFields(data),
       inputs: transformedInputs(data as object, row),
@@ -1656,6 +1693,7 @@ export class LinesDB<Tables extends TableDefs> {
           undoSettle();
           throw error;
         }
+        this.linePositionsByRowid.get(tableName)?.delete(String(result.lastInsertRowid));
         this.noteFieldChanges(tableName, result.lastInsertRowid, {
           set: givenFields(record),
           inputs: transformedInputs(record as object, row),
@@ -2394,6 +2432,29 @@ export class LinesDB<Tables extends TableDefs> {
     return prepared;
   }
 
+  /** Whether the rows of a table are matched to their lines by where each stands, as no primary key tells them apart */
+  private tracksLinePositions(tableName: string): boolean {
+    return (
+      !this.hasSeveralDataDirs() &&
+      !this.config.writeDataSets &&
+      this.schemas.get(tableName)?.columns.some((column) => column.primaryKey) === false
+    );
+  }
+
+  /** The line of each row by the position recorded for it, undefined for a row that has none */
+  private linesByPosition(
+    tableName: string,
+    rowids: string[],
+    existingRows: JsonObject[],
+  ): Array<JsonObject | undefined> | undefined {
+    const positions = this.linePositionsByRowid.get(tableName);
+    if (!positions) return undefined;
+    return rowids.map((rowid) => {
+      const position = positions.get(rowid);
+      return position === undefined ? undefined : existingRows[position];
+    });
+  }
+
   private async prepareFileWriteBack(
     tableName: string,
     jsonlPath: string,
@@ -2409,9 +2470,11 @@ export class LinesDB<Tables extends TableDefs> {
     });
     const existingRows = await this.readUnchangedRows(jsonlPath);
 
-    const matches = this.hasSeveralDataDirs()
+    const matchedByOrigin = this.hasSeveralDataDirs()
       ? rowids.map((rowid) => existingRows[this.rowOriginsByRowid.get(tableName)!.get(rowid)!.rowIndex])
       : undefined;
+    const matchedByPosition = matchedByOrigin ? undefined : this.linesByPosition(tableName, rowids, existingRows);
+    const matches = matchedByOrigin ?? matchedByPosition;
 
     // An empty list means no field is written back, not that every field is
     const fields = options?.fields ?? this.config.writeBackFields;
@@ -2445,9 +2508,10 @@ export class LinesDB<Tables extends TableDefs> {
       rows: finalRows,
       previousContent,
       generation,
-      ...(matches
+      ...(matchedByOrigin
         ? { rowids, unchanged: JsonlWriter.serialize(existingRows) === JsonlWriter.serialize(finalRows) }
         : {}),
+      ...(matchedByPosition ? { positions: positionsAfterWrite(rowids, matchedByPosition, existingRows) } : {}),
     };
   }
 
@@ -2585,6 +2649,7 @@ export class LinesDB<Tables extends TableDefs> {
 
   private forgetFieldChanges(tableName: string, rowids: string[]): void {
     for (const rowid of rowids) {
+      this.linePositionsByRowid.get(tableName)?.delete(rowid);
       this.fieldChanges.get(tableName)?.delete(rowid);
       this.linesWithUnknownFields.get(tableName)?.delete(rowid);
     }
@@ -2705,7 +2770,7 @@ export class LinesDB<Tables extends TableDefs> {
               const origin = this.rowOriginsByRowid.get(tableName)?.get(rowid);
               return origin && fileRows.get(origin.file)?.[origin.rowIndex];
             })
-          : undefined;
+          : this.linesByPosition(tableName, rowids, existingRows);
       const kept = this.keepWrittenFields(
         tableName,
         rowids,
@@ -2821,7 +2886,8 @@ export class LinesDB<Tables extends TableDefs> {
     } catch (error) {
       throw await this.restoreAll(written, error);
     }
-    for (const { tableName, jsonlPath, generation, rowids } of written) {
+    for (const { tableName, jsonlPath, generation, rowids, positions } of written) {
+      if (positions) this.linePositionsByRowid.set(tableName, positions);
       if ((this.changeGenerations.get(tableName) ?? 0) === generation) {
         this.fieldChanges.delete(tableName);
         this.rawSqlTables.delete(tableName);
@@ -3232,6 +3298,7 @@ export class LinesDB<Tables extends TableDefs> {
     let fieldChangesBefore: Map<string, Map<string, FieldChanges>> | undefined;
     let rawSqlTablesBefore: Set<string> | undefined;
     let linesWithUnknownFieldsBefore: Map<string, Map<string, JsonObject>> | undefined;
+    let linePositionsBefore: Map<string, Map<string, number>> | undefined;
     let originsBefore: Map<string, Map<string, RowOrigin>> | undefined;
     let columnsBefore: Map<string, TableSchema['columns']> | undefined;
     const scannedBefore = [...this.scannedJsonlFiles];
@@ -3248,6 +3315,9 @@ export class LinesDB<Tables extends TableDefs> {
       rawSqlTablesBefore = new Set(this.rawSqlTables);
       linesWithUnknownFieldsBefore = new Map(
         Array.from(this.linesWithUnknownFields, ([tableName, lines]) => [tableName, new Map(lines)]),
+      );
+      linePositionsBefore = new Map(
+        Array.from(this.linePositionsByRowid, ([tableName, positions]) => [tableName, new Map(positions)]),
       );
       this.db.exec('BEGIN TRANSACTION');
       this.settleUndos = [];
@@ -3290,6 +3360,7 @@ export class LinesDB<Tables extends TableDefs> {
       if (fieldChangesBefore) this.fieldChanges = fieldChangesBefore;
       if (rawSqlTablesBefore) this.rawSqlTables = rawSqlTablesBefore;
       if (linesWithUnknownFieldsBefore) this.linesWithUnknownFields = linesWithUnknownFieldsBefore;
+      if (linePositionsBefore) this.linePositionsByRowid = linePositionsBefore;
       // Not only when writing a file fails: a COMMIT failing after the writes leaves files holding rolled-back rows
       const failure = await this.restoreAll(written, error);
       if (this.inTransaction) {
