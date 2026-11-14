@@ -56,6 +56,23 @@ describe('LinesDB write-back with a schema that transforms a value the user set'
     expect(unwrap(db.findOne('orders', { id: 3 }))).toEqual({ id: 3, code: 'ORD-1' });
   });
 
+  it('keeps the value of a line when another field of the same row is updated', async () => {
+    await writeFile(join(dataDir, 'orders.jsonl'), '{"id":1,"code":"a","note":"n"}\n');
+    await db.close();
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize());
+
+    unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { note: 'm' }, { id: 1 }))));
+
+    expect(await read()).toBe('{"id":1,"code":"a","note":"m"}\n');
+  });
+
+  it('inserts a row whose value is a bigint', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.insert('orders', { id: 5n as unknown as number, code: '1' }))));
+
+    expect(await read()).toContain('"code":"1"');
+  });
+
   it('writes the value each record of a batch insert was given', async () => {
     unwrap(
       await db.transaction((tx) =>

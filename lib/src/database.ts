@@ -128,11 +128,18 @@ function givenFields(row: object): string[] {
     .map(([key]) => key);
 }
 
+/** Whether two values read the same once written as JSON; a bigint reads as its digits, which JSON.stringify refuses */
+function sameValue(a: unknown, b: unknown): boolean {
+  const text = (value: unknown) =>
+    JSON.stringify(value, (_key, item) => (typeof item === 'bigint' ? String(item) : item));
+  return text(a) === text(b);
+}
+
 /** The values of a row given to an insert that the stored row holds differently, after the schema transformed them */
 function transformedInputs(given: object, stored: object): Map<string, unknown> | undefined {
   const inputs = new Map(
     Object.entries(given).filter(
-      ([key, value]) => value !== undefined && JSON.stringify(value) !== JSON.stringify((stored as JsonObject)[key]),
+      ([key, value]) => value !== undefined && !sameValue(value, (stored as JsonObject)[key]),
     ),
   );
   return inputs.size > 0 ? inputs : undefined;
@@ -2494,17 +2501,19 @@ export class LinesDB<Tables extends TableDefs> {
       for (const key of rowChanges?.reset ?? []) keep.delete(key);
       for (const key of namedFields) keep.add(key);
       if (pkName) keep.add(pkName);
-      // Not the stored value for a row nothing wrote to: a schema computes a value that may differ from what
-      // the line holds, and an edit elsewhere in the file is no reason to write it into this line
-      const untouched = line !== undefined && !rowChanges?.inserted && !rowChanges?.set.size && !rowChanges?.reset.size;
+      // Not the stored value for a field nothing wrote to: a schema computes a value that may differ from what
+      // the line holds, and an edit to another field, in this row or elsewhere in the file, is no reason to
+      // write it into this line
+      const untouched = (key: string) =>
+        line !== undefined && !rowChanges?.inserted && Object.hasOwn(line, key) && !rowChanges?.set.has(key);
       return {
         written: Object.fromEntries(
           Object.entries(lineRow)
             .filter(([key]) => keep.has(key))
             .map(([key, value]) => [
               key,
-              untouched && Object.hasOwn(line, key) && !actionColumns.includes(key) && !namedFields.includes(key)
-                ? line[key]
+              untouched(key) && !actionColumns.includes(key) && !namedFields.includes(key)
+                ? line![key]
                 : rowChanges?.inputs?.has(key)
                   ? rowChanges.inputs.get(key)
                   : value,
