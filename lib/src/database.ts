@@ -2476,15 +2476,19 @@ export class LinesDB<Tables extends TableDefs> {
   private rowidsInLineOrder(tableName: string, rows: JsonObject[]): Array<string | undefined> {
     const pk = this.schemas.get(tableName)?.columns.find((column) => column.primaryKey);
     const stored = this.queryInternal<JsonObject>(
-      `SELECT rowid AS "${ROWID_ALIAS}"${pk ? `, ${this.quoteIdentifier(pk.name)} AS "key"` : ''} FROM ${this.quoteTableName(tableName)} ORDER BY rowid`,
-    );
-    // Without a key the rows went into an empty table in the order of the lines, so their rowids are in that order
-    if (!pk) return stored.map((row) => String(row[ROWID_ALIAS]));
-    const byKey = new Map(stored.map((row) => [String(row.key), String(row[ROWID_ALIAS])]));
+      `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)} ORDER BY rowid`,
+    ).map((row) => String(row[ROWID_ALIAS]));
+    // Without an INTEGER PRIMARY KEY the rows went into an empty table in the order of the lines, so their rowids
+    // are in that order, whatever key - null included - they hold
+    if (pk?.type !== 'INTEGER') return stored;
+    // An INTEGER PRIMARY KEY is the rowid, and a row inserted with a null one gets the largest rowid so far plus one
+    const present = new Set(stored);
+    let largest: number | undefined;
     return rows.map((row) => {
       const key = row[pk.name];
-      // Not looked up for a null key: SQLite takes several, and gives each its own rowid
-      return key === undefined || key === null ? undefined : byKey.get(String(this.normalizeValue(key, pk)));
+      const rowid = key === undefined || key === null ? (largest ?? 0) + 1 : Number(key);
+      largest = largest === undefined ? rowid : Math.max(largest, rowid);
+      return present.has(String(rowid)) ? String(rowid) : undefined;
     });
   }
 

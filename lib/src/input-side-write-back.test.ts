@@ -596,3 +596,33 @@ export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'te
     expect(await read('items')).toBe('{"id":3,"name":"c","extra":"x3"}\n{"id":1,"name":"A","extra":"x1"}\n');
   });
 });
+
+describe('LinesDB line positions of rows whose primary key is null', () => {
+  const PREFIX_WITH_KEY = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, code: 'ORD-' + data.code } }) } };
+`;
+
+  it.each([
+    ['a text key', '{"id":"x","code":"a"}\n{"id":null,"code":"b"}\n{"id":null,"code":"c"}\n', { id: 'x' }],
+    ['an integer key', '{"id":5,"code":"a"}\n{"id":null,"code":"b"}\n{"id":2,"code":"c"}\n', { id: 5 }],
+  ])('keeps the lines of rows without a key, with %s', async (_kind, content, where) => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'linesdb-input-nullkey-'));
+    await writeFile(join(dataDir, 'notes.jsonl'), content);
+    await writeFile(join(dataDir, 'notes.schema.ts'), PREFIX_WITH_KEY);
+    const db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    try {
+      unwrap(await db.initialize());
+
+      unwrap(await db.transaction((tx) => unwrap(tx.update('notes', { code: 'z' }, where))));
+
+      const codes = (await readFile(join(dataDir, 'notes.jsonl'), 'utf-8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line).code);
+      expect(codes).toEqual(['z', 'b', 'c']);
+    } finally {
+      await db.close();
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  });
+});
