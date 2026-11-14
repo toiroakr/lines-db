@@ -177,6 +177,15 @@ describe('App', () => {
     });
   });
 
+  it('does not match every row when filtering for null in a table that sent no input side', async () => {
+    render(<App />);
+    await nameCells();
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Filter rows' }), 'null');
+
+    expect(screen.queryAllByRole('button', { name: 'Edit name' })).toHaveLength(0);
+  });
+
   it('edits a cell from a click while the form is hidden', async () => {
     render(<App />);
 

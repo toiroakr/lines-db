@@ -509,7 +509,7 @@ unwrap(await db.findWithDefaults('people'));
 // [{ row: { id: 1, name: 'Alicia', age: 20 }, defaulted: ['age'], input: { id: 1, name: 'Alicia' } }]
 ```
 
-スキーマは、書いた値そのものを変換することもあります。TailorDBの`create`フックは、`code`の`"1"`を`"ORD-1"`にします。seedファイルにはプラットフォームがフックを自分で適用するため、変換前の値を持たせます。そのため`writeFilledValues: 'primaryKey'`では、書き戻しはファイルの行が持つ値と、`insert()`や`update()`に渡した値を書き、変換後の値は書きません。`'all'`では変換後の値を書くため、変換を2回かけても結果が変わらないスキーマでない限り、読み直すと再び変換されます(`"ORD-ORD-1"`)。入力値を持たせるファイルには`'primaryKey'`を使います。`findWithDefaults()`は、変換後の`row`と並べて、行がファイルで持つ値`input`を返します。
+スキーマは、書いた値そのものを変換することもあります。TailorDBの`create`フックは、`code`の`"1"`を`"ORD-1"`にします。seedファイルにはプラットフォームがフックを自分で適用するため、変換前の値を持たせます。そのため`writeFilledValues: 'primaryKey'`では、書き戻しはファイルの行が持つ値と、`insert()`や`update()`に渡した値を書き、変換後の値は書きません。例外は、`writeBackFields`や`sync(..., { fields })`で指定したフィールドと、`ON DELETE`/`ON UPDATE`の`CASCADE`や`SET NULL`で変わりうる外部キー列で、これらはデータベースの値(変換後の値)を書きます。`'all'`では変換後の値を書くため、変換を2回かけても結果が変わらないスキーマでない限り、読み直すと再び変換されます(`"ORD-ORD-1"`)。入力値を持たせるファイルには`'primaryKey'`を使います。`findWithDefaults()`は、変換後の`row`と並べて、行がファイルで持つ値`input`を返します。
 
 `backward`でフィールド名を変える行や、SQLで追加して元の行と書き込み記録がない行は、明示的に指定されたフィールドを判断できないため行全体を書き戻します。SQLで行を変更したテーブルも全行を書き戻します。読み込み時の移行用`transform`で設定したフィールドは、明示的に指定された値として扱います。
 

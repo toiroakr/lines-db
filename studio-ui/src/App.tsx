@@ -317,7 +317,11 @@ export function App() {
       })) ?? [];
     if (!filter) return all;
     const needle = filter.toLowerCase();
-    return all.filter(({ row, input }) => JSON.stringify([row, input]).toLowerCase().includes(needle));
+    return all.filter(({ row, input }) =>
+      JSON.stringify(input ? [row, input] : row)
+        .toLowerCase()
+        .includes(needle),
+    );
   }, [data, filter]);
 
   const openReference = (reference: Reference, value: JsonValue) => {
