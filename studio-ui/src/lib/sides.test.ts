@@ -148,6 +148,10 @@ describe('inputSideColumns', () => {
     ]);
   });
 
+  it('does not mark a field no row has as made by the schema: it is an optional field nobody filled', () => {
+    expect(inputSideColumns(columns, [{ id: 1, name: 'a' }], [{ id: 1, name: 'a' }], [[]])).toEqual(columns);
+  });
+
   it('keeps the columns as they are when every field is as written', () => {
     expect(inputSideColumns(columns, [{ id: 1, name: 'a', age: 2 }], [{ id: 1, name: 'a', age: 2 }], [[]])).toEqual(
       columns,

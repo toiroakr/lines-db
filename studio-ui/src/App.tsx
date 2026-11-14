@@ -67,7 +67,7 @@ import {
   type Pending,
 } from '@/lib/pending';
 import { cellText, formatValue, isBoolean } from '@/lib/values';
-import { hasTransformed, inputColumn, inputSideColumns, shownOf, type ValueView } from '@/lib/sides';
+import { hasTransformed, inputSideColumns, shownOf, type ValueView } from '@/lib/sides';
 import type { Column, Issue, JsonObject, JsonValue, Reference, TableInfo } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { fieldIssues, issuePath } from '@/lib/check';
@@ -305,21 +305,16 @@ export function App() {
   // Not offered for a table whose values the schema keeps as written: both sides would read the same
   const transformed = useMemo(() => (data ? hasTransformed(data.rows, data.inputs) : false), [data]);
   const view: ValueView = transformed ? chosenView : 'input';
-  // Typed by the input side, as that is what its editors take: a new row is always given as input
-  const inputTable = useMemo(
+
+  // The columns of what the file holds: those the Input view shows, and those a new row is given, whatever the view
+  const inputSideTable = useMemo(
     () =>
       table && data
-        ? { ...table, columns: table.columns.map((column) => inputColumn(column, data.rows, data.inputs)) }
+        ? { ...table, columns: inputSideColumns(table.columns, data.rows, data.inputs, data.defaulted) }
         : table,
     [table, data],
   );
-  const shownTable = useMemo(
-    () =>
-      view !== 'output' && table && data
-        ? { ...table, columns: inputSideColumns(table.columns, data.rows, data.inputs, data.defaulted) }
-        : table,
-    [table, data, view],
-  );
+  const shownTable = view === 'output' ? table : inputSideTable;
 
   const rows = useMemo(() => {
     const all =
@@ -372,13 +367,13 @@ export function App() {
     if (open.row === 'new') {
       const insert = pending.inserts.find((candidate) => candidate.id === open.id);
       if (!insert) return undefined;
-      const fields = (inputTable ?? table).columns.map((column): FieldModel => {
+      const fields = (inputSideTable ?? table).columns.map((column): FieldModel => {
         const set = Object.hasOwn(insert.row, column.name);
         return {
           column,
           value: insert.row[column.name],
           state: set ? 'set' : 'unset',
-          readOnly: false,
+          readOnly: Boolean(column.outputOnly),
           issues: [],
           canUseDefault: set,
           canRevert: false,
@@ -652,7 +647,7 @@ export function App() {
           </header>
           {table && (
             <NewRecordDialog
-              table={inputTable ?? table}
+              table={inputSideTable ?? table}
               dataDirs={meta?.dataDirs}
               open={adding}
               onClose={() => setAdding(false)}
@@ -817,7 +812,10 @@ export function App() {
               saving={saving}
               revision={data?.revision}
               view={view}
-              insertColumns={(view === 'output' ? inputTable : shownTable)?.columns ?? table.columns}
+              insertColumns={
+                // Matching the header: the Output view shows no column only the file holds
+                (inputSideTable?.columns ?? table.columns).filter((column) => view !== 'output' || !column.inputOnly)
+              }
               onRemoveField={removeFieldEverywhere}
               openRow={formShown ? openRow : undefined}
               formShown={formShown}
@@ -990,7 +988,7 @@ function Grid({
                   key={column.name}
                   column={column}
                   table={table.name}
-                  readOnly={column.inputOnly}
+                  readOnly={column.outputOnly}
                   value={insert.row[column.name]}
                   preview={(value) => ({
                     inserts: [{ ...insert.row, [column.name]: value }],

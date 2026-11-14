@@ -473,7 +473,8 @@ function NewRecordFields({
         column,
         value: draft[column.name],
         state: set ? 'set' : 'unset',
-        readOnly: false,
+        // Not given by a new row: the schema makes it from the fields the file holds
+        readOnly: Boolean(column.outputOnly),
         issues: [],
         canUseDefault: set,
         canRevert: false,

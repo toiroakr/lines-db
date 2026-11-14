@@ -91,7 +91,9 @@ export function inputSideColumns(
   const typed = columns.map((column) => inputColumn(column, rows, inputs));
   if (!inputs || rows.length === 0) return typed;
   const known = new Set(columns.map((column) => column.name));
+  // Not for a field no row has: that is an optional field nobody filled in, which a line can still be given
   const madeBySchema = (name: string) =>
+    rows.some((row) => Object.hasOwn(row, name)) &&
     rows.every((_row, index) => !Object.hasOwn(inputs[index] ?? {}, name) && !(defaulted[index] ?? []).includes(name));
   const lineOnly = [...new Set(inputs.flatMap((input) => Object.keys(input ?? {})))].filter((name) => !known.has(name));
   return [

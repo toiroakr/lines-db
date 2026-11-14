@@ -239,7 +239,20 @@ describe('App', () => {
         render(<App />);
         await screen.findByRole('columnheader', { name: /legacy_name/ });
 
+        expect(screen.getByRole('columnheader', { name: /^name/ })).toBeTruthy();
+        expect(screen.getByText('A')).toBeTruthy();
         expect(screen.queryByRole('button', { name: 'Edit name' })).toBeNull();
+      });
+
+      it('fills a new row by the field the file holds, not by the one the schema makes', async () => {
+        render(<App />);
+        await screen.findByRole('columnheader', { name: /legacy_name/ });
+
+        await userEvent.click(screen.getByRole('button', { name: 'Add record' }));
+        const dialog = within(screen.getByRole('dialog'));
+
+        expect(dialog.getByRole('textbox', { name: 'legacy_name' })).toHaveProperty('readOnly', false);
+        expect(dialog.getByRole('textbox', { name: 'name' })).toHaveProperty('readOnly', true);
       });
 
       it('shows only the fields the schema makes in the Output view', async () => {
