@@ -494,6 +494,35 @@ describe('studio server', () => {
     expect(body.defaulted).toEqual([['age'], []]);
   });
 
+  describe('a schema that transforms a value', () => {
+    const PREFIX_SCHEMA = `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, code: 'ORD-' + data.code } }) } };
+`;
+
+    beforeEach(async () => {
+      await studio.close();
+      await writeFile(join(dataDir, 'orders.jsonl'), '{"id":1,"code":"a"}\n');
+      await writeFile(join(dataDir, 'orders.schema.ts'), PREFIX_SCHEMA);
+      studio = await startStudioServer({ dataDir, port: 0 });
+    });
+
+    it('sends the rows as the schema makes them beside the values their lines hold', async () => {
+      const body = await bodyOf(await fetch(`${studio.url}/api/tables/orders/rows`));
+
+      expect(body.rows).toEqual([{ id: 1, code: 'ORD-a' }]);
+      expect(body.inputs).toEqual([{ id: 1, code: 'a' }]);
+    });
+
+    it('writes the code typed for an inserted row to the file as typed', async () => {
+      const response = await sendJsonRequest('POST', `${studio.url}/api/tables/orders/rows`, {
+        row: { id: 2, code: '1' },
+      });
+
+      expect(response.status).toBe(201);
+      expect(await readFile(join(dataDir, 'orders.jsonl'), 'utf8')).toBe('{"id":1,"code":"a"}\n{"id":2,"code":"1"}\n');
+    });
+  });
+
   it('leaves a field to its default when a change resets it, removing it from the line', async () => {
     await studio.close();
     await writeFile(join(dataDir, 'people.jsonl'), '{"id":2,"name":"Bob","age":40}\n');

@@ -92,6 +92,11 @@ interface FieldChanges {
   reset: Set<string>;
   /** Whether the row was inserted, rather than read from a line */
   inserted: boolean;
+  /**
+   * What an insert was given for a field its schema transformed, which the stored row holds in the
+   * transformed form: `{ code: '1' }` stored as `code: 'ORD-1'` keeps '1' here, the side the file holds
+   */
+  inputs?: Map<string, unknown>;
 }
 
 function cloneFieldChanges(changes: Map<string, Map<string, FieldChanges>>): Map<string, Map<string, FieldChanges>> {
@@ -101,7 +106,12 @@ function cloneFieldChanges(changes: Map<string, Map<string, FieldChanges>>): Map
       new Map(
         Array.from(byRow, ([rowid, row]) => [
           rowid,
-          { set: new Set(row.set), reset: new Set(row.reset), inserted: row.inserted },
+          {
+            set: new Set(row.set),
+            reset: new Set(row.reset),
+            inserted: row.inserted,
+            ...(row.inputs ? { inputs: new Map(row.inputs) } : {}),
+          },
         ]),
       ),
     ]),
@@ -116,6 +126,16 @@ function givenFields(row: object): string[] {
   return Object.entries(row)
     .filter(([, value]) => value !== undefined)
     .map(([key]) => key);
+}
+
+/** The values of a row given to an insert that the stored row holds differently, after the schema transformed them */
+function transformedInputs(given: object, stored: object): Map<string, unknown> | undefined {
+  const inputs = new Map(
+    Object.entries(given).filter(
+      ([key, value]) => value !== undefined && JSON.stringify(value) !== JSON.stringify((stored as JsonObject)[key]),
+    ),
+  );
+  return inputs.size > 0 ? inputs : undefined;
 }
 
 /** Whether a value read from SQLite and one about to be stored are the same */
@@ -1537,7 +1557,11 @@ export class LinesDB<Tables extends TableDefs> {
       origins.set(String(result.lastInsertRowid), { file: destination, rowIndex: -1 });
       this.rowOriginsByRowid.set(tableName, origins);
     }
-    this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(data), inserted: true });
+    this.noteFieldChanges(tableName, result.lastInsertRowid, {
+      set: givenFields(data),
+      inputs: transformedInputs(data as object, row),
+      inserted: true,
+    });
 
     // Auto-sync if not in transaction
     this.afterWrite(tableName, result.changes);
@@ -1618,7 +1642,11 @@ export class LinesDB<Tables extends TableDefs> {
           undoSettle();
           throw error;
         }
-        this.noteFieldChanges(tableName, result.lastInsertRowid, { set: givenFields(record), inserted: true });
+        this.noteFieldChanges(tableName, result.lastInsertRowid, {
+          set: givenFields(record),
+          inputs: transformedInputs(record as object, row),
+          inserted: true,
+        });
         totalChanges += BigInt(result.changes);
         lastRowid = BigInt(result.lastInsertRowid);
       }
@@ -2477,7 +2505,9 @@ export class LinesDB<Tables extends TableDefs> {
               key,
               untouched && Object.hasOwn(line, key) && !actionColumns.includes(key) && !namedFields.includes(key)
                 ? line[key]
-                : value,
+                : rowChanges?.inputs?.has(key)
+                  ? rowChanges.inputs.get(key)
+                  : value,
             ]),
         ) as JsonObject,
         narrowed: true,
@@ -2546,7 +2576,12 @@ export class LinesDB<Tables extends TableDefs> {
   private noteFieldChanges(
     tableName: string,
     rowid: number | bigint,
-    changes: { set?: readonly string[]; reset?: readonly string[]; inserted?: boolean },
+    changes: {
+      set?: readonly string[];
+      reset?: readonly string[];
+      inserted?: boolean;
+      inputs?: Map<string, unknown>;
+    },
   ): void {
     this.noteChange(tableName);
     const byRow = this.fieldChanges.get(tableName) ?? new Map<string, FieldChanges>();
@@ -2559,10 +2594,17 @@ export class LinesDB<Tables extends TableDefs> {
     for (const key of changes.set ?? []) {
       rowChanges.set.add(key);
       rowChanges.reset.delete(key);
+      // A later write stores the value as given, so what the insert was given no longer describes the field
+      rowChanges.inputs?.delete(key);
     }
     for (const key of changes.reset ?? []) {
       rowChanges.reset.add(key);
       rowChanges.set.delete(key);
+      rowChanges.inputs?.delete(key);
+    }
+    for (const [key, value] of changes.inputs ?? []) {
+      rowChanges.inputs ??= new Map();
+      rowChanges.inputs.set(key, value);
     }
     byRow.set(String(rowid), rowChanges);
     this.fieldChanges.set(tableName, byRow);
@@ -2612,11 +2654,12 @@ export class LinesDB<Tables extends TableDefs> {
 
   /**
    * Every row of a table with the fields the schema filled in rather than the file: the ones its line
-   * does not hold and no write set, which a write-back leaves out of the file
+   * does not hold and no write set, which a write-back leaves out of the file. `input` is the row as
+   * its line holds it - the values before the schema transformed them, without the defaulted fields.
    */
   async findWithDefaults<K extends keyof Tables & string>(
     tableName: K,
-  ): Promise<Result<Array<{ row: Tables[K]; defaulted: string[] }>, Error>> {
+  ): Promise<Result<Array<{ row: Tables[K]; defaulted: string[]; input: JsonObject }>, Error>> {
     try {
       const tableConfig = this.tables.get(tableName);
       if (!tableConfig || !this.schemas.has(tableName)) {
@@ -2657,6 +2700,7 @@ export class LinesDB<Tables extends TableDefs> {
           defaulted: kept[index].narrowed
             ? Object.keys(row).filter((key) => !Object.hasOwn(kept[index].written, key))
             : [],
+          input: kept[index].written,
         })),
       );
     } catch (error) {
