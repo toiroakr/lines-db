@@ -2441,11 +2441,16 @@ export class LinesDB<Tables extends TableDefs> {
     return prepared;
   }
 
-  /** Whether the rows of a table are matched to their lines by where each stands, as no primary key tells them apart */
+  /**
+   * Whether the lines of a table are remembered by position: where the schema may make a row differ from
+   * its line, a row whose key changed, or that has none, is found again by where its line stood
+   */
   private tracksLinePositions(tableName: string): boolean {
-    return (
-      !this.hasSeveralDataDirs() && this.schemas.get(tableName)?.columns.some((column) => column.primaryKey) === false
-    );
+    return !this.hasSeveralDataDirs() && this.validationSchemas.has(tableName);
+  }
+
+  private hasNoPrimaryKey(tableName: string): boolean {
+    return this.schemas.get(tableName)?.columns.some((column) => column.primaryKey) === false;
   }
 
   /** The line of each row by the position recorded for it, undefined for a row that has none */
@@ -2480,8 +2485,10 @@ export class LinesDB<Tables extends TableDefs> {
     const matchedByOrigin = this.hasSeveralDataDirs()
       ? rowids.map((rowid) => existingRows[this.rowOriginsByRowid.get(tableName)!.get(rowid)!.rowIndex])
       : undefined;
-    const matchedByPosition = matchedByOrigin ? undefined : this.linesByPosition(tableName, rowids, existingRows);
-    const matches = matchedByOrigin ?? matchedByPosition;
+    const byPosition = matchedByOrigin ? undefined : this.linesByPosition(tableName, rowids, existingRows);
+    // Without a primary key the position is all there is to match by; with one it is for a row the key misses
+    const matches = matchedByOrigin ?? (this.hasNoPrimaryKey(tableName) ? byPosition : undefined);
+    const fallbackLines = matches ? undefined : byPosition;
 
     // An empty list means no field is written back, not that every field is
     const fields = options?.fields ?? this.config.writeBackFields;
@@ -2494,6 +2501,7 @@ export class LinesDB<Tables extends TableDefs> {
         existingRows,
         fields,
         matches,
+        { fallbackLines },
       ).map(({ written }) => written);
     }
     // Not added before narrowing: a field the line holds that the row lacks reads as a renamed one there
@@ -2503,10 +2511,13 @@ export class LinesDB<Tables extends TableDefs> {
       const line = readLines?.get(rowids[index]);
       return line ? keepUnknownFields(line, row, columns) : row;
     });
+    let linesOfRows: Array<JsonObject | undefined> | undefined;
     finalRows = this.mergeWithExistingLines(tableName, existingRows, finalRows, {
       fields,
       strictFields: options?.strictFields ?? false,
       matches,
+      fallbackLines,
+      onMatched: (lines) => (linesOfRows = lines),
     });
 
     return {
@@ -2518,12 +2529,14 @@ export class LinesDB<Tables extends TableDefs> {
       ...(matchedByOrigin
         ? { rowids, unchanged: JsonlWriter.serialize(existingRows) === JsonlWriter.serialize(finalRows) }
         : {}),
-      ...(matchedByPosition
-        ? { positions: positionsAfterWrite(rowids, matchedByPosition, existingRows) }
-        : this.tracksLinePositions(tableName)
-          ? // Written in rowid order, as rows no position is recorded for are
-            { positions: new Map(rowids.map((rowid, position) => [rowid, position])) }
-          : {}),
+      ...(this.tracksLinePositions(tableName) && !matchedByOrigin
+        ? {
+            positions: linesOfRows
+              ? positionsAfterWrite(rowids, linesOfRows, existingRows)
+              : // Written in rowid order, as rows matched to no line are
+                new Map(rowids.map((rowid, position) => [rowid, position])),
+          }
+        : {}),
     };
   }
 
@@ -2559,7 +2572,7 @@ export class LinesDB<Tables extends TableDefs> {
     existingRows: JsonObject[],
     namedFields: readonly string[] = [],
     matchedLines?: Array<JsonObject | undefined>,
-    options?: { ignoreActions?: boolean },
+    options?: { ignoreActions?: boolean; fallbackLines?: Array<JsonObject | undefined> },
   ): Array<{ written: JsonObject; narrowed: boolean; line?: JsonObject }> {
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
     // Not left to the recorded changes: an ON DELETE / ON UPDATE action changes these columns in SQLite
@@ -2570,7 +2583,12 @@ export class LinesDB<Tables extends TableDefs> {
           .filter((fk) => [fk.onDelete, fk.onUpdate].some((action) => action === 'CASCADE' || action === 'SET NULL'))
           .map((fk) => fk.column);
     const lines =
-      matchedLines ?? this.matchExistingRows(tableName, lineRows, existingRows, { required: false, byOutputKey: true });
+      matchedLines ??
+      this.matchExistingRows(tableName, lineRows, existingRows, {
+        required: false,
+        byOutputKey: true,
+        fallbackLines: options?.fallbackLines,
+      });
     const changes = this.fieldChanges.get(tableName);
 
     return lineRows.map((lineRow, index) => {
@@ -2636,6 +2654,7 @@ export class LinesDB<Tables extends TableDefs> {
       this.fieldChanges.get(tableName),
       this.linesWithUnknownFields.get(tableName),
       this.rowOriginsByRowid.get(tableName),
+      this.linePositionsByRowid.get(tableName),
     ]) {
       const kept = byRow?.get(from);
       if (!byRow || kept === undefined) continue;
@@ -3000,7 +3019,15 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: string,
     existingRows: JsonObject[],
     rows: JsonObject[],
-    options: { fields?: readonly string[]; strictFields: boolean; matches?: Array<JsonObject | undefined> },
+    options: {
+      fields?: readonly string[];
+      strictFields: boolean;
+      matches?: Array<JsonObject | undefined>;
+      /** The line of a row the key does not find, as the position recorded for it gives it */
+      fallbackLines?: Array<JsonObject | undefined>;
+      /** Told the line each row was matched to, undefined for a row with none, before the rows are merged */
+      onMatched?: (lines: Array<JsonObject | undefined> | undefined) => void;
+    },
   ): JsonObject[] {
     if (rows.length === 0) {
       return rows;
@@ -3019,7 +3046,12 @@ export class LinesDB<Tables extends TableDefs> {
     // Without `fields` the rows are written whole, so matching them to their line only decides the
     // order: fall back to database order rather than failing when they cannot be matched
     const existing =
-      options.matches ?? this.matchExistingRows(tableName, rows, existingRows, { required: fields !== undefined });
+      options.matches ??
+      this.matchExistingRows(tableName, rows, existingRows, {
+        required: fields !== undefined,
+        fallbackLines: options.fallbackLines,
+      });
+    options.onMatched?.(existing);
     if (!existing) {
       return rows;
     }
@@ -3073,7 +3105,7 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: string,
     rows: JsonObject[],
     existingRows: JsonObject[],
-    options: { required: boolean; byOutputKey?: boolean },
+    options: { required: boolean; byOutputKey?: boolean; fallbackLines?: Array<JsonObject | undefined> },
   ): Array<JsonObject | undefined> | undefined {
     // Nothing in the file to preserve, so every row is one the file never had
     if (existingRows.length === 0) {
@@ -3092,9 +3124,15 @@ export class LinesDB<Tables extends TableDefs> {
 
     if (hasUsablePk) {
       const byPk = new Map(existingRows.map((row, index) => [String(pkValues[index]), row]));
-      return rows.map((row) => {
+      const byKey = rows.map((row) => {
         const pkValue = row[pkName!];
         return pkValue === undefined || pkValue === null ? undefined : byPk.get(String(pkValue));
+      });
+      // A row the key does not find - its key was changed - keeps the line it stood on, unless a row found it by key
+      const claimed = new Set(byKey.filter((line): line is JsonObject => line !== undefined));
+      return byKey.map((line, index) => {
+        const fallback = options.fallbackLines?.[index];
+        return line ?? (fallback && !claimed.has(fallback) ? fallback : undefined);
       });
     }
 

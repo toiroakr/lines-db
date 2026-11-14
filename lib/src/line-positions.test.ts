@@ -10,6 +10,10 @@ const PREFIX_SCHEMA = `export const schema = { '~standard': { version: 1, vendor
   ({ value: { ...data, code: 'ORD-' + data.code } }) } };
 `;
 
+const PREFIX_SCHEMA_WITH_KEY = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, code: 'ORD-' + data.code } }) } };
+`;
+
 /** A small generator with a fixed seed, so a failing sequence can be run again */
 function random(seed: number): () => number {
   let state = seed;
@@ -99,6 +103,87 @@ describe('LinesDB line positions of a table without a primary key', () => {
           unwrap(db.find('notes')).map(({ code, note }) => ({ code, note })),
           trail.join('; '),
         ).toEqual(model.map((row) => ({ code: `ORD-${row.code}`, note: row.note })));
+      } finally {
+        await db.close();
+        await rm(dataDir, { recursive: true, force: true });
+      }
+    },
+  );
+});
+
+interface Order {
+  id: number;
+  code: string;
+  note: string;
+}
+
+const serializeOrders = (orders: Order[]) =>
+  orders.length === 0 ? '\n' : orders.map((row) => `${JSON.stringify(row)}\n`).join('');
+
+describe('LinesDB line positions of a table with a primary key the user can change', () => {
+  it.each(Array.from({ length: 40 }, (_, seed) => seed))(
+    'keeps every line as written through a random run of adds, deletes, updates, key changes and rollbacks (seed %i)',
+    async (seed) => {
+      const next = random(seed + 101);
+      const dataDir = await mkdtemp(join(tmpdir(), 'linesdb-positions-pk-'));
+      let counter = 0;
+      let nextId = 10;
+      const fresh = () => `n${counter++}`;
+      let model: Order[] = [
+        { id: 1, code: 'a', note: fresh() },
+        { id: 2, code: 'b', note: fresh() },
+        { id: 3, code: 'c', note: fresh() },
+      ];
+      await writeFile(join(dataDir, 'orders.jsonl'), serializeOrders(model));
+      await writeFile(join(dataDir, 'orders.schema.ts'), PREFIX_SCHEMA_WITH_KEY);
+      let db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+      unwrap(await db.initialize());
+      const trail: string[] = [];
+
+      try {
+        for (let step = 0; step < 8; step++) {
+          const pick = model.length > 0 ? model[Math.floor(next() * model.length)] : undefined;
+          const operation = Math.floor(next() * 6);
+          if (operation === 0 || !pick) {
+            const row = { id: nextId++, code: `c${counter}`, note: fresh() };
+            trail.push(`insert ${row.id}`);
+            unwrap(await db.transaction((tx) => unwrap(tx.insert('orders', row))));
+            model = [...model, row];
+          } else if (operation === 1) {
+            trail.push(`delete ${pick.id}`);
+            unwrap(await db.transaction((tx) => unwrap(tx.delete('orders', { id: pick.id }))));
+            model = model.filter((row) => row !== pick);
+          } else if (operation === 2) {
+            const note = fresh();
+            trail.push(`update note of ${pick.id}`);
+            unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { note }, { id: pick.id }))));
+            model = model.map((row) => (row === pick ? { ...row, note } : row));
+          } else if (operation === 3) {
+            const id = nextId++;
+            trail.push(`change key ${pick.id} -> ${id}`);
+            unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { id }, { id: pick.id }))));
+            model = model.map((row) => (row === pick ? { ...row, id } : row));
+          } else if (operation === 4) {
+            trail.push(`rolled back delete ${pick.id}`);
+            await db.transaction((tx) => {
+              unwrap(tx.delete('orders', { id: pick.id }));
+              throw new Error('stop');
+            });
+          } else {
+            const id = nextId++;
+            trail.push(`change key ${pick.id} -> ${id} and add a row in one transaction`);
+            const row = { id: nextId++, code: `c${counter}`, note: fresh() };
+            unwrap(
+              await db.transaction((tx) => {
+                unwrap(tx.update('orders', { id }, { id: pick.id }));
+                unwrap(tx.insert('orders', row));
+              }),
+            );
+            model = [...model.map((candidate) => (candidate === pick ? { ...candidate, id } : candidate)), row];
+          }
+
+          expect(await readFile(join(dataDir, 'orders.jsonl'), 'utf-8'), trail.join('; ')).toBe(serializeOrders(model));
+        }
       } finally {
         await db.close();
         await rm(dataDir, { recursive: true, force: true });

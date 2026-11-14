@@ -67,7 +67,7 @@ import {
   type Pending,
 } from '@/lib/pending';
 import { cellText, formatValue, isBoolean } from '@/lib/values';
-import { hasTransformed, shownOf, type ValueView } from '@/lib/sides';
+import { hasTransformed, inputColumn, shownOf, type ValueView } from '@/lib/sides';
 import type { Column, Issue, JsonObject, JsonValue, Reference, TableInfo } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { fieldIssues, issuePath } from '@/lib/check';
@@ -305,6 +305,14 @@ export function App() {
   // Not offered for a table whose values the schema keeps as written: both sides would read the same
   const transformed = useMemo(() => (data ? hasTransformed(data.rows, data.inputs) : false), [data]);
   const view: ValueView = transformed ? chosenView : 'input';
+  // Typed by the input side where the input is shown, as that is what its editors take
+  const shownTable = useMemo(
+    () =>
+      table && data && view !== 'output'
+        ? { ...table, columns: table.columns.map((column) => inputColumn(column, data.rows, data.inputs)) }
+        : table,
+    [table, data, view],
+  );
 
   const rows = useMemo(() => {
     const all =
@@ -341,7 +349,7 @@ export function App() {
     setOpening(undefined);
   }, [opening, data, table]);
 
-  const formRow = table && data && openRow ? formRowOf(table, data, openRow) : undefined;
+  const formRow = shownTable && data && openRow ? formRowOf(shownTable, data, openRow) : undefined;
   // Closed once its row is gone, as after a reload or saving a new row: it would come back on a later row with that key
   useEffect(() => {
     if (openRow && data && !formRow) setOpenRow(undefined);
@@ -636,7 +644,7 @@ export function App() {
           </header>
           {table && (
             <NewRecordDialog
-              table={table}
+              table={shownTable ?? table}
               dataDirs={meta?.dataDirs}
               open={adding}
               onClose={() => setAdding(false)}
@@ -790,7 +798,7 @@ export function App() {
 
           {table && (
             <Grid
-              table={table}
+              table={shownTable ?? table}
               rows={rows}
               pending={pending}
               setPending={setPending}

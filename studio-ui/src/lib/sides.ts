@@ -1,4 +1,5 @@
-import type { JsonObject, JsonValue } from './types';
+import type { Column, JsonObject, JsonValue } from './types';
+import { isBoolean, isNumber } from './values';
 
 /** Which side of a value a table shows: what the file holds, what the schema makes of it, or both */
 export type ValueView = 'input' | 'output' | 'both';
@@ -49,4 +50,27 @@ export function shownOf(row: JsonObject, input: JsonObject | undefined, name: st
   return view === 'both' && differs(row, input, name) && row[name] !== undefined
     ? { value, output: row[name], readOnly: false }
     : { value, readOnly: false };
+}
+
+/** Whether a value is not of the type the editor of a column gives */
+function strays(column: Column, value: JsonValue): boolean {
+  if (column.type === 'JSON') return false;
+  if (isBoolean(column)) return typeof value !== 'boolean';
+  if (isNumber(column)) return typeof value !== 'number';
+  return column.type === 'TEXT' && typeof value !== 'string';
+}
+
+/**
+ * The column as its input side is typed. The column is typed by what the schema makes of a value, and the lines
+ * may hold another: `"yes"` for a field the schema makes a boolean. Such a column is edited as text, or as JSON when
+ * the lines hold more than strings, so that what the schema takes can be typed
+ */
+export function inputColumn(column: Column, rows: JsonObject[], inputs: JsonObject[] | undefined): Column {
+  if (!inputs) return column;
+  const strayed = rows
+    .map((row, index) => inputOf(row, inputs[index], column.name))
+    .filter((value): value is JsonValue => value !== undefined && value !== null && strays(column, value));
+  if (strayed.length === 0) return column;
+  const { valueType: _valueType, ...rest } = column;
+  return { ...rest, type: strayed.every((value) => typeof value === 'string') ? 'TEXT' : 'JSON' };
 }

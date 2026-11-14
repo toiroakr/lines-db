@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { differs, hasTransformed, inputOf, shownOf } from './sides';
+import type { Column } from './types';
+import { differs, hasTransformed, inputColumn, inputOf, shownOf } from './sides';
 
 const row = { id: 1, code: 'ORD-a', age: 20 };
 const input = { id: 1, code: 'a' };
@@ -73,5 +74,43 @@ describe('shownOf', () => {
 
   it('shows no output beside the input when they are the same', () => {
     expect(shownOf(row, input, 'id', 'both')).toEqual({ value: 1, readOnly: false });
+  });
+});
+
+describe('inputColumn', () => {
+  const rows = [{ id: 1, active: true }];
+  const boolean: Column = { name: 'active', type: 'INTEGER', valueType: 'boolean' };
+
+  it('keeps a column whose input values are of its type', () => {
+    expect(inputColumn(boolean, rows, [{ id: 1, active: false }])).toBe(boolean);
+  });
+
+  it('turns a boolean column into text when the lines hold strings, as a schema taking yes and no does', () => {
+    expect(inputColumn(boolean, rows, [{ id: 1, active: 'yes' }])).toEqual({ name: 'active', type: 'TEXT' });
+  });
+
+  it('turns a number column into text when the lines hold strings', () => {
+    const number: Column = { name: 'age', type: 'INTEGER' };
+
+    expect(inputColumn(number, [{ age: 30 }], [{ age: '30' }])).toEqual({ name: 'age', type: 'TEXT' });
+  });
+
+  it('turns a text column into JSON when the lines hold other values than strings', () => {
+    const text: Column = { name: 'code', type: 'TEXT' };
+
+    expect(inputColumn(text, [{ code: '1' }], [{ code: 1 }])).toEqual({ name: 'code', type: 'JSON' });
+  });
+
+  it('keeps a column when no line holds a value for it, or only null', () => {
+    expect([inputColumn(boolean, rows, undefined), inputColumn(boolean, rows, [{ id: 1, active: null }])]).toEqual([
+      boolean,
+      boolean,
+    ]);
+  });
+
+  it('keeps a JSON column, which takes any value', () => {
+    const json: Column = { name: 'meta', type: 'JSON' };
+
+    expect(inputColumn(json, [{ meta: { a: 1 } }], [{ meta: 'x' }])).toBe(json);
   });
 });

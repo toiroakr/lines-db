@@ -167,6 +167,30 @@ describe('App', () => {
       expect(screen.queryByText('b')).toBeNull();
     });
 
+    it('edits as text a boolean column whose lines hold strings, so a value the schema takes can be typed', async () => {
+      vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+        if (String(input) === '/api/tables')
+          return json({
+            dataDir: '/data',
+            tables: [
+              { ...users, columns: [...users.columns, { name: 'active', type: 'INTEGER', valueType: 'boolean' }] },
+            ],
+            problems: [],
+          });
+        return json({
+          rows: [{ id: 1, name: 'x', active: true }],
+          defaulted: [[]],
+          inputs: [{ id: 1, name: 'x', active: 'yes' }],
+        });
+      });
+      render(<App />);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Edit active' }));
+
+      expect((screen.getByRole('textbox', { name: 'active' }) as HTMLTextAreaElement).value).toBe('yes');
+      expect(screen.queryByRole('button', { name: 'false' })).toBeNull();
+    });
+
     it('offers no choice of view for a table whose values are as written', async () => {
       rows.users = { rows: [{ id: 1, name: 'Alice' }], defaulted: [[]], inputs: [{ id: 1, name: 'Alice' }] };
       render(<App />);

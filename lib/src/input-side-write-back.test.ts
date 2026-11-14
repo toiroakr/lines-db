@@ -385,3 +385,40 @@ describe('LinesDB write-back of a table without a primary key with writeDataSets
     }
   });
 });
+
+describe('LinesDB write-back when the primary key of a row is changed', () => {
+  let dataDir: string;
+  let db: LinesDB<TableDefs>;
+  const read = () => readFile(join(dataDir, 'orders.jsonl'), 'utf-8');
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'linesdb-input-pkedit-'));
+    await writeFile(join(dataDir, 'orders.jsonl'), '{"id":1,"code":"a"}\n{"id":2,"code":"b"}\n');
+    await writeFile(
+      join(dataDir, 'orders.schema.ts'),
+      `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, code: 'ORD-' + data.code } }) } };
+`,
+    );
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize());
+  });
+
+  afterEach(async () => {
+    await db.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('keeps the other fields of the line the key was changed on', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { id: 9 }, { id: 1 }))));
+
+    expect(await read()).toBe('{"id":9,"code":"a"}\n{"id":2,"code":"b"}\n');
+  });
+
+  it('keeps the lines when a key is changed and another row is updated afterwards', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { id: 9 }, { id: 1 }))));
+    unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { code: 'c' }, { id: 2 }))));
+
+    expect(await read()).toBe('{"id":9,"code":"a"}\n{"id":2,"code":"c"}\n');
+  });
+});
