@@ -145,6 +145,16 @@ describe('App', () => {
       expect(screen.getAllByRole('button', { name: 'Edit name' })).toHaveLength(1);
     });
 
+    it('finds a row by the value its file holds, not only by what the schema makes of it', async () => {
+      rows.users = { rows: [{ id: 1, name: 'X-ORD' }], defaulted: [[]], inputs: [{ id: 1, name: 'raw' }] };
+      render(<App />);
+      await nameCells();
+
+      await userEvent.type(screen.getByRole('textbox', { name: 'Filter rows' }), 'raw');
+
+      expect(screen.getAllByRole('button', { name: 'Edit name' })).toHaveLength(1);
+    });
+
     it('offers no choice of view for a table whose values are as written', async () => {
       rows.users = { rows: [{ id: 1, name: 'Alice' }], defaulted: [[]], inputs: [{ id: 1, name: 'Alice' }] };
       render(<App />);

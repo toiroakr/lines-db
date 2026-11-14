@@ -239,7 +239,7 @@ export function FormField({
         />
       )}
       {model.output !== undefined && (
-        <p className="font-mono text-xs break-all text-muted-foreground" data-output={column.name}>
+        <p className="font-mono text-xs break-all whitespace-pre-wrap text-muted-foreground" data-output={column.name}>
           → {formatValue(model.output)}
         </p>
       )}

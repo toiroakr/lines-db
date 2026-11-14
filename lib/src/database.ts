@@ -135,11 +135,15 @@ function sameValue(a: unknown, b: unknown): boolean {
   return text(a) === text(b);
 }
 
-/** The values of a row given to an insert that the stored row holds differently, after the schema transformed them */
+/**
+ * The values of a row given to an insert that the stored row holds differently, after the schema transformed
+ * them. A bigint is left out: a line cannot hold one, so the row keeps the value the schema made of it
+ */
 function transformedInputs(given: object, stored: object): Map<string, unknown> | undefined {
   const inputs = new Map(
     Object.entries(given).filter(
-      ([key, value]) => value !== undefined && !sameValue(value, (stored as JsonObject)[key]),
+      ([key, value]) =>
+        value !== undefined && typeof value !== 'bigint' && !sameValue(value, (stored as JsonObject)[key]),
     ),
   );
   return inputs.size > 0 ? inputs : undefined;
@@ -2505,7 +2509,11 @@ export class LinesDB<Tables extends TableDefs> {
       // the line holds, and an edit to another field, in this row or elsewhere in the file, is no reason to
       // write it into this line
       const untouched = (key: string) =>
-        line !== undefined && !rowChanges?.inserted && Object.hasOwn(line, key) && !rowChanges?.set.has(key);
+        line !== undefined &&
+        !rowChanges?.inserted &&
+        Object.hasOwn(line, key) &&
+        !rowChanges?.set.has(key) &&
+        !rowChanges?.reset.has(key);
       return {
         written: Object.fromEntries(
           Object.entries(lineRow)
@@ -2514,7 +2522,7 @@ export class LinesDB<Tables extends TableDefs> {
               key,
               untouched(key) && !actionColumns.includes(key) && !namedFields.includes(key)
                 ? line![key]
-                : rowChanges?.inputs?.has(key)
+                : rowChanges?.inputs?.has(key) && !actionColumns.includes(key) && !namedFields.includes(key)
                   ? rowChanges.inputs.get(key)
                   : value,
             ]),
@@ -2703,13 +2711,18 @@ export class LinesDB<Tables extends TableDefs> {
         this.config.writeBackFields,
         matches,
       );
+      // Not narrowed by writeBackFields: a field named there is written from the database, which says
+      // nothing of the value its line holds
+      const lines = this.config.writeBackFields?.length
+        ? this.keepWrittenFields(tableName, rowids, rows, lineRows, existingRows, [], matches)
+        : kept;
       return ok(
         rows.map((row, index) => ({
           row: row as Tables[K],
           defaulted: kept[index].narrowed
             ? Object.keys(row).filter((key) => !Object.hasOwn(kept[index].written, key))
             : [],
-          input: kept[index].written,
+          input: lines[index].written,
         })),
       );
     } catch (error) {

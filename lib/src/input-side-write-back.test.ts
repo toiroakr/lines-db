@@ -73,6 +73,12 @@ describe('LinesDB write-back with a schema that transforms a value the user set'
     expect(await read()).toContain('"code":"1"');
   });
 
+  it('inserts a row whose transformed field is a bigint, which a file cannot hold', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.insert('orders', { id: 3, code: 1n as unknown as string }))));
+
+    expect(await read()).toContain('{"id":3,"code":"ORD-1"}');
+  });
+
   it('writes the value each record of a batch insert was given', async () => {
     unwrap(
       await db.transaction((tx) =>
@@ -129,5 +135,35 @@ describe('LinesDB.findWithDefaults input side', () => {
     const inserted = unwrap(await db.findWithDefaults('orders')).find(({ row }) => row.id === 2);
 
     expect(inserted?.input).toEqual({ id: 2, code: '1' });
+  });
+});
+
+describe('LinesDB write-back with writeBackFields and a transforming schema', () => {
+  let dataDir: string;
+  let db: LinesDB<TableDefs>;
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'linesdb-input-named-'));
+    await writeFile(join(dataDir, 'orders.jsonl'), '{"id":1,"code":"a"}\n');
+    await writeFile(join(dataDir, 'orders.schema.ts'), PREFIX_SCHEMA);
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey', writeBackFields: ['code'] });
+    unwrap(await db.initialize());
+  });
+
+  afterEach(async () => {
+    await db.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('writes a field named in writeBackFields from the database, as it is for every other write', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.insert('orders', { id: 2, code: '1' }))));
+
+    expect(await readFile(join(dataDir, 'orders.jsonl'), 'utf-8')).toContain('{"id":2,"code":"ORD-1"}');
+  });
+
+  it('still reports the value a line holds as the input side of a named field', async () => {
+    const [{ input }] = unwrap(await db.findWithDefaults('orders'));
+
+    expect(input).toEqual({ id: 1, code: 'a' });
   });
 });

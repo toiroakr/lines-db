@@ -317,7 +317,7 @@ export function App() {
       })) ?? [];
     if (!filter) return all;
     const needle = filter.toLowerCase();
-    return all.filter(({ row }) => JSON.stringify(row).toLowerCase().includes(needle));
+    return all.filter(({ row, input }) => JSON.stringify([row, input]).toLowerCase().includes(needle));
   }, [data, filter]);
 
   const openReference = (reference: Reference, value: JsonValue) => {
@@ -409,7 +409,8 @@ export function App() {
         issues: change ? [] : fieldIssues(column.name, issues),
         canUseDefault: byIndex ? Object.hasOwn(row, column.name) : !isDefault || change !== undefined,
         canRevert: change !== undefined,
-        ...referenceOf(column, value),
+        // Not the side shown: the referenced table is searched by the values the schema made of its rows
+        ...referenceOf(column, change?.kind === 'set' ? change.value : row[column.name]),
         // Not kept as a change when typed back to what the file holds: the form changes a field a keystroke at a time
         onChange: (next) =>
           setPending((now) =>

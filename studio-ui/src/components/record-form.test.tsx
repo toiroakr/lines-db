@@ -169,6 +169,7 @@ describe('FormField', () => {
 
     expect((screen.getByLabelText('code') as HTMLTextAreaElement).value).toBe('a');
     expect(document.querySelector('[data-output="code"]')?.textContent).toBe('→ ORD-a');
+    expect(document.querySelector('[data-output="code"] input, [data-output="code"] textarea')).toBeNull();
   });
 
   it('opens the row a foreign key refers to', async () => {

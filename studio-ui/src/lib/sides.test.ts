@@ -28,6 +28,26 @@ describe('differs', () => {
   });
 });
 
+describe('a field only one side has', () => {
+  it('differs when the line holds a field the schema removed', () => {
+    expect(differs({ id: 1 }, { id: 1, old: 'x' }, 'old')).toBe(true);
+  });
+
+  it('differs when the line holds null and the output lacks the field', () => {
+    expect(differs({ id: 1 }, { id: 1, note: null }, 'note')).toBe(true);
+  });
+
+  it('counts a field only the line holds as a transformation', () => {
+    expect(hasTransformed([{ id: 1 }], [{ id: 1, old: 'x' }])).toBe(true);
+  });
+});
+
+describe('an object whose keys the schema reordered', () => {
+  it('does not differ from the same object in the order the line holds', () => {
+    expect(differs({ id: 1, meta: { b: 1, a: 2 } }, { id: 1, meta: { a: 2, b: 1 } }, 'meta')).toBe(false);
+  });
+});
+
 describe('hasTransformed', () => {
   it('is true when some field of some row differs between its sides', () => {
     expect(hasTransformed([row], [input])).toBe(true);
