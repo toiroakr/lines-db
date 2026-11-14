@@ -120,6 +120,19 @@ function cloneFieldChanges(changes: Map<string, Map<string, FieldChanges>>): Map
   );
 }
 
+/** The line of each row by the position recorded for it, undefined for a row that has none */
+function linesByPosition(
+  positions: Map<string, number> | undefined,
+  rowids: string[],
+  existingRows: JsonObject[],
+): Array<JsonObject | undefined> | undefined {
+  if (!positions) return undefined;
+  return rowids.map((rowid) => {
+    const position = positions.get(rowid);
+    return position === undefined ? undefined : existingRows[position];
+  });
+}
+
 /**
  * Where each row's line stands in a file once it is written: the lines of rows that kept one stay in order,
  * and a row without one goes after them, in the order the rows are given
@@ -2432,8 +2445,12 @@ export class LinesDB<Tables extends TableDefs> {
     if (!config) throw new Error(`Table ${tableName} not found`);
     this.positionEdits.set(tableName, []);
     const stored = this.readStoredRows(tableName);
+    // Taken with the rows, before reading the file can let another write change them: the positions must describe
+    // the same rows, and a change made meanwhile is replayed on what this write-back computes
+    const recorded = this.linePositionsByRowid.get(tableName);
+    const positions = recorded && new Map(recorded);
     if (!this.hasSeveralDataDirs()) {
-      return [await this.prepareFileWriteBack(tableName, config.jsonlPath, stored, options)];
+      return [await this.prepareFileWriteBack(tableName, config.jsonlPath, stored, options, positions)];
     }
     const origins = this.rowOriginsByRowid.get(tableName);
     const byFile = new Map<string, number[]>(
@@ -2530,25 +2547,12 @@ export class LinesDB<Tables extends TableDefs> {
     return this.schemas.get(tableName)?.columns.some((column) => column.primaryKey) === false;
   }
 
-  /** The line of each row by the position recorded for it, undefined for a row that has none */
-  private linesByPosition(
-    tableName: string,
-    rowids: string[],
-    existingRows: JsonObject[],
-  ): Array<JsonObject | undefined> | undefined {
-    const positions = this.linePositionsByRowid.get(tableName);
-    if (!positions) return undefined;
-    return rowids.map((rowid) => {
-      const position = positions.get(rowid);
-      return position === undefined ? undefined : existingRows[position];
-    });
-  }
-
   private async prepareFileWriteBack(
     tableName: string,
     jsonlPath: string,
     stored: ReturnType<LinesDB<Tables>['readStoredRows']>,
     options?: InternalSyncOptions,
+    positionsAtRead?: Map<string, number>,
   ): Promise<PreparedWriteBack> {
     const { rowids, rows: deserializedRows, lineRows } = stored;
     const generation = this.changeGenerations.get(tableName) ?? 0;
@@ -2562,7 +2566,7 @@ export class LinesDB<Tables extends TableDefs> {
     const matchedByOrigin = this.hasSeveralDataDirs()
       ? rowids.map((rowid) => existingRows[this.rowOriginsByRowid.get(tableName)!.get(rowid)!.rowIndex])
       : undefined;
-    const byPosition = matchedByOrigin ? undefined : this.linesByPosition(tableName, rowids, existingRows);
+    const byPosition = matchedByOrigin ? undefined : linesByPosition(positionsAtRead, rowids, existingRows);
     // Without a primary key the position is all there is to match by; with one it is for a row the key misses
     const matches = matchedByOrigin ?? (this.hasNoPrimaryKey(tableName) ? byPosition : undefined);
     const positionedLines = matches ? undefined : byPosition;
@@ -2867,6 +2871,8 @@ export class LinesDB<Tables extends TableDefs> {
       // Not read as the file is now: lines another tool changed would be matched to the rows read before
       await this.waitForPendingSyncs();
       const { rowids, rows, lineRows } = this.readStoredRows(tableName);
+      const recorded = this.linePositionsByRowid.get(tableName);
+      const positionsAtRead = recorded && new Map(recorded);
       const fileRows = new Map<string, JsonObject[]>();
       for (const file of this.hasSeveralDataDirs()
         ? new Set([
@@ -2883,7 +2889,7 @@ export class LinesDB<Tables extends TableDefs> {
               const origin = this.rowOriginsByRowid.get(tableName)?.get(rowid);
               return origin && fileRows.get(origin.file)?.[origin.rowIndex];
             })
-          : this.linesByPosition(tableName, rowids, existingRows);
+          : linesByPosition(positionsAtRead, rowids, existingRows);
       const kept = this.keepWrittenFields(
         tableName,
         rowids,

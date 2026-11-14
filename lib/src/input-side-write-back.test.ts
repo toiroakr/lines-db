@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { LinesDB } from './database.js';
+import { JsonlReader } from './jsonl-reader.js';
 import { JsonlWriter } from './jsonl-writer.js';
 import { unwrap } from './result.js';
 import type { TableDefs } from './types.js';
@@ -548,6 +549,36 @@ describe('LinesDB line positions around a write in progress and keys the schema 
 
     unwrap(db.update('orders', { id: 2 }, { id: 1 }));
     await writing;
+    unwrap(db.update('orders', { id: 4 }, { id: 2 }));
+    release();
+    unwrap(await db.sync('orders'));
+
+    expect(await read('orders')).toBe('{"id":3,"code":"a"}\n{"id":4,"code":"b"}\n');
+  });
+
+  it('keeps the line of a row whose key is changed while a write-back reads the file', async () => {
+    await writeFile(join(dataDir, 'orders.jsonl'), '{"id":3,"code":"a"}\n{"id":1,"code":"b"}\n');
+    await writeFile(
+      join(dataDir, 'orders.schema.ts'),
+      `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, code: 'ORD-' + data.code } }) } };
+`,
+    );
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize());
+    const readSnapshot = JsonlReader.readSnapshot.bind(JsonlReader);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const reading = new Promise<void>((resolve) => (entered = resolve));
+    vi.spyOn(JsonlReader, 'readSnapshot').mockImplementationOnce(async (...args) => {
+      entered();
+      await held;
+      return readSnapshot(...args);
+    });
+
+    unwrap(db.update('orders', { id: 2 }, { id: 1 }));
+    await reading;
     unwrap(db.update('orders', { id: 4 }, { id: 2 }));
     release();
     unwrap(await db.sync('orders'));
