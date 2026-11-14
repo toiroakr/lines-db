@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { LinesDB } from './database.js';
+import { JsonlWriter } from './jsonl-writer.js';
 import { unwrap } from './result.js';
 import type { TableDefs } from './types.js';
 
@@ -420,5 +421,147 @@ describe('LinesDB write-back when the primary key of a row is changed', () => {
     unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { code: 'c' }, { id: 2 }))));
 
     expect(await read()).toBe('{"id":9,"code":"a"}\n{"id":2,"code":"c"}\n');
+  });
+});
+
+describe('LinesDB write-back when keys move onto each other or with a foreign-key action', () => {
+  const PREFIX_WITH_KEY = `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, code: 'ORD-' + data.code } }) } };
+`;
+
+  it('keeps each line with its row when one row takes the key another row gave up', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'linesdb-input-shift-'));
+    await writeFile(join(dataDir, 'orders.jsonl'), '{"id":1,"code":"a"}\n{"id":2,"code":"b"}\n');
+    await writeFile(join(dataDir, 'orders.schema.ts'), PREFIX_WITH_KEY);
+    const db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    try {
+      unwrap(await db.initialize());
+
+      unwrap(
+        await db.transaction((tx) => {
+          unwrap(tx.update('orders', { id: 3 }, { id: 2 }));
+          unwrap(tx.update('orders', { id: 2 }, { id: 1 }));
+        }),
+      );
+
+      expect(await readFile(join(dataDir, 'orders.jsonl'), 'utf-8')).toBe('{"id":2,"code":"a"}\n{"id":3,"code":"b"}\n');
+    } finally {
+      await db.close();
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the line of a row whose key an ON UPDATE CASCADE changed', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'linesdb-input-cascade-'));
+    await writeFile(join(dataDir, 'parents.jsonl'), '{"id":1}\n{"id":2}\n');
+    await writeFile(join(dataDir, 'details.jsonl'), '{"id":1,"code":"a"}\n{"id":2,"code":"b"}\n');
+    await writeFile(
+      join(dataDir, 'details.schema.ts'),
+      `export const schema = { primaryKey: 'id', foreignKeys: [{ column: 'id', references: { table: 'parents', column: 'id' }, onUpdate: 'CASCADE' }], '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, code: 'ORD-' + data.code } }) } };
+`,
+    );
+    const db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    try {
+      unwrap(await db.initialize());
+
+      unwrap(await db.transaction((tx) => unwrap(tx.update('parents', { id: 9 }, { id: 1 }))));
+      unwrap(await db.transaction((tx) => unwrap(tx.update('details', { code: 'z' }, { id: 2 }))));
+
+      expect(await readFile(join(dataDir, 'details.jsonl'), 'utf-8')).toBe(
+        '{"id":9,"code":"a"}\n{"id":2,"code":"z"}\n',
+      );
+    } finally {
+      await db.close();
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('LinesDB line positions around a write in progress and keys the schema generates', () => {
+  const NO_KEY = `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, code: 'ORD-' + data.code } }) } };
+`;
+  let dataDir: string;
+  let db: LinesDB<TableDefs>;
+  const read = (name: string) => readFile(join(dataDir, `${name}.jsonl`), 'utf-8');
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'linesdb-input-race-'));
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await db.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('does not give a row added while a write is in progress the line of the row it took the rowid from', async () => {
+    await writeFile(join(dataDir, 'notes.jsonl'), '{"code":"a","note":"n"}\n{"code":"b","note":"o"}\n');
+    await writeFile(join(dataDir, 'notes.schema.ts'), NO_KEY);
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey', writeBackFields: ['note'] });
+    unwrap(await db.initialize());
+    const write = JsonlWriter.write.bind(JsonlWriter);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const writing = new Promise<void>((resolve) => (entered = resolve));
+    vi.spyOn(JsonlWriter, 'write').mockImplementationOnce(async (...args) => {
+      entered();
+      await held;
+      return write(...args);
+    });
+
+    unwrap(db.update('notes', { note: 'm' }, { note: 'n' }));
+    await writing;
+    unwrap(db.delete('notes', { note: 'o' }));
+    unwrap(db.insert('notes', { code: 'z', note: 'w' }));
+    release();
+    unwrap(await db.sync('notes'));
+    unwrap(db.update('notes', { note: 'q' }, { note: 'w' }));
+    unwrap(await db.sync('notes'));
+
+    expect(await read('notes')).toBe('{"code":"a","note":"m"}\n{"code":"z","note":"q"}\n');
+  });
+
+  it('keeps the lines of a table whose primary key the schema generates when a row is added', async () => {
+    await writeFile(join(dataDir, 'notes.jsonl'), '{"code":"a"}\n{"code":"b"}\n');
+    await writeFile(
+      join(dataDir, 'notes.schema.ts'),
+      `let n = 0;
+export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, id: data.id ?? 'g' + ++n, code: 'ORD-' + data.code } }) } };
+`,
+    );
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize());
+
+    unwrap(await db.transaction((tx) => unwrap(tx.insert('notes', { code: 'c' }))));
+
+    expect(
+      (await read('notes'))
+        .split('\n')
+        .slice(0, 2)
+        .map((line) => JSON.parse(line).code),
+    ).toEqual(['a', 'b']);
+  });
+
+  it('keeps the fields the schema does not know on their own line when the integer keys are not in order', async () => {
+    await writeFile(
+      join(dataDir, 'items.jsonl'),
+      '{"id":3,"name":"c","extra":"x3"}\n{"id":1,"name":"a","extra":"x1"}\n',
+    );
+    await writeFile(
+      join(dataDir, 'items.schema.ts'),
+      `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { id: data.id, name: data.name } }) } };
+`,
+    );
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize());
+
+    unwrap(await db.transaction((tx) => unwrap(tx.update('items', { name: 'A' }, { id: 1 }))));
+
+    expect(await read('items')).toBe('{"id":3,"name":"c","extra":"x3"}\n{"id":1,"name":"A","extra":"x1"}\n');
   });
 });

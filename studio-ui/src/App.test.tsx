@@ -186,9 +186,36 @@ describe('App', () => {
       render(<App />);
 
       await userEvent.click(await screen.findByRole('button', { name: 'Edit active' }));
-
       expect((screen.getByRole('textbox', { name: 'active' }) as HTMLTextAreaElement).value).toBe('yes');
+      await userEvent.clear(screen.getByRole('textbox', { name: 'active' }));
+      await userEvent.type(screen.getByRole('textbox', { name: 'active' }), 'no{Enter}');
+
+      expect(screen.getByRole('button', { name: 'Edit active' }).textContent).toContain('no');
       expect(screen.queryByRole('button', { name: 'false' })).toBeNull();
+    });
+
+    it('fills a new row by the input types even while the view is Output', async () => {
+      vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+        if (String(input) === '/api/tables')
+          return json({
+            dataDir: '/data',
+            tables: [
+              { ...users, columns: [...users.columns, { name: 'active', type: 'INTEGER', valueType: 'boolean' }] },
+            ],
+            problems: [],
+          });
+        return json({
+          rows: [{ id: 1, name: 'ORD-x', active: true }],
+          defaulted: [[]],
+          inputs: [{ id: 1, name: 'x', active: 'yes' }],
+        });
+      });
+      render(<App />);
+      await userEvent.click(await screen.findByRole('button', { name: 'Output' }));
+
+      await userEvent.click(screen.getByRole('button', { name: 'Add record' }));
+
+      expect(within(screen.getByRole('dialog')).getByRole('textbox', { name: 'active' })).toBeTruthy();
     });
 
     it('offers no choice of view for a table whose values are as written', async () => {

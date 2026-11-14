@@ -141,6 +141,9 @@ function positionsAfterWrite(
   );
 }
 
+/** The temporary table the rowid changes of rows are logged to */
+const MOVED_ROWS_LOG = 'temp."__lines_db_moved_rows"';
+
 /** Column alias a query reads a row's rowid under, next to its fields */
 const ROWID_ALIAS = '__lines_db_rowid';
 
@@ -230,6 +233,13 @@ export class LinesDB<Tables extends TableDefs> {
    * matched to their lines by key, and by order only while none is added or removed
    */
   private linePositionsByRowid: Map<string, Map<string, number>> = new Map();
+  /**
+   * The rows inserted, deleted or moved since a table's rows were read for its write-back: the positions that
+   * write-back computes describe the rows as they were, so they are not kept for these
+   */
+  private positionsTouched: Map<string, Set<string>> = new Map();
+  /** Whether the temporary table that triggers log the rowid changes of rows to exists */
+  private movedRowsLogReady = false;
   /** Whether a transaction's callback has returned and its files are being written back */
   private transactionClosing = false;
   /** Whether a transaction() call is past its guard but has not begun yet */
@@ -869,10 +879,11 @@ export class LinesDB<Tables extends TableDefs> {
     this.linesWithUnknownFields.delete(tableName);
     this.linePositionsByRowid.delete(tableName);
     if (this.tracksLinePositions(tableName)) {
+      this.logMovedRows(tableName);
       const positions = new Map<string, number>();
-      this.queryInternal<JsonObject>(
-        `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)} ORDER BY rowid`,
-      ).forEach((row, index) => positions.set(String(row[ROWID_ALIAS]), index));
+      this.rowidsInLineOrder(tableName, validatedData).forEach((rowid, index) => {
+        if (rowid !== undefined) positions.set(rowid, index);
+      });
       this.linePositionsByRowid.set(tableName, positions);
     }
     const columnNames = new Set(schema.columns.map((column) => column.name));
@@ -883,10 +894,14 @@ export class LinesDB<Tables extends TableDefs> {
       );
       const lines = new Map<string, JsonObject>();
       const sourceIndexes = new Map(origins.map((origin, index) => [origin, index]));
+      // Not the rowid order: an INTEGER PRIMARY KEY is the rowid, so it need not be the order of the lines
+      const lineIndexes = new Map(
+        this.rowidsInLineOrder(tableName, validatedData).map((rowid, index) => [rowid, index] as const),
+      );
       rowids.forEach((row, index) => {
         const rowid = row[ROWID_ALIAS] as number | bigint;
         const origin = this.rowOriginsByRowid.get(tableName)?.get(String(rowid));
-        const sourceIndex = origin ? (sourceIndexes.get(origin) ?? index) : index;
+        const sourceIndex = origin ? (sourceIndexes.get(origin) ?? index) : (lineIndexes.get(String(rowid)) ?? index);
         const set = transformedFields[sourceIndex] ?? [];
         if (set.length > 0) this.noteFieldChanges(tableName, rowid, { set });
         if (withUnknown[sourceIndex]) lines.set(String(rowid), data[sourceIndex]);
@@ -1315,6 +1330,7 @@ export class LinesDB<Tables extends TableDefs> {
     try {
       return run();
     } finally {
+      this.applyMovedRows();
       if (this.totalChanges() !== before) {
         for (const tableName of this.schemas.keys()) {
           this.rawSqlTables.add(tableName);
@@ -1616,7 +1632,7 @@ export class LinesDB<Tables extends TableDefs> {
       origins.set(String(result.lastInsertRowid), { file: destination, rowIndex: -1 });
       this.rowOriginsByRowid.set(tableName, origins);
     }
-    this.linePositionsByRowid.get(tableName)?.delete(String(result.lastInsertRowid));
+    this.forgetPosition(tableName, String(result.lastInsertRowid));
     this.noteFieldChanges(tableName, result.lastInsertRowid, {
       set: givenFields(data),
       inputs: transformedInputs(data as object, row),
@@ -1702,7 +1718,7 @@ export class LinesDB<Tables extends TableDefs> {
           undoSettle();
           throw error;
         }
-        this.linePositionsByRowid.get(tableName)?.delete(String(result.lastInsertRowid));
+        this.forgetPosition(tableName, String(result.lastInsertRowid));
         this.noteFieldChanges(tableName, result.lastInsertRowid, {
           set: givenFields(record),
           inputs: transformedInputs(record as object, row),
@@ -2408,6 +2424,7 @@ export class LinesDB<Tables extends TableDefs> {
     this.assertWritable(tableName);
     const config = this.tables.get(tableName);
     if (!config) throw new Error(`Table ${tableName} not found`);
+    this.positionsTouched.set(tableName, new Set());
     const stored = this.readStoredRows(tableName);
     if (!this.hasSeveralDataDirs()) {
       return [await this.prepareFileWriteBack(tableName, config.jsonlPath, stored, options)];
@@ -2441,12 +2458,62 @@ export class LinesDB<Tables extends TableDefs> {
     return prepared;
   }
 
+  private forgetPosition(tableName: string, rowid: string): void {
+    this.linePositionsByRowid.get(tableName)?.delete(rowid);
+    this.positionsTouched.get(tableName)?.add(rowid);
+  }
+
   /**
-   * Whether the lines of a table are remembered by position: where the schema may make a row differ from
-   * its line, a row whose key changed, or that has none, is found again by where its line stood
+   * The rowid of the row each line was loaded into, in the order of the lines. Not the rowid order: an INTEGER
+   * PRIMARY KEY is the rowid, so the line `{"id":3}` first in its file is the row with rowid 3
    */
-  private tracksLinePositions(tableName: string): boolean {
-    return !this.hasSeveralDataDirs() && this.validationSchemas.has(tableName);
+  private rowidsInLineOrder(tableName: string, rows: JsonObject[]): Array<string | undefined> {
+    const pk = this.schemas.get(tableName)?.columns.find((column) => column.primaryKey);
+    const stored = this.queryInternal<JsonObject>(
+      `SELECT rowid AS "${ROWID_ALIAS}"${pk ? `, ${this.quoteIdentifier(pk.name)} AS "key"` : ''} FROM ${this.quoteTableName(tableName)} ORDER BY rowid`,
+    );
+    // Without a key the rows went into an empty table in the order of the lines, so their rowids are in that order
+    if (!pk) return stored.map((row) => String(row[ROWID_ALIAS]));
+    const byKey = new Map(stored.map((row) => [String(row.key), String(row[ROWID_ALIAS])]));
+    return rows.map((row) => {
+      const key = row[pk.name];
+      // Not looked up for a null key: SQLite takes several, and gives each its own rowid
+      return key === undefined || key === null ? undefined : byKey.get(String(this.normalizeValue(key, pk)));
+    });
+  }
+
+  /**
+   * Log each change of a row's rowid in the table: a foreign-key action or raw SQL can change an INTEGER PRIMARY
+   * KEY, which is the rowid, without a write through this database telling it which row moved
+   */
+  private logMovedRows(tableName: string): void {
+    if (!this.movedRowsLogReady) {
+      this.db.exec(`CREATE TEMP TABLE IF NOT EXISTS ${MOVED_ROWS_LOG} (tbl TEXT, old INTEGER, new INTEGER)`);
+      this.movedRowsLogReady = true;
+    }
+    const trigger = this.quoteIdentifier(`__lines_db_moved_${tableName}`);
+    const name = `'${tableName.replace(/'/g, "''")}'`;
+    this.db.exec(
+      `CREATE TEMP TRIGGER IF NOT EXISTS ${trigger} AFTER UPDATE ON main.${this.quoteTableName(tableName)} ` +
+        `WHEN old.rowid IS NOT new.rowid BEGIN INSERT INTO ${MOVED_ROWS_LOG} VALUES (${name}, old.rowid, new.rowid); END`,
+    );
+  }
+
+  /** Move what is kept by rowid to the rowid each logged row moved to, in the order the rows moved */
+  private applyMovedRows(): void {
+    if (!this.movedRowsLogReady) return;
+    const moved = this.queryInternal<JsonObject>(`SELECT tbl, old, new FROM ${MOVED_ROWS_LOG} ORDER BY rowid`);
+    if (moved.length === 0) return;
+    this.db.exec(`DELETE FROM ${MOVED_ROWS_LOG}`);
+    for (const { tbl, old, new: to } of moved) this.moveRowMetadata(String(tbl), String(old), String(to));
+  }
+
+  /**
+   * Whether the lines of a table are remembered by position, so a row whose key changed, or that has none, is
+   * found again by where its line stood. Several data directories have the origin of each row instead
+   */
+  private tracksLinePositions(_tableName: string): boolean {
+    return !this.hasSeveralDataDirs();
   }
 
   private hasNoPrimaryKey(tableName: string): boolean {
@@ -2488,7 +2555,7 @@ export class LinesDB<Tables extends TableDefs> {
     const byPosition = matchedByOrigin ? undefined : this.linesByPosition(tableName, rowids, existingRows);
     // Without a primary key the position is all there is to match by; with one it is for a row the key misses
     const matches = matchedByOrigin ?? (this.hasNoPrimaryKey(tableName) ? byPosition : undefined);
-    const fallbackLines = matches ? undefined : byPosition;
+    const positionedLines = matches ? undefined : byPosition;
 
     // An empty list means no field is written back, not that every field is
     const fields = options?.fields ?? this.config.writeBackFields;
@@ -2501,7 +2568,7 @@ export class LinesDB<Tables extends TableDefs> {
         existingRows,
         fields,
         matches,
-        { fallbackLines },
+        { positionedLines },
       ).map(({ written }) => written);
     }
     // Not added before narrowing: a field the line holds that the row lacks reads as a renamed one there
@@ -2516,7 +2583,7 @@ export class LinesDB<Tables extends TableDefs> {
       fields,
       strictFields: options?.strictFields ?? false,
       matches,
-      fallbackLines,
+      positionedLines,
       onMatched: (lines) => (linesOfRows = lines),
     });
 
@@ -2572,7 +2639,7 @@ export class LinesDB<Tables extends TableDefs> {
     existingRows: JsonObject[],
     namedFields: readonly string[] = [],
     matchedLines?: Array<JsonObject | undefined>,
-    options?: { ignoreActions?: boolean; fallbackLines?: Array<JsonObject | undefined> },
+    options?: { ignoreActions?: boolean; positionedLines?: Array<JsonObject | undefined> },
   ): Array<{ written: JsonObject; narrowed: boolean; line?: JsonObject }> {
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
     // Not left to the recorded changes: an ON DELETE / ON UPDATE action changes these columns in SQLite
@@ -2587,7 +2654,7 @@ export class LinesDB<Tables extends TableDefs> {
       this.matchExistingRows(tableName, lineRows, existingRows, {
         required: false,
         byOutputKey: true,
-        fallbackLines: options?.fallbackLines,
+        positionedLines: options?.positionedLines,
       });
     const changes = this.fieldChanges.get(tableName);
 
@@ -2650,6 +2717,7 @@ export class LinesDB<Tables extends TableDefs> {
    * later, which must not inherit them
    */
   private moveRowMetadata(tableName: string, from: string, to: string): void {
+    this.positionsTouched.get(tableName)?.add(from).add(to);
     for (const byRow of [
       this.fieldChanges.get(tableName),
       this.linesWithUnknownFields.get(tableName),
@@ -2684,7 +2752,7 @@ export class LinesDB<Tables extends TableDefs> {
 
   private forgetFieldChanges(tableName: string, rowids: string[]): void {
     for (const rowid of rowids) {
-      this.linePositionsByRowid.get(tableName)?.delete(rowid);
+      this.forgetPosition(tableName, rowid);
       this.fieldChanges.get(tableName)?.delete(rowid);
       this.linesWithUnknownFields.get(tableName)?.delete(rowid);
     }
@@ -2861,6 +2929,8 @@ export class LinesDB<Tables extends TableDefs> {
    */
   private afterWrite(tableName: string, changes: number | bigint): void {
     // Not counted when no row changed: writing the table back could then fail on a file it never touched
+    // Before anything returns: a later move can take the rowid this one left
+    this.applyMovedRows();
     if (BigInt(changes) === 0n && this.transactionChanges) return;
     const tableNames = [tableName, ...this.tablesChangedByForeignKeyActions(tableName)];
     // Not left to the write-back: a row inserted before it can take the rowid of a row deleted here
@@ -2930,7 +3000,10 @@ export class LinesDB<Tables extends TableDefs> {
       throw await this.restoreAll(written, error);
     }
     for (const { tableName, jsonlPath, generation, rowids, positions } of written) {
-      if (positions) this.linePositionsByRowid.set(tableName, positions);
+      if (positions) {
+        for (const rowid of this.positionsTouched.get(tableName) ?? []) positions.delete(rowid);
+        this.linePositionsByRowid.set(tableName, positions);
+      }
       if ((this.changeGenerations.get(tableName) ?? 0) === generation) {
         this.fieldChanges.delete(tableName);
         this.rawSqlTables.delete(tableName);
@@ -3024,7 +3097,7 @@ export class LinesDB<Tables extends TableDefs> {
       strictFields: boolean;
       matches?: Array<JsonObject | undefined>;
       /** The line of a row the key does not find, as the position recorded for it gives it */
-      fallbackLines?: Array<JsonObject | undefined>;
+      positionedLines?: Array<JsonObject | undefined>;
       /** Told the line each row was matched to, undefined for a row with none, before the rows are merged */
       onMatched?: (lines: Array<JsonObject | undefined> | undefined) => void;
     },
@@ -3049,7 +3122,7 @@ export class LinesDB<Tables extends TableDefs> {
       options.matches ??
       this.matchExistingRows(tableName, rows, existingRows, {
         required: fields !== undefined,
-        fallbackLines: options.fallbackLines,
+        positionedLines: options.positionedLines,
       });
     options.onMatched?.(existing);
     if (!existing) {
@@ -3105,7 +3178,7 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: string,
     rows: JsonObject[],
     existingRows: JsonObject[],
-    options: { required: boolean; byOutputKey?: boolean; fallbackLines?: Array<JsonObject | undefined> },
+    options: { required: boolean; byOutputKey?: boolean; positionedLines?: Array<JsonObject | undefined> },
   ): Array<JsonObject | undefined> | undefined {
     // Nothing in the file to preserve, so every row is one the file never had
     if (existingRows.length === 0) {
@@ -3113,6 +3186,8 @@ export class LinesDB<Tables extends TableDefs> {
     }
 
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
+    // Not validating each line for its key when every row has a position: that is a validation per line per write
+    if (pkName && options.positionedLines?.every((line) => line !== undefined)) return options.positionedLines;
     // The key of a line as the rows hold it: a schema that transforms the key makes `ORD-b` of the line `b`
     const pkValues = pkName
       ? existingRows.map((row) => (options.byOutputKey ? this.outputKeyOfLine(tableName, row, pkName) : row[pkName]))
@@ -3124,17 +3199,21 @@ export class LinesDB<Tables extends TableDefs> {
 
     if (hasUsablePk) {
       const byPk = new Map(existingRows.map((row, index) => [String(pkValues[index]), row]));
-      const byKey = rows.map((row) => {
+      // A row keeps the line its position was recorded for: its key may have moved onto another row's line.
+      // The key finds the line of a row without one, unless that line is another row's by position
+      const positioned = options.positionedLines;
+      const claimed = new Set(positioned?.filter((line): line is JsonObject => line !== undefined));
+      return rows.map((row, index) => {
+        const byPosition = positioned?.[index];
+        if (byPosition) return byPosition;
         const pkValue = row[pkName!];
-        return pkValue === undefined || pkValue === null ? undefined : byPk.get(String(pkValue));
-      });
-      // A row the key does not find - its key was changed - keeps the line it stood on, unless a row found it by key
-      const claimed = new Set(byKey.filter((line): line is JsonObject => line !== undefined));
-      return byKey.map((line, index) => {
-        const fallback = options.fallbackLines?.[index];
-        return line ?? (fallback && !claimed.has(fallback) ? fallback : undefined);
+        const byKey = pkValue === undefined || pkValue === null ? undefined : byPk.get(String(pkValue));
+        return byKey && !claimed.has(byKey) ? byKey : undefined;
       });
     }
+
+    // No usable key in the file - the schema may generate it - but the position of each row's line is known
+    if (options.positionedLines) return options.positionedLines;
 
     // No usable primary key in the file: fall back to matching rows to lines by position.
     // Only safe while the row count is unchanged, since anything else means rows were

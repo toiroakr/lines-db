@@ -305,14 +305,15 @@ export function App() {
   // Not offered for a table whose values the schema keeps as written: both sides would read the same
   const transformed = useMemo(() => (data ? hasTransformed(data.rows, data.inputs) : false), [data]);
   const view: ValueView = transformed ? chosenView : 'input';
-  // Typed by the input side where the input is shown, as that is what its editors take
-  const shownTable = useMemo(
+  // Typed by the input side, as that is what its editors take: a new row is always given as input
+  const inputTable = useMemo(
     () =>
-      table && data && view !== 'output'
+      table && data
         ? { ...table, columns: table.columns.map((column) => inputColumn(column, data.rows, data.inputs)) }
         : table,
-    [table, data, view],
+    [table, data],
   );
+  const shownTable = view === 'output' ? table : inputTable;
 
   const rows = useMemo(() => {
     const all =
@@ -365,7 +366,7 @@ export function App() {
     if (open.row === 'new') {
       const insert = pending.inserts.find((candidate) => candidate.id === open.id);
       if (!insert) return undefined;
-      const fields = table.columns.map((column): FieldModel => {
+      const fields = (inputTable ?? table).columns.map((column): FieldModel => {
         const set = Object.hasOwn(insert.row, column.name);
         return {
           column,
@@ -644,7 +645,7 @@ export function App() {
           </header>
           {table && (
             <NewRecordDialog
-              table={shownTable ?? table}
+              table={inputTable ?? table}
               dataDirs={meta?.dataDirs}
               open={adding}
               onClose={() => setAdding(false)}
@@ -809,6 +810,7 @@ export function App() {
               saving={saving}
               revision={data?.revision}
               view={view}
+              insertColumns={(inputTable ?? table).columns}
               onRemoveField={removeFieldEverywhere}
               openRow={formShown ? openRow : undefined}
               formShown={formShown}
@@ -843,6 +845,8 @@ interface GridProps {
   revision?: string;
   /** Which side of a value the cells show: what the file holds, what the schema makes of it, or both */
   view: ValueView;
+  /** The columns of a new row, typed by the input side whatever the view: a new row is given as input */
+  insertColumns: Column[];
   /** Removes a field from every row of the table, not only the ones shown */
   onRemoveField: (field: string) => void;
   openRow: OpenRow | undefined;
@@ -865,6 +869,7 @@ function Grid({
   saving,
   revision,
   view,
+  insertColumns,
   onRemoveField,
   openRow,
   formShown: formOpen,
@@ -959,7 +964,7 @@ function Grid({
                   </button>
                 </Tooltip>
               </td>
-              {table.columns.map((column) => (
+              {insertColumns.map((column) => (
                 <Cell
                   key={column.name}
                   column={column}

@@ -378,7 +378,7 @@ export const schema = defineSchema({
     expect(await readJsonl(dataPath)).toEqual([{ name: 'John' }]);
   });
 
-  it('refuses to guess when rows cannot be matched to their lines', async () => {
+  it('matches rows to their lines by the position each was read at when the file has no ids to match on', async () => {
     await writeFile(dataPath, `{"name":"John"}\n{"name":"Jane"}\n`);
 
     const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['id'] });
@@ -386,7 +386,27 @@ export const schema = defineSchema({
     // The file has no ids to match on, and the row count no longer lines up
     unwrap(db.insert('User', { id: 'u3', name: 'Judy', nickname: null, computed: 'computed-Judy' }));
 
-    const syncResult = await db.sync('User');
+    unwrap(await db.sync('User'));
+    await db.close();
+
+    const lines = await readJsonl(dataPath);
+    expect(lines.map((line) => line.name)).toEqual(['John', 'Jane', 'Judy']);
+    // The lines read keep only what they held, plus the id named to be written back
+    expect(lines.slice(0, 2).map((line) => Object.keys(line).sort())).toEqual([
+      ['id', 'name'],
+      ['id', 'name'],
+    ]);
+  });
+
+  it('refuses to guess when rows cannot be matched to their lines', async () => {
+    await writeFile(join(testDir, 'Plain.jsonl'), `{"name":"John"}\n{"name":"Jane"}\n`);
+
+    const db = LinesDB.create({ dataDir: testDir, writeBackFields: ['name'] });
+    unwrap(await db.initialize({ tableName: 'Plain' }));
+    // Raw SQL leaves no position known for the rows, the file has no key, and the row count no longer lines up
+    unwrap(db.execute(`INSERT INTO "Plain" ("name") VALUES ('Judy')`));
+
+    const syncResult = await db.sync('Plain');
     expect(syncResult.ok).toBe(false);
     if (!syncResult.ok) {
       expect(syncResult.error.message).toMatch(
@@ -395,7 +415,7 @@ export const schema = defineSchema({
     }
 
     await db.close();
-    expect(await readJsonl(dataPath)).toEqual([{ name: 'John' }, { name: 'Jane' }]);
+    expect(await readJsonl(join(testDir, 'Plain.jsonl'))).toEqual([{ name: 'John' }, { name: 'Jane' }]);
   });
 
   it('applies the backward transformation before merging', async () => {

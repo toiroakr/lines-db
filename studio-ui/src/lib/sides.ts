@@ -67,10 +67,11 @@ function strays(column: Column, value: JsonValue): boolean {
  */
 export function inputColumn(column: Column, rows: JsonObject[], inputs: JsonObject[] | undefined): Column {
   if (!inputs) return column;
-  const strayed = rows
+  const held = rows
     .map((row, index) => inputOf(row, inputs[index], column.name))
-    .filter((value): value is JsonValue => value !== undefined && value !== null && strays(column, value));
-  if (strayed.length === 0) return column;
+    .filter((value): value is JsonValue => value !== undefined && value !== null);
+  if (!held.some((value) => strays(column, value))) return column;
   const { valueType: _valueType, ...rest } = column;
-  return { ...rest, type: strayed.every((value) => typeof value === 'string') ? 'TEXT' : 'JSON' };
+  // Not text when some values are not strings: a text editor would turn the number 31 into the string "31"
+  return { ...rest, type: held.every((value) => typeof value === 'string') ? 'TEXT' : 'JSON' };
 }

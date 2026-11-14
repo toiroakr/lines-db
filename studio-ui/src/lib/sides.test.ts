@@ -101,6 +101,15 @@ describe('inputColumn', () => {
     expect(inputColumn(text, [{ code: '1' }], [{ code: 1 }])).toEqual({ name: 'code', type: 'JSON' });
   });
 
+  it('turns a number column into JSON when the lines hold both numbers and strings, so a number stays one', () => {
+    const number: Column = { name: 'age', type: 'INTEGER' };
+
+    expect(inputColumn(number, [{ age: 30 }, { age: 0 }], [{ age: 30 }, { age: 'auto' }])).toEqual({
+      name: 'age',
+      type: 'JSON',
+    });
+  });
+
   it('keeps a column when no line holds a value for it, or only null', () => {
     expect([inputColumn(boolean, rows, undefined), inputColumn(boolean, rows, [{ id: 1, active: null }])]).toEqual([
       boolean,

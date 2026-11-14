@@ -160,7 +160,7 @@ A normal migration writes whole rows back to the file, including schema defaults
 npx lines-db migrate ./data/users.jsonl "(row) => row" --fields id
 ```
 
-Rows are matched by primary key, or by position when the file has no primary key yet, such as when filling in that key. Existing row order is preserved, and new rows are appended. If the file has no primary key and the row count has changed, the migration fails because the rows cannot be matched.
+Rows are matched by primary key, or by position when the file has no primary key yet, such as when filling in that key. Existing row order is preserved, and new rows are appended. Without a primary key, a row is matched by the position its line had when the file was read, kept up to date as rows are added and removed. If raw SQL changed the rows since, that position is not known, and when the file has no primary key and the row count has changed, the migration fails because the rows cannot be matched.
 
 `--fields` applies to all target tables. Tables without the named fields are not written back, so one list can cover tables with different columns. A field absent from every table causes an error.
 
@@ -532,7 +532,7 @@ Set `writeBackFields` in the config to apply the rule to every sync, including a
 const db = LinesDB.create({ dataDir: './data', writeBackFields: ['id'] });
 ```
 
-Rows are matched by primary key, or by position when the file has no primary key yet. Row order is preserved, and new rows are appended. Selected fields use the database value, including null. If rows cannot be matched, `sync()` returns a failed Result.
+Rows are matched by primary key, or by the position each row's line had when the file was read when the file has no primary key yet. Row order is preserved, and new rows are appended. Selected fields use the database value, including null. If rows cannot be matched - raw SQL changed them since the file was read, the file has no primary key, and the row count changed - `sync()` returns a failed Result.
 
 New fields are inserted in schema order. For example, an `id` declared first is inserted at the beginning of the row when filled later. Existing keys do not move, and unknown keys stay after declared keys.
 
