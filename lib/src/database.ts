@@ -154,6 +154,13 @@ function positionsAfterWrite(
   );
 }
 
+/** What is kept by rowid about a table's rows, taken when its rows are read for a write-back */
+interface RowMetadataAtRead {
+  positions?: Map<string, number>;
+  changes?: Map<string, FieldChanges>;
+  unknownFieldLines: Map<string, JsonObject>;
+}
+
 /** A row's position dropped, as its row was deleted or a new row took its rowid, or moved with its row to another rowid */
 type PositionEdit = { forget: string } | { from: string; to: string };
 
@@ -2448,9 +2455,14 @@ export class LinesDB<Tables extends TableDefs> {
     // Taken with the rows, before reading the file can let another write change them: the positions must describe
     // the same rows, and a change made meanwhile is replayed on what this write-back computes
     const recorded = this.linePositionsByRowid.get(tableName);
-    const positions = recorded && new Map(recorded);
+    const atRead: RowMetadataAtRead = {
+      positions: recorded && new Map(recorded),
+      // A change made while the file is read moves these to another rowid too, away from the rows read here
+      changes: cloneFieldChanges(new Map([[tableName, this.fieldChanges.get(tableName) ?? new Map()]])).get(tableName),
+      unknownFieldLines: new Map(this.linesWithUnknownFields.get(tableName) ?? []),
+    };
     if (!this.hasSeveralDataDirs()) {
-      return [await this.prepareFileWriteBack(tableName, config.jsonlPath, stored, options, positions)];
+      return [await this.prepareFileWriteBack(tableName, config.jsonlPath, stored, options, atRead)];
     }
     const origins = this.rowOriginsByRowid.get(tableName);
     const byFile = new Map<string, number[]>(
@@ -2475,7 +2487,7 @@ export class LinesDB<Tables extends TableDefs> {
         rows: indexes.map((i) => stored.rows[i]),
         lineRows: indexes.map((i) => stored.lineRows[i]),
       };
-      const fileWrite = await this.prepareFileWriteBack(tableName, file, rows, options);
+      const fileWrite = await this.prepareFileWriteBack(tableName, file, rows, options, atRead);
       if (!fileWrite.unchanged) prepared.push(fileWrite);
     }
     return prepared;
@@ -2552,7 +2564,7 @@ export class LinesDB<Tables extends TableDefs> {
     jsonlPath: string,
     stored: ReturnType<LinesDB<Tables>['readStoredRows']>,
     options?: InternalSyncOptions,
-    positionsAtRead?: Map<string, number>,
+    atRead?: RowMetadataAtRead,
   ): Promise<PreparedWriteBack> {
     const { rowids, rows: deserializedRows, lineRows } = stored;
     const generation = this.changeGenerations.get(tableName) ?? 0;
@@ -2566,7 +2578,7 @@ export class LinesDB<Tables extends TableDefs> {
     const matchedByOrigin = this.hasSeveralDataDirs()
       ? rowids.map((rowid) => existingRows[this.rowOriginsByRowid.get(tableName)!.get(rowid)!.rowIndex])
       : undefined;
-    const byPosition = matchedByOrigin ? undefined : linesByPosition(positionsAtRead, rowids, existingRows);
+    const byPosition = matchedByOrigin ? undefined : linesByPosition(atRead?.positions, rowids, existingRows);
     // Without a primary key the position is all there is to match by; with one it is for a row the key misses
     const matches = matchedByOrigin ?? (this.hasNoPrimaryKey(tableName) ? byPosition : undefined);
     const positionedLines = matches ? undefined : byPosition;
@@ -2582,12 +2594,12 @@ export class LinesDB<Tables extends TableDefs> {
         existingRows,
         fields,
         matches,
-        { positionedLines },
+        { positionedLines, changes: atRead?.changes },
       ).map(({ written }) => written);
     }
     // Not added before narrowing: a field the line holds that the row lacks reads as a renamed one there
     const columns = new Set(this.schemas.get(tableName)?.columns.map((column) => column.name));
-    const readLines = this.linesWithUnknownFields.get(tableName);
+    const readLines = atRead?.unknownFieldLines ?? this.linesWithUnknownFields.get(tableName);
     finalRows = finalRows.map((row, index) => {
       const line = readLines?.get(rowids[index]);
       return line ? keepUnknownFields(line, row, columns) : row;
@@ -2653,7 +2665,12 @@ export class LinesDB<Tables extends TableDefs> {
     existingRows: JsonObject[],
     namedFields: readonly string[] = [],
     matchedLines?: Array<JsonObject | undefined>,
-    options?: { ignoreActions?: boolean; positionedLines?: Array<JsonObject | undefined> },
+    options?: {
+      ignoreActions?: boolean;
+      positionedLines?: Array<JsonObject | undefined>;
+      /** The field changes as they were when the rows were read, which a later change can have moved */
+      changes?: Map<string, FieldChanges>;
+    },
   ): Array<{ written: JsonObject; narrowed: boolean; line?: JsonObject }> {
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
     // Not left to the recorded changes: an ON DELETE / ON UPDATE action changes these columns in SQLite
@@ -2670,7 +2687,7 @@ export class LinesDB<Tables extends TableDefs> {
         byOutputKey: true,
         positionedLines: options?.positionedLines,
       });
-    const changes = this.fieldChanges.get(tableName);
+    const changes = options?.changes ?? this.fieldChanges.get(tableName);
 
     return lineRows.map((lineRow, index) => {
       const line = lines?.[index];
