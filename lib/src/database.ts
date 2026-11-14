@@ -2490,7 +2490,8 @@ export class LinesDB<Tables extends TableDefs> {
     const actionColumns = (this.schemas.get(tableName)?.foreignKeys ?? [])
       .filter((fk) => [fk.onDelete, fk.onUpdate].some((action) => action === 'CASCADE' || action === 'SET NULL'))
       .map((fk) => fk.column);
-    const lines = matchedLines ?? this.matchExistingRows(tableName, lineRows, existingRows, { required: false });
+    const lines =
+      matchedLines ?? this.matchExistingRows(tableName, lineRows, existingRows, { required: false, byOutputKey: true });
     const changes = this.fieldChanges.get(tableName);
 
     return lineRows.map((lineRow, index) => {
@@ -2959,6 +2960,21 @@ export class LinesDB<Tables extends TableDefs> {
   }
 
   /**
+   * The primary key the schema makes of a line, which is how the stored rows hold it. The line's own key
+   * when the rows are in the line's terms (a `backward` transformation maps them back), when there is no
+   * schema, or when the schema refuses the line
+   */
+  private outputKeyOfLine(tableName: string, line: JsonObject, pkName: string): unknown {
+    const schema = this.validationSchemas.get(tableName);
+    if (!schema || hasBackward(schema)) return line[pkName];
+    try {
+      return this.validateAndTransform(tableName, line)[pkName] ?? line[pkName];
+    } catch {
+      return line[pkName];
+    }
+  }
+
+  /**
    * Pair each row with the JSONL line it came from, indexed the same way as `rows`.
    * Returns undefined when the rows cannot be matched and the caller can do without it.
    */
@@ -2966,7 +2982,7 @@ export class LinesDB<Tables extends TableDefs> {
     tableName: string,
     rows: JsonObject[],
     existingRows: JsonObject[],
-    options: { required: boolean },
+    options: { required: boolean; byOutputKey?: boolean },
   ): Array<JsonObject | undefined> | undefined {
     // Nothing in the file to preserve, so every row is one the file never had
     if (existingRows.length === 0) {
@@ -2974,7 +2990,10 @@ export class LinesDB<Tables extends TableDefs> {
     }
 
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
-    const pkValues = pkName ? existingRows.map((row) => row[pkName]) : [];
+    // The key of a line as the rows hold it: a schema that transforms the key makes `ORD-b` of the line `b`
+    const pkValues = pkName
+      ? existingRows.map((row) => (options.byOutputKey ? this.outputKeyOfLine(tableName, row, pkName) : row[pkName]))
+      : [];
     const hasUsablePk =
       pkName !== undefined &&
       pkValues.every((value) => value !== undefined && value !== null) &&

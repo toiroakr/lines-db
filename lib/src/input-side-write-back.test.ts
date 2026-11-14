@@ -203,3 +203,50 @@ describe('LinesDB write-back of an object the caller changes afterwards', () => 
     expect(await readFile(join(dataDir, 'orders.jsonl'), 'utf-8')).toContain('{"id":2,"meta":{"code":"a"}}');
   });
 });
+
+describe('LinesDB write-back with a schema that transforms the primary key', () => {
+  let dataDir: string;
+  let db: LinesDB<TableDefs>;
+  const read = () => readFile(join(dataDir, 'orders.jsonl'), 'utf-8');
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'linesdb-input-pk-'));
+    await writeFile(join(dataDir, 'orders.jsonl'), '{"id":"b","note":"n"}\n');
+    await writeFile(
+      join(dataDir, 'orders.schema.ts'),
+      `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, id: 'ORD-' + data.id } }) } };
+`,
+    );
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize());
+  });
+
+  afterEach(async () => {
+    await db.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('keeps the key a line holds when another field of the row is updated', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { note: 'm' }, { id: 'ORD-b' }))));
+
+    expect(await read()).toBe('{"id":"b","note":"m"}\n');
+  });
+
+  it('keeps the key an insert was given when the row is updated afterwards', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.insert('orders', { id: 'c', note: 'x' }))));
+    unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { note: 'y' }, { id: 'ORD-c' }))));
+
+    expect(await read()).toBe('{"id":"b","note":"n"}\n{"id":"c","note":"y"}\n');
+  });
+
+  it('reads the file back to the same rows after both writes', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.insert('orders', { id: 'c', note: 'x' }))));
+    unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { note: 'y' }, { id: 'ORD-c' }))));
+    await db.close();
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize());
+
+    expect(unwrap(db.find('orders')).map((row) => row.id)).toEqual(['ORD-b', 'ORD-c']);
+  });
+});
