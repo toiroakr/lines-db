@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LinesDB } from './database.js';
+import { JsonlReader } from './jsonl-reader.js';
 import { JsonlWriter } from './jsonl-writer.js';
 import { unwrap } from './result.js';
 import type { TableDefs } from './types.js';
@@ -40,6 +41,28 @@ describe('data set write-back', () => {
     await db.close();
     await rm(root, { recursive: true, force: true });
   });
+  it('writes the latest change of a row whose file is written after another file is read', async () => {
+    const readSnapshot = JsonlReader.readSnapshot.bind(JsonlReader);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const reading = new Promise<void>((resolve) => (entered = resolve));
+    vi.spyOn(JsonlReader, 'readSnapshot').mockImplementationOnce(async (...args) => {
+      entered();
+      await held;
+      return readSnapshot(...args);
+    });
+
+    unwrap(db.update('users', { name: 'Edited' }, { id: 1 }));
+    unwrap(db.update('users', { name: 'Once' }, { id: 2 }));
+    await reading;
+    unwrap(db.update('users', { name: 'Twice' }, { id: 2 }));
+    release();
+    unwrap(await db.sync('users'));
+
+    expect(await readFile(localFile(), 'utf8')).toBe('{"id":2,"name":"Twice"}\n');
+  });
+
   it('rejects raw mutations through every SQL interface while typed edits remain writable', async () => {
     expect(db.execute("INSERT INTO users (id, name) VALUES (3, 'Raw')").ok).toBe(false);
     expect(db.query('UPDATE users SET id = 8 WHERE id = 2 RETURNING *').ok).toBe(false);

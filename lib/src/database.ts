@@ -156,6 +156,8 @@ function positionsAfterWrite(
 
 /** What is kept by rowid about a table's rows, taken when its rows are read for a write-back */
 interface RowMetadataAtRead {
+  /** How many changes the table had seen, so the field changes are kept when one came after the rows were read */
+  generation: number;
   positions?: Map<string, number>;
   changes?: Map<string, FieldChanges>;
   unknownFieldLines: Map<string, JsonObject>;
@@ -2456,6 +2458,7 @@ export class LinesDB<Tables extends TableDefs> {
     // the same rows, and a change made meanwhile is replayed on what this write-back computes
     const recorded = this.linePositionsByRowid.get(tableName);
     const atRead: RowMetadataAtRead = {
+      generation: this.changeGenerations.get(tableName) ?? 0,
       positions: recorded && new Map(recorded),
       // A change made while the file is read moves these to another rowid too, away from the rows read here
       changes: cloneFieldChanges(new Map([[tableName, this.fieldChanges.get(tableName) ?? new Map()]])).get(tableName),
@@ -2567,7 +2570,8 @@ export class LinesDB<Tables extends TableDefs> {
     atRead?: RowMetadataAtRead,
   ): Promise<PreparedWriteBack> {
     const { rowids, rows: deserializedRows, lineRows } = stored;
-    const generation = this.changeGenerations.get(tableName) ?? 0;
+    // Not read here: a file prepared after another was read can come after a change the rows read predate
+    const generation = atRead?.generation ?? this.changeGenerations.get(tableName) ?? 0;
     let finalRows = lineRows;
     const previousContent = await readFile(jsonlPath, 'utf-8').catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return undefined;
@@ -2907,11 +2911,16 @@ export class LinesDB<Tables extends TableDefs> {
         const recorded = this.linePositionsByRowid.get(tableName);
         positionsAtRead = recorded && new Map(recorded);
         fileRows = new Map<string, JsonObject[]>();
-        for (const file of files) fileRows.set(file, await this.readUnchangedRows(file));
-        const unchanged =
+        const unchanged = () =>
           (this.changeGenerations.get(tableName) ?? 0) === generation &&
           files.every((file, index) => this.fileHashes.get(file) === hashes[index]);
-        if (unchanged) break;
+        try {
+          for (const file of files) fileRows.set(file, await this.readUnchangedRows(file));
+        } catch (error) {
+          // A conflict with a write this database made while the file was read: that read the file before it
+          if (!(error instanceof Error && error.name === 'JsonlConflictError') || unchanged()) throw error;
+        }
+        if (unchanged()) break;
         if (attempt >= 5)
           throw new Error(`The rows of '${tableName}' kept changing while they were read; read them again`);
       }
