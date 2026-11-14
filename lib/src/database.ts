@@ -2869,19 +2869,36 @@ export class LinesDB<Tables extends TableDefs> {
         throw new Error(`Table '${tableName}' is not loaded`);
       }
       // Not read as the file is now: lines another tool changed would be matched to the rows read before
-      await this.waitForPendingSyncs();
-      const { rowids, rows, lineRows } = this.readStoredRows(tableName);
-      const recorded = this.linePositionsByRowid.get(tableName);
-      const positionsAtRead = recorded && new Map(recorded);
-      const fileRows = new Map<string, JsonObject[]>();
-      for (const file of this.hasSeveralDataDirs()
-        ? new Set([
-            ...(tableConfig.jsonlPaths ?? [tableConfig.jsonlPath]),
-            ...[...(this.rowOriginsByRowid.get(tableName)?.values() ?? [])].map((origin) => origin.file),
-          ])
-        : [tableConfig.jsonlPath]) {
-        fileRows.set(file, await this.readUnchangedRows(file));
+      let stored: ReturnType<LinesDB<Tables>['readStoredRows']>;
+      let positionsAtRead: Map<string, number> | undefined;
+      let fileRows: Map<string, JsonObject[]>;
+      // Read again when a write ran while the file was being read: the rows read before it would be matched to
+      // the lines it wrote
+      for (let attempt = 1; ; attempt++) {
+        await this.waitForPendingSyncs();
+        const files = this.hasSeveralDataDirs()
+          ? [
+              ...new Set([
+                ...(tableConfig.jsonlPaths ?? [tableConfig.jsonlPath]),
+                ...[...(this.rowOriginsByRowid.get(tableName)?.values() ?? [])].map((origin) => origin.file),
+              ]),
+            ]
+          : [tableConfig.jsonlPath];
+        const generation = this.changeGenerations.get(tableName) ?? 0;
+        const hashes = files.map((file) => this.fileHashes.get(file));
+        stored = this.readStoredRows(tableName);
+        const recorded = this.linePositionsByRowid.get(tableName);
+        positionsAtRead = recorded && new Map(recorded);
+        fileRows = new Map<string, JsonObject[]>();
+        for (const file of files) fileRows.set(file, await this.readUnchangedRows(file));
+        const unchanged =
+          (this.changeGenerations.get(tableName) ?? 0) === generation &&
+          files.every((file, index) => this.fileHashes.get(file) === hashes[index]);
+        if (unchanged) break;
+        if (attempt >= 5)
+          throw new Error(`The rows of '${tableName}' kept changing while they were read; read them again`);
       }
+      const { rowids, rows, lineRows } = stored;
       const existingRows = [...fileRows.values()].flat();
       const matches =
         this.hasSeveralDataDirs() && this.config.writeDataSets

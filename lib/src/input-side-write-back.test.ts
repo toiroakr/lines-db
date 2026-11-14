@@ -586,6 +586,39 @@ describe('LinesDB line positions around a write in progress and keys the schema 
     expect(await read('orders')).toBe('{"id":3,"code":"a"}\n{"id":4,"code":"b"}\n');
   });
 
+  it('gives each row the input of its own line when a write finishes while the rows are being listed', async () => {
+    await writeFile(join(dataDir, 'orders.jsonl'), '{"id":3,"code":"a"}\n{"id":1,"code":"b"}\n');
+    await writeFile(
+      join(dataDir, 'orders.schema.ts'),
+      `export const schema = { primaryKey: 'id', '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, code: 'ORD-' + data.code } }) } };
+`,
+    );
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize());
+    const readSnapshot = JsonlReader.readSnapshot.bind(JsonlReader);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const reading = new Promise<void>((resolve) => (entered = resolve));
+    vi.spyOn(JsonlReader, 'readSnapshot').mockImplementationOnce(async (...args) => {
+      entered();
+      await held;
+      return readSnapshot(...args);
+    });
+
+    const listing = db.findWithDefaults('orders');
+    await reading;
+    unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { id: 2 }, { id: 1 }))));
+    release();
+    const listed = unwrap(await listing);
+
+    expect(listed.map(({ row, input }) => [row.id, input.id, input.code])).toEqual([
+      [2, 2, 'b'],
+      [3, 3, 'a'],
+    ]);
+  });
+
   it('keeps the lines of a table whose primary key the schema generates when a row is added', async () => {
     await writeFile(join(dataDir, 'notes.jsonl'), '{"code":"a"}\n{"code":"b"}\n');
     await writeFile(
