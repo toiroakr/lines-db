@@ -167,3 +167,39 @@ describe('LinesDB write-back with writeBackFields and a transforming schema', ()
     expect(input).toEqual({ id: 1, code: 'a' });
   });
 });
+
+describe('LinesDB write-back of an object the caller changes afterwards', () => {
+  let dataDir: string;
+  let db: LinesDB<TableDefs>;
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'linesdb-input-object-'));
+    await writeFile(join(dataDir, 'orders.jsonl'), '{"id":1,"meta":{"code":"a"}}\n');
+    await writeFile(
+      join(dataDir, 'orders.schema.ts'),
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+  ({ value: { ...data, meta: { code: 'ORD-' + data.meta.code } } }) } };
+`,
+    );
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize());
+  });
+
+  afterEach(async () => {
+    await db.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('writes the object as it was when inserted, not as the caller changed it before the write', async () => {
+    const meta = { code: 'a' };
+
+    unwrap(
+      await db.transaction((tx) => {
+        unwrap(tx.insert('orders', { id: 2, meta }));
+        meta.code = 'b';
+      }),
+    );
+
+    expect(await readFile(join(dataDir, 'orders.jsonl'), 'utf-8')).toContain('{"id":2,"meta":{"code":"a"}}');
+  });
+});

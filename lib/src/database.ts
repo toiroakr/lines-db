@@ -141,10 +141,13 @@ function sameValue(a: unknown, b: unknown): boolean {
  */
 function transformedInputs(given: object, stored: object): Map<string, unknown> | undefined {
   const inputs = new Map(
-    Object.entries(given).filter(
-      ([key, value]) =>
-        value !== undefined && typeof value !== 'bigint' && !sameValue(value, (stored as JsonObject)[key]),
-    ),
+    Object.entries(given)
+      .filter(
+        ([key, value]) =>
+          value !== undefined && typeof value !== 'bigint' && !sameValue(value, (stored as JsonObject)[key]),
+      )
+      // Copied: the caller may change an object it passed before the write-back runs
+      .map(([key, value]) => [key, structuredClone(value)] as const),
   );
   return inputs.size > 0 ? inputs : undefined;
 }

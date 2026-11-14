@@ -155,6 +155,18 @@ describe('App', () => {
       expect(screen.getAllByRole('button', { name: 'Edit name' })).toHaveLength(1);
     });
 
+    it('shows the stored output, not an unsaved input, when the view is Output', async () => {
+      render(<App />);
+      await userEvent.click((await nameCells())[0]);
+      await userEvent.clear(screen.getByRole('textbox', { name: 'name' }));
+      await userEvent.type(screen.getByRole('textbox', { name: 'name' }), 'b{Enter}');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Output' }));
+
+      expect(screen.getByText('ORD-a')).toBeTruthy();
+      expect(screen.queryByText('b')).toBeNull();
+    });
+
     it('offers no choice of view for a table whose values are as written', async () => {
       rows.users = { rows: [{ id: 1, name: 'Alice' }], defaulted: [[]], inputs: [{ id: 1, name: 'Alice' }] };
       render(<App />);

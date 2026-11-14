@@ -398,7 +398,8 @@ export function App() {
     const fields = table.columns.map((column): FieldModel => {
       const change = writable ? cellChange(pending, key, column.name) : undefined;
       const shown = shownOf(row, input, column.name, view);
-      const value = change?.kind === 'set' ? change.value : shown.value;
+      // Not the unsaved change in the output view: an output is what the schema made of the stored row
+      const value = change?.kind === 'set' && view !== 'output' ? change.value : shown.value;
       const isDefault = defaulted.includes(column.name);
       return {
         column,
@@ -1054,7 +1055,7 @@ function Grid({
                 {table.columns.map((column) => {
                   const change = writable ? cellChange(pending, key, column.name) : undefined;
                   const shown = shownOf(row, input, column.name, view);
-                  const value = change?.kind === 'set' ? change.value : shown.value;
+                  const value = change?.kind === 'set' && view !== 'output' ? change.value : shown.value;
                   return (
                     <Cell
                       key={column.name}
