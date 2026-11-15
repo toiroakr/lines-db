@@ -123,9 +123,12 @@ test('shows the value the file holds beside the one the schema makes of it, and 
     await expect(code).toBeHidden();
     await app.screenshot('The Output view shows what the schema makes of it, read-only');
     await screen.getByRole('button', 'Both', { exact: true }).tap();
+    await expect(code).toContainText('in');
     await expect(code).toContainText('a');
-    await expect(code).toContainText('→ ORD-a');
-    await app.screenshot('The Both view shows the output beside the editable input');
+    await expect(code).toContainText('out');
+    await expect(code).toContainText('ORD-a');
+    await expect(code).not.toContainText('→');
+    await app.screenshot('The Both view shows the output under the editable input');
 
     await screen.getByRole('button', 'Input', { exact: true }).tap();
     await screen.getByRole('button', 'Hide the row form', { exact: true }).tap();

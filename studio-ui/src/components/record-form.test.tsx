@@ -163,12 +163,13 @@ describe('FormField', () => {
     expect(held.onUseDefault).toHaveBeenCalled();
   });
 
-  it('shows the output of a value under its input, not as a field to edit', () => {
+  it('shows the output of a value under its input, each marked with its side, not as a field to edit', () => {
     const model = field({ name: 'code', type: 'TEXT' }, 'a', { output: 'ORD-a' });
     render(<FormField model={model} />);
 
     expect((screen.getByLabelText('code') as HTMLTextAreaElement).value).toBe('a');
-    expect(document.querySelector('[data-output="code"]')?.textContent).toBe('→ ORD-a');
+    expect(screen.getByText('in').closest('[data-side="in"]')?.contains(screen.getByLabelText('code'))).toBe(true);
+    expect(document.querySelector('[data-output="code"]')?.textContent).toBe('outORD-a');
     expect(document.querySelector('[data-output="code"] input, [data-output="code"] textarea')).toBeNull();
   });
 

@@ -136,12 +136,15 @@ describe('App', () => {
       expect(screen.queryAllByRole('button', { name: 'Edit name' })).toHaveLength(0);
     });
 
-    it('shows the output beside the editable input when the view is Both', async () => {
+    it('shows the output under the editable input, each marked with its side, when the view is Both', async () => {
       render(<App />);
 
       await userEvent.click(await screen.findByRole('button', { name: 'Both' }));
 
-      expect(screen.getByText('→ ORD-a')).toBeTruthy();
+      expect([...document.querySelectorAll('[data-side]')].map((line) => line.textContent)).toEqual([
+        'ina',
+        'outORD-a',
+      ]);
       expect(screen.getAllByRole('button', { name: 'Edit name' })).toHaveLength(1);
     });
 

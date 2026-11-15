@@ -26,6 +26,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { SideBadge } from '@/components/side-badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
@@ -1214,13 +1215,21 @@ function Cell({
 
   const contents = (
     <>
-      <span className="truncate">{content}</span>
-      {output !== undefined && (
-        <Tooltip content="What the schema makes of this value; not editable">
-          <span className="truncate text-muted-foreground" data-output>
-            → {output === null ? 'null' : cellText(output)}
+      {output === undefined ? (
+        <span className="truncate">{content}</span>
+      ) : (
+        <span className="flex min-w-0 flex-col gap-1">
+          <span className="flex min-w-0 items-center gap-1.5" data-side="in">
+            <SideBadge side="in" />
+            <span className="truncate">{content}</span>
           </span>
-        </Tooltip>
+          <Tooltip content="What the schema makes of this value; not editable">
+            <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground" data-side="out">
+              <SideBadge side="out" />
+              <span className="truncate">{output === null ? 'null' : cellText(output)}</span>
+            </span>
+          </Tooltip>
+        </span>
       )}
       {issues.length > 0 && (
         <Tooltip
