@@ -173,6 +173,18 @@ describe('FormField', () => {
     expect(document.querySelector('[data-output="code"] input, [data-output="code"] textarea')).toBeNull();
   });
 
+  it('keeps the field being typed in when its output goes away, as it does once the field holds a change', async () => {
+    const column: Column = { name: 'code', type: 'TEXT' };
+    const { rerender } = render(<FormField model={field(column, 'a', { output: 'ORD-a' })} />);
+    const box = screen.getByLabelText('code');
+    await userEvent.type(box, 'b');
+
+    rerender(<FormField model={field(column, 'ab')} />);
+
+    expect(screen.getByLabelText('code')).toBe(box);
+    expect(document.activeElement).toBe(box);
+  });
+
   it('opens the row a foreign key refers to', async () => {
     const onOpenReference = vi.fn();
     const model = field({ name: 'owner', type: 'INTEGER' }, 1, {

@@ -241,25 +241,24 @@ export function FormField({
           )}
         </span>
       </div>
-      {model.output === undefined ? (
-        editor
-      ) : (
-        <>
-          <div className="flex items-start gap-2" data-side="in">
-            <span className="flex h-8 items-center">
-              <SideBadge side="in" />
-            </span>
-            <div className="min-w-0 flex-1">{editor}</div>
-          </div>
-          <p
-            className="flex items-start gap-2 font-mono text-xs break-all whitespace-pre-wrap text-muted-foreground"
-            data-side="out"
-            data-output={column.name}
-          >
-            <SideBadge side="out" />
-            <span className="min-w-0">{formatValue(model.output)}</span>
-          </p>
-        </>
+      {/* Not two branches: a parent that changes when the output comes or goes would remount the editor, which loses its focus and a JSON edit in progress */}
+      <div className="flex items-start gap-2" data-side={model.output === undefined ? undefined : 'in'}>
+        {model.output !== undefined && (
+          <span className="flex h-8 items-center">
+            <SideBadge side="in" />
+          </span>
+        )}
+        <div className="min-w-0 flex-1">{editor}</div>
+      </div>
+      {model.output !== undefined && (
+        <p
+          className="flex items-start gap-2 font-mono text-xs break-all whitespace-pre-wrap text-muted-foreground"
+          data-side="out"
+          data-output={column.name}
+        >
+          <SideBadge side="out" />
+          <span className="min-w-0">{formatValue(model.output)}</span>
+        </p>
       )}
       {'error' in parsed && text !== '' && <p className="text-xs text-destructive">{parsed.error}</p>}
       {listed.length > 0 && (
