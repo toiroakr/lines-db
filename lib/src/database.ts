@@ -1818,23 +1818,6 @@ export class LinesDB<Tables extends TableDefs> {
       throw new Error(`Table ${tableName} does not exist`);
     }
 
-    // Validate by default (can be disabled with validate: false)
-    const shouldValidate = options?.validate !== false;
-    const hasValidationSchema = this.validationSchemas.has(tableName);
-
-    if (shouldValidate && hasValidationSchema) {
-      // Get existing rows to merge with partial data
-      const existingRows = this.findInternal(tableName, where);
-
-      // Validate each merged row
-      for (const existingRow of existingRows) {
-        const mergedData: Record<string, unknown> = { ...existingRow, ...data };
-        // Not checked with the values the update resets: they are about to be replaced by the schema's
-        for (const field of options?.resetToDefault ?? []) delete mergedData[field];
-        this.validateData(tableName, mergedData);
-      }
-    }
-
     const { sql: whereSql, values: whereValues, functionFilters } = this.buildWhereClause(where, tableName);
 
     if (functionFilters.length > 0) {
@@ -1846,29 +1829,53 @@ export class LinesDB<Tables extends TableDefs> {
       whereValues,
     );
 
-    // Not computed after the UPDATE: a reset the schema refuses must fail the update before it changes anything
+    // Validate by default (can be disabled with validate: false)
+    const shouldValidate = options?.validate !== false;
+    const hasValidationSchema = this.validationSchemas.has(tableName);
+    const givenKeys = Object.keys(data);
     const resetFields = options?.resetToDefault ?? [];
+
+    // What each row stores for the fields given: what the schema makes of them, as a loaded or an inserted row does.
+    // Taken from the row validated with them; not from the stored row's other fields, which already went through it
+    const storedValues = targets.map((target): JsonObject => {
+      if (!shouldValidate || !hasValidationSchema) return data as JsonObject;
+      const { [ROWID_ALIAS]: _rowid, ...stored } = target;
+      const merged: Record<string, unknown> = { ...this.deserializeRow(tableName, stored), ...data };
+      // Not checked with the values the update resets: they are about to be replaced by the schema's
+      for (const field of resetFields) delete merged[field];
+      const validated = this.validateAndTransform(tableName, merged);
+      return Object.fromEntries(
+        givenKeys.map((key) => [key, Object.hasOwn(validated, key) ? validated[key] : (data as JsonObject)[key]]),
+      ) as JsonObject;
+    });
+
+    // Not computed after the UPDATE: a reset the schema refuses must fail the update before it changes anything
     const resets =
       resetFields.length > 0 ? this.computeResets(tableName, targets, data as JsonObject, resetFields) : [];
 
     let result: { changes: number | bigint; lastInsertRowid: number | bigint } = { changes: 0, lastInsertRowid: 0 };
-    if (Object.keys(data).length > 0) {
-      const setClauses = Object.keys(data)
-        .map((key) => `${this.quoteIdentifier(key)} = ?`)
-        .join(', ');
-      const sql = `UPDATE ${this.quoteTableName(tableName)} SET ${setClauses} WHERE ${whereSql}`;
-      const values = [
-        ...Object.entries(data).map(([key, v]) => this.normalizeValue(v, this.columnOf(tableName, key))),
-        ...whereValues,
-      ];
-      const undoSettle = this.settleColumnsNoRowHolds(this.schemas.get(tableName), data as JsonObject);
+    if (givenKeys.length > 0 && targets.length > 0) {
+      const setClauses = givenKeys.map((key) => `${this.quoteIdentifier(key)} = ?`).join(', ');
+      const sql = `UPDATE ${this.quoteTableName(tableName)} SET ${setClauses} WHERE rowid = ?`;
+      const undoSettle = this.settleColumnsNoRowHolds(this.schemas.get(tableName), storedValues[0]);
+      let changes = 0n;
+      let lastInsertRowid: number | bigint = 0;
       try {
-        result = this.executeInternal(sql, values);
+        // Row by row: what the schema makes of a value can depend on the row's other fields
+        targets.forEach((target, index) => {
+          const written = this.executeInternal(sql, [
+            ...givenKeys.map((key) => this.normalizeValue(storedValues[index][key], this.columnOf(tableName, key))),
+            target[ROWID_ALIAS] as number | bigint,
+          ]);
+          changes += BigInt(written.changes);
+          lastInsertRowid = written.lastInsertRowid;
+        });
       } catch (error) {
         undoSettle();
         throw error;
       }
-      if (Number(result.changes) === 0) undoSettle();
+      result = { changes: Number(changes), lastInsertRowid };
+      if (changes === 0n) undoSettle();
     }
 
     const pkName = this.schemas.get(tableName)?.columns.find((col) => col.primaryKey)?.name;
@@ -1876,7 +1883,7 @@ export class LinesDB<Tables extends TableDefs> {
       // An INTEGER PRIMARY KEY is the rowid, so a new key moves the row, and what is kept by rowid with it
       const moved = this.queryInternal<JsonObject>(
         `SELECT rowid AS "${ROWID_ALIAS}" FROM ${this.quoteTableName(tableName)} WHERE ${this.quoteIdentifier(pkName)} = ?`,
-        [this.normalizeValue((data as Record<string, unknown>)[pkName], this.columnOf(tableName, pkName))],
+        [this.normalizeValue((storedValues[0] ?? data)[pkName as string], this.columnOf(tableName, pkName))],
       );
       if (targets.length === 1 && moved.length === 1) {
         const from = String(targets[0][ROWID_ALIAS]);
@@ -1888,16 +1895,18 @@ export class LinesDB<Tables extends TableDefs> {
       }
     }
 
-    for (const target of targets) {
-      const set = Object.keys(data).filter(
+    targets.forEach((target, index) => {
+      const set = givenKeys.filter(
         (key) =>
-          !sameStoredValue(
-            target[key],
-            this.normalizeValue((data as Record<string, unknown>)[key], this.columnOf(tableName, key)),
-          ),
+          !sameStoredValue(target[key], this.normalizeValue(storedValues[index][key], this.columnOf(tableName, key))),
       );
-      this.noteFieldChanges(tableName, target[ROWID_ALIAS] as number | bigint, { set });
-    }
+      // What the update was given for a field the schema made something else of: the side the file holds
+      const given = Object.fromEntries(set.map((key) => [key, (data as JsonObject)[key]]));
+      this.noteFieldChanges(tableName, target[ROWID_ALIAS] as number | bigint, {
+        set,
+        inputs: transformedInputs(given, storedValues[index]),
+      });
+    });
 
     if (resets.length > 0) {
       result = this.applyResets(tableName, resets, resetFields);

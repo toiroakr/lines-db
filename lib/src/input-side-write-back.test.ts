@@ -43,6 +43,24 @@ describe('LinesDB write-back with a schema that transforms a value the user set'
     expect(await read()).toBe('{"id":1,"code":"1"}\n{"id":2,"code":"b"}\n');
   });
 
+  it('holds what the schema makes of an updated value, as it does of a loaded or an inserted one', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { code: '1' }, { id: 1 }))));
+
+    expect(unwrap(db.findOne('orders', { id: 1 }))).toEqual({ id: 1, code: 'ORD-1' });
+    expect(await read()).toBe('{"id":1,"code":"1"}\n{"id":2,"code":"b"}\n');
+  });
+
+  it('gives the value an update was given as the input side of the row', async () => {
+    unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { code: '1' }, { id: 1 }))));
+
+    const updated = unwrap(await db.findWithDefaults('orders')).find(({ row }) => row.id === 1);
+
+    expect({ row: updated?.row, input: updated?.input }).toEqual({
+      row: { id: 1, code: 'ORD-1' },
+      input: { id: 1, code: '1' },
+    });
+  });
+
   it('keeps the value of a line nothing wrote to while another row is edited', async () => {
     unwrap(await db.transaction((tx) => unwrap(tx.update('orders', { code: '1' }, { id: 1 }))));
 

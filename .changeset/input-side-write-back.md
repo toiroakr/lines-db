@@ -14,3 +14,5 @@ A write-back finds the line of a row again by the primary key the schema makes o
 A line's fields that the schema does not know, and the fields a migration `transform` set, now stay with their own row when a table's integer primary keys are not in order in the file: with the lines `{"id":3,"extra":"x3"}` and `{"id":1,"extra":"x1"}`, updating row 1 used to swap the two `extra` values.
 
 A row whose key changes while a write-back of its table is in progress keeps its line, and the log of rowid changes works with the SQLite that Bun ships, which refuses a qualified table name in a trigger.
+
+`update` now stores what the validation schema makes of each value it is given, as `insert` does: updating `code` to `"b"` used to leave `"b"` in the database, so the studio's Output view and `find()` showed `"b"` instead of `"ORD-b"` until the file was loaded again. The line still holds `"b"`.
