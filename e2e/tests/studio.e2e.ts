@@ -49,7 +49,14 @@ test('opens JSONL-only data with shared schemas for validation, declared columns
 test('lists the fixture tables and filters the sidebar', async ({ app, screen }) => {
   await app.open('/');
   const tables = screen.getByRole('navigation').getByRole('button');
-  await expect(tables).toHaveText([/^notes\s*1$/, /^orders\s*1$/, /^products\s*1$/, /^tasks\s*2$/, /^users\s*2$/]);
+  await expect(tables).toHaveText([
+    /^codes\s*1$/,
+    /^notes\s*1$/,
+    /^orders\s*1$/,
+    /^products\s*1$/,
+    /^tasks\s*2$/,
+    /^users\s*2$/,
+  ]);
   await screen.getByRole('textbox', 'Search tables').fill('users');
   await expect(tables).toHaveCount(1);
   await expect(tables).toContainText('users');
@@ -88,6 +95,66 @@ test('saves an edited cell to the JSONL file', async ({ app, screen, browser }) 
     await screen.getByRole('button', 'Reload from the files').tap();
     await expect(row.getByRole('button', 'Edit name', { exact: true })).toHaveText('Ada Byron');
     await app.screenshot('The saved name, read again from the file');
+  } finally {
+    await writeFile(file, original);
+  }
+});
+
+test('shows the value the file holds beside the one the schema makes of it, and saves what was typed', async ({
+  app,
+  screen,
+  browser,
+}) => {
+  await app.open('/');
+  await screen
+    .getByRole('navigation')
+    .getByRole('button', /^codes/)
+    .tap();
+  const file = join(await dataDirOf(browser), 'codes.jsonl');
+  const original = await readFile(file, 'utf8');
+  const code = screen.getByRole('button', 'Edit code', { exact: true });
+
+  try {
+    // The Input view, at first: what the file holds, which is what a cell edits
+    await expect(code).toHaveText('a');
+    await app.screenshot('The Input view shows the code the file holds');
+    await screen.getByRole('button', 'Output', { exact: true }).tap();
+    await expect(screen.getByRole('table')).toContainText('ORD-a');
+    await expect(code).toBeHidden();
+    await app.screenshot('The Output view shows what the schema makes of it, read-only');
+    await screen.getByRole('button', 'Both', { exact: true }).tap();
+    await expect(code).toContainText('a');
+    await expect(code).toContainText('→ ORD-a');
+    await app.screenshot('The Both view shows the output beside the editable input');
+
+    await screen.getByRole('button', 'Input', { exact: true }).tap();
+    await screen.getByRole('button', 'Hide the row form', { exact: true }).tap();
+    await code.tap();
+    await screen.getByRole('textbox', 'code', { exact: true }).fill('b');
+    await screen.getByRole('button', 'Set', { exact: true }).tap();
+    await screen.getByRole('button', 'Add record', { exact: true }).tap();
+    const dialog = screen.getByRole('dialog', 'New row in codes', { exact: true });
+    await dialog.getByRole('combobox', 'Data directory', { exact: true }).selectOption(await dataDirOf(browser));
+    await dialog.getByRole('textbox', 'id', { exact: true }).fill('2');
+    await dialog.getByRole('textbox', 'code', { exact: true }).fill('c');
+    await dialog.getByRole('button', 'Add', { exact: true }).tap();
+    await expect(dialog).toBeHidden();
+    await screen.getByRole('button', 'Save 2 changes', { exact: true }).tap();
+    await expect(screen.getByRole('alert').filter({ hasText: 'Saved 2 change(s)' })).toContainText(
+      'Saved 2 change(s) to codes.jsonl',
+    );
+    // The file holds what was typed, not what the schema made of it, so loading it again makes "ORD-b" once
+    await expect
+      .poll(() => linesOf(file))
+      .toEqual([
+        { id: 1, code: 'b' },
+        { id: 2, code: 'c' },
+      ]);
+    await screen.getByRole('button', 'Output', { exact: true }).tap();
+    await expect(screen.getByRole('table')).toContainText('ORD-b');
+    await expect(screen.getByRole('table')).toContainText('ORD-c');
+    await expect(screen.getByRole('table')).not.toContainText('ORD-ORD');
+    await app.screenshot('The saved rows read again from the file, transformed once');
   } finally {
     await writeFile(file, original);
   }
@@ -496,7 +563,7 @@ test('leaves no schema entry in the history once the dialog is closed after foll
   expect(await browser.evaluate(async () => location.hash)).toBe('#orders');
 
   await browser.evaluate(async () => (history.back(), null));
-  await expect(screen.getByRole('heading', 'notes', { exact: true })).toBeVisible();
+  await expect(screen.getByRole('heading', 'codes', { exact: true })).toBeVisible();
   await expect(screen.getByRole('dialog')).toBeHidden();
   expect(await browser.evaluate(async () => location.hash)).not.toContain('schema');
 });
@@ -517,7 +584,7 @@ test('leaves no schema entry in the history when a schema opened by its address 
   expect(await browser.evaluate(async () => location.hash)).toBe('#orders');
 
   await browser.evaluate(async () => (history.back(), null));
-  await expect(screen.getByRole('heading', 'notes', { exact: true })).toBeVisible();
+  await expect(screen.getByRole('heading', 'codes', { exact: true })).toBeVisible();
   await expect(screen.getByRole('dialog')).toBeHidden();
 });
 
@@ -544,12 +611,12 @@ test('opens the schema again when history returns to a table it was open on', as
 test('opens and closes the table drawer at 390px', async ({ app, screen, browser }) => {
   await browser.setViewport({ width: 390, height: 844 });
   await app.open('/');
-  await expect(screen.getByRole('heading', 'notes', { exact: true })).toBeVisible();
+  await expect(screen.getByRole('heading', 'codes', { exact: true })).toBeVisible();
   const navigation = screen.getByRole('navigation');
   await expect(navigation).toBeHidden();
   await screen.getByRole('button', 'Open the table list').tap();
   await expect(navigation).toBeVisible();
-  await expect(navigation.getByRole('button')).toHaveCount(5);
+  await expect(navigation.getByRole('button')).toHaveCount(6);
   await app.screenshot('The table list open at 390px');
   await screen.getByRole('button', 'Close the table list').tap();
   await expect(navigation).toBeHidden();
