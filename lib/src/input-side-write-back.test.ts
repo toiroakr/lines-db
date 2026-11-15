@@ -781,3 +781,62 @@ describe('LinesDB line positions of rows whose primary key is null', () => {
     }
   });
 });
+
+describe('LinesDB update of several rows the schema transforms one by one', () => {
+  let dataDir: string;
+  let db: LinesDB<TableDefs>;
+
+  const open = async (lines: string, schema: string) => {
+    dataDir = await mkdtemp(join(tmpdir(), 'linesdb-update-rows-'));
+    await writeFile(join(dataDir, 'orders.jsonl'), lines);
+    await writeFile(join(dataDir, 'orders.schema.ts'), schema);
+    db = LinesDB.create<TableDefs>({ dataDir, writeFilledValues: 'primaryKey' });
+    unwrap(await db.initialize());
+  };
+
+  afterEach(async () => {
+    await db.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('changes no row when a later row of the same update is refused', async () => {
+    await open(
+      '{"id":1,"code":"a"}\n{"id":2,"code":"b"}\n',
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+        ({ value: { ...data, code: 'ORD-' + data.code } }) },
+        primaryKey: 'id', indexes: [{ name: 'orders_code_idx', columns: ['code'], unique: true }] };
+      `,
+    );
+
+    const result = db.update('orders', { code: 'x' }, [{ id: 1 }, { id: 2 }]);
+
+    expect(result.ok).toBe(false);
+    expect(unwrap(db.find('orders'))).toEqual([
+      { id: 1, code: 'ORD-a' },
+      { id: 2, code: 'ORD-b' },
+    ]);
+  });
+
+  it('changes no row of a refused update a transaction goes on after', async () => {
+    await open(
+      '{"id":1,"code":"a"}\n{"id":2,"code":"b"}\n',
+      `export const schema = { '~standard': { version: 1, vendor: 'test', validate: (data) =>
+        ({ value: { ...data, code: 'ORD-' + data.code } }) },
+        primaryKey: 'id', indexes: [{ name: 'orders_code_idx', columns: ['code'], unique: true }] };
+      `,
+    );
+
+    unwrap(
+      await db.transaction((tx) => {
+        expect(tx.update('orders', { code: 'x' }, [{ id: 1 }, { id: 2 }]).ok).toBe(false);
+        unwrap(tx.insert('orders', { id: 3, code: 'c' }));
+      }),
+    );
+
+    expect(unwrap(db.find('orders'))).toEqual([
+      { id: 1, code: 'ORD-a' },
+      { id: 2, code: 'ORD-b' },
+      { id: 3, code: 'ORD-c' },
+    ]);
+  });
+});

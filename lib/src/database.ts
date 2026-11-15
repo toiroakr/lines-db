@@ -1860,6 +1860,7 @@ export class LinesDB<Tables extends TableDefs> {
       const undoSettle = this.settleColumnsNoRowHolds(this.schemas.get(tableName), storedValues[0]);
       let changes = 0n;
       let lastInsertRowid: number | bigint = 0;
+      this.db.exec('SAVEPOINT lines_db_update');
       try {
         // Row by row: what the schema makes of a value can depend on the row's other fields
         targets.forEach((target, index) => {
@@ -1870,7 +1871,10 @@ export class LinesDB<Tables extends TableDefs> {
           changes += BigInt(written.changes);
           lastInsertRowid = written.lastInsertRowid;
         });
+        this.db.exec('RELEASE lines_db_update');
       } catch (error) {
+        this.db.exec('ROLLBACK TO lines_db_update');
+        this.db.exec('RELEASE lines_db_update');
         undoSettle();
         throw error;
       }
