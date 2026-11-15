@@ -3,6 +3,7 @@ import { ArrowUpRight, Ban, Eraser, Lock, RotateCcw, Trash2, X } from 'lucide-re
 import { Button } from '@/components/ui/button';
 import { Input, TextLines } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { SideBadge } from '@/components/side-badge';
 import { Tooltip } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { ValueField } from '@/components/value-field';
@@ -19,6 +20,8 @@ export interface FieldModel {
   column: Column;
   /** The value as the row now holds it, with its unsaved change applied */
   value: JsonValue | undefined;
+  /** The value the schema makes of it, shown under the field when the table shows both sides */
+  output?: JsonValue;
   state: FieldState;
   readOnly: boolean;
   /** What makes the value fail validation, shown until the field is edited */
@@ -119,6 +122,63 @@ export function FormField({
     if ('value' in read) handValue(read.value);
   };
 
+  const editor =
+    state === 'reset' ? (
+      <p className="text-xs text-muted-foreground italic line-through">removed</p>
+    ) : column.unknown ? (
+      <p className="font-mono text-xs break-all text-muted-foreground">{formatValue(value)}</p>
+    ) : json ? (
+      <ValueField
+        key={version}
+        path={[column.name]}
+        value={value ?? null}
+        issues={issues}
+        readOnly={readOnly}
+        leeway={column.nested}
+        onChange={handValue}
+        onValidity={setFieldsValid}
+      />
+    ) : isBoolean(column) ? (
+      <div role="group" aria-label={column.name} className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
+        {['true', 'false'].map((option) => (
+          <button
+            key={option}
+            type="button"
+            disabled={readOnly}
+            aria-pressed={text === option}
+            onClick={() => hand(option)}
+            className={cn(
+              'rounded-sm py-1 font-mono text-xs',
+              text === option ? 'bg-background shadow-sm' : 'text-muted-foreground',
+            )}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+    ) : isNumber(column) ? (
+      <Input
+        className={cn('h-8 font-mono text-xs', state === 'default' && 'text-muted-foreground')}
+        aria-label={column.name}
+        aria-invalid={'error' in parsed || issues.length > 0}
+        inputMode="decimal"
+        readOnly={readOnly}
+        placeholder={absentText(value)}
+        value={text}
+        onChange={(event) => hand(event.target.value)}
+      />
+    ) : (
+      <TextLines
+        className={cn('font-mono text-xs', state === 'default' && 'text-muted-foreground')}
+        aria-label={column.name}
+        aria-invalid={'error' in parsed || issues.length > 0}
+        readOnly={readOnly}
+        placeholder={absentText(value)}
+        value={text}
+        onChange={(event) => hand(event.target.value)}
+      />
+    );
+
   return (
     <div className="grid gap-1.5" data-field={column.name}>
       <div className="flex min-h-5 items-center gap-1.5 text-xs">
@@ -181,60 +241,24 @@ export function FormField({
           )}
         </span>
       </div>
-      {state === 'reset' ? (
-        <p className="text-xs text-muted-foreground italic line-through">removed</p>
-      ) : column.unknown ? (
-        <p className="font-mono text-xs break-all text-muted-foreground">{formatValue(value)}</p>
-      ) : json ? (
-        <ValueField
-          key={version}
-          path={[column.name]}
-          value={value ?? null}
-          issues={issues}
-          readOnly={readOnly}
-          leeway={column.nested}
-          onChange={handValue}
-          onValidity={setFieldsValid}
-        />
-      ) : isBoolean(column) ? (
-        <div role="group" aria-label={column.name} className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
-          {['true', 'false'].map((option) => (
-            <button
-              key={option}
-              type="button"
-              disabled={readOnly}
-              aria-pressed={text === option}
-              onClick={() => hand(option)}
-              className={cn(
-                'rounded-sm py-1 font-mono text-xs',
-                text === option ? 'bg-background shadow-sm' : 'text-muted-foreground',
-              )}
-            >
-              {option}
-            </button>
-          ))}
-        </div>
-      ) : isNumber(column) ? (
-        <Input
-          className={cn('h-8 font-mono text-xs', state === 'default' && 'text-muted-foreground')}
-          aria-label={column.name}
-          aria-invalid={'error' in parsed || issues.length > 0}
-          inputMode="decimal"
-          readOnly={readOnly}
-          placeholder={absentText(value)}
-          value={text}
-          onChange={(event) => hand(event.target.value)}
-        />
-      ) : (
-        <TextLines
-          className={cn('font-mono text-xs', state === 'default' && 'text-muted-foreground')}
-          aria-label={column.name}
-          aria-invalid={'error' in parsed || issues.length > 0}
-          readOnly={readOnly}
-          placeholder={absentText(value)}
-          value={text}
-          onChange={(event) => hand(event.target.value)}
-        />
+      {/* Not two branches: a parent that changes when the output comes or goes would remount the editor, which loses its focus and a JSON edit in progress */}
+      <div className="flex items-start gap-2" data-side={model.output === undefined ? undefined : 'in'}>
+        {model.output !== undefined && (
+          <span className="flex h-8 items-center">
+            <SideBadge side="in" />
+          </span>
+        )}
+        <div className="min-w-0 flex-1">{editor}</div>
+      </div>
+      {model.output !== undefined && (
+        <p
+          className="flex items-start gap-2 font-mono text-xs break-all whitespace-pre-wrap text-muted-foreground"
+          data-side="out"
+          data-output={column.name}
+        >
+          <SideBadge side="out" />
+          <span className="min-w-0">{formatValue(model.output)}</span>
+        </p>
       )}
       {'error' in parsed && text !== '' && <p className="text-xs text-destructive">{parsed.error}</p>}
       {listed.length > 0 && (
@@ -466,7 +490,8 @@ function NewRecordFields({
         column,
         value: draft[column.name],
         state: set ? 'set' : 'unset',
-        readOnly: false,
+        // Not given by a new row: the schema makes it from the fields the file holds
+        readOnly: Boolean(column.outputOnly),
         issues: [],
         canUseDefault: set,
         canRevert: false,

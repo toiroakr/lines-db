@@ -114,7 +114,7 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
     await load('{"id":"a"}\n', memberSchema, 'members');
 
     expect(unwrap(await db.findWithDefaults('members'))).toEqual([
-      { row: { id: 'a', toString: 'default' }, defaulted: ['toString'] },
+      { row: { id: 'a', toString: 'default' }, defaulted: ['toString'], input: { id: 'a' } },
     ]);
   });
 
@@ -146,8 +146,8 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
     await load('{"id":"a","name":"Alice"}\n{"id":"b","name":"Bob","age":40}\n');
 
     expect(unwrap(await db.findWithDefaults('people'))).toEqual([
-      { row: { id: 'a', name: 'Alice', age: 20 }, defaulted: ['age'] },
-      { row: { id: 'b', name: 'Bob', age: 40 }, defaulted: [] },
+      { row: { id: 'a', name: 'Alice', age: 20 }, defaulted: ['age'], input: { id: 'a', name: 'Alice' } },
+      { row: { id: 'b', name: 'Bob', age: 40 }, defaulted: [], input: { id: 'b', name: 'Bob', age: 40 } },
     ]);
   });
 
@@ -166,7 +166,7 @@ describe("LinesDB write-back with writeFilledValues: 'primaryKey'", () => {
     unwrap(db.update('people', { age: 30 }, { id: 'a' }));
 
     expect(unwrap(await db.findWithDefaults('people'))).toEqual([
-      { row: { id: 'a', name: 'Alice', age: 30 }, defaulted: [] },
+      { row: { id: 'a', name: 'Alice', age: 30 }, defaulted: [], input: { id: 'a', name: 'Alice', age: 30 } },
     ]);
   });
 

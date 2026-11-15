@@ -426,7 +426,11 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         return;
       }
       const rows = unwrap(await snapshot.db.findWithDefaults(tableName));
-      sendJson(res, 200, { rows: rows.map(({ row }) => row), defaulted: rows.map(({ defaulted }) => defaulted) });
+      sendJson(res, 200, {
+        rows: rows.map(({ row }) => row),
+        defaulted: rows.map(({ defaulted }) => defaulted),
+        inputs: rows.map(({ input }) => input),
+      });
       return;
     }
 
