@@ -2,6 +2,7 @@ export { LinesDB } from './database.js';
 export type { SyncOptions, UpdateOptions } from './database.js';
 export { JsonlReader } from './jsonl-reader.js';
 export type { JsonlSnapshot } from './jsonl-reader.js';
+export { jsonlRecordLines } from './jsonl-record-lines.js';
 export { ok, err, unwrap } from './result.js';
 export type { Result } from './result.js';
 export { JsonlWriter } from './jsonl-writer.js';

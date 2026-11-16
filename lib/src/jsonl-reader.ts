@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { normalize } from 'node:path';
 import type { JsonObject, ColumnDefinition, TableSchema, JsonlParseError } from './types.js';
 import { type Result, ok, err, toError } from './result.js';
+import { jsonlRecordLines } from './jsonl-record-lines.js';
 
 /** Fingerprint of a JSONL file's content, to tell whether the file changed since it was read */
 export function hashJsonlContent(content: string): string {
@@ -72,28 +73,23 @@ export class JsonlReader {
   }
 
   private static parse(filePath: string, content: string): Result<JsonObject[], JsonlParseError> {
-    const rawLines = (content.startsWith('\u{feff}') ? content.slice(1) : content).split('\n');
-
     const rows: JsonObject[] = [];
-    for (let i = 0; i < rawLines.length; i++) {
-      const line = rawLines[i].endsWith('\r') ? rawLines[i].slice(0, -1) : rawLines[i];
-      if (line.trim().length === 0) continue;
-
+    for (const { text, line } of jsonlRecordLines(content)) {
       const fail = (message: string, cause?: unknown) => {
         const parseError = new Error(message, { cause }) as JsonlParseError;
         parseError.name = 'JsonlParseError';
         parseError.file = filePath;
-        parseError.line = i + 1;
+        parseError.line = line;
         return err(parseError);
       };
       let value: unknown;
       try {
-        value = JSON.parse(line);
+        value = JSON.parse(text);
       } catch (error) {
-        return fail(`Failed to parse JSON line: ${line}`, error);
+        return fail(`Failed to parse JSON line: ${text}`, error);
       }
       if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-        return fail(`A JSONL line holds a row, which is a JSON object: ${line}`);
+        return fail(`A JSONL line holds a row, which is a JSON object: ${text}`);
       }
       rows.push(value as JsonObject);
     }
