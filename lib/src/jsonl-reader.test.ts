@@ -136,6 +136,52 @@ describe('JsonlReader', () => {
     });
   });
 
+  describe('readSnapshot', () => {
+    it('reads a row with a non-breaking space around it and warns with the file and line', async () => {
+      await writeFile(testFilePath, '{"id": 1}\n\u00a0{"id": 2}\n');
+
+      const snapshot = unwrap(await JsonlReader.readSnapshot(testFilePath));
+
+      expect(unwrap(snapshot.rows)).toEqual([{ id: 1 }, { id: 2 }]);
+      expect(snapshot.warnings).toEqual([`${testFilePath}:2 has U+00A0 around its row, which JSON does not allow`]);
+    });
+
+    it('has no warning for a file whose rows are padded with ASCII spaces and tabs only', async () => {
+      await writeFile(testFilePath, '  {"id": 1}\t\n\t{"id": 2}  \n');
+
+      const snapshot = unwrap(await JsonlReader.readSnapshot(testFilePath));
+
+      expect(unwrap(snapshot.rows)).toEqual([{ id: 1 }, { id: 2 }]);
+      expect(snapshot.warnings).toEqual([]);
+    });
+
+    it('has no warning for a line that is only a non-breaking space, which is skipped as blank', async () => {
+      await writeFile(testFilePath, '{"id": 1}\n\u00a0\n{"id": 2}\n');
+
+      const snapshot = unwrap(await JsonlReader.readSnapshot(testFilePath));
+
+      expect(unwrap(snapshot.rows)).toEqual([{ id: 1 }, { id: 2 }]);
+      expect(snapshot.warnings).toEqual([]);
+    });
+
+    it('has no warning for rows supplied by an override', async () => {
+      const snapshot = await JsonlReader.withOverrides(new Map([[testFilePath, [{ id: 1 }]]]), async () =>
+        unwrap(await JsonlReader.readSnapshot(testFilePath)),
+      );
+
+      expect(snapshot.warnings).toEqual([]);
+    });
+
+    it('still reports a malformed row at its physical line after the warned rows', async () => {
+      await writeFile(testFilePath, '\u00a0{"id": 1}\nnot json\n');
+
+      const snapshot = unwrap(await JsonlReader.readSnapshot(testFilePath));
+
+      expect(snapshot.rows.ok).toBe(false);
+      expect((snapshot.rows as { error: JsonlParseError }).error.line).toBe(2);
+    });
+  });
+
   describe('inferSchema', () => {
     it('lets a column be null when some rows lack the field, as their rows store null for it', () => {
       const schema = unwrap(JsonlReader.inferSchema('records', [{ id: 1, note: 'a' }, { id: 2 }]));

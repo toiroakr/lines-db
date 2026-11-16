@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { normalize } from 'node:path';
 import type { JsonObject, ColumnDefinition, TableSchema, JsonlParseError } from './types.js';
 import { type Result, ok, err, toError } from './result.js';
-import { jsonlRecordLines } from './jsonl-record-lines.js';
+import { jsonlRecordLines, type JsonlRecordLine } from './jsonl-record-lines.js';
 
 /** Fingerprint of a JSONL file's content, to tell whether the file changed since it was read */
 export function hashJsonlContent(content: string): string {
@@ -15,6 +15,8 @@ export interface JsonlSnapshot {
   rows: Result<JsonObject[], JsonlParseError>;
   /** Undefined when the rows come from an override rather than the file */
   contentHash: string | undefined;
+  /** Rows the reader accepted but that the file should be fixed for, each naming its file and line */
+  warnings: string[];
 }
 
 export class JsonlReader {
@@ -59,6 +61,7 @@ export class JsonlReader {
       return ok({
         rows: ok(overrideRows.map((row) => JSON.parse(JSON.stringify(row)) as JsonObject)),
         contentHash: undefined,
+        warnings: [],
       });
     }
 
@@ -69,12 +72,14 @@ export class JsonlReader {
       return err(toError(error));
     }
 
-    return ok({ rows: this.parse(filePath, content), contentHash: hashJsonlContent(content) });
+    const records = jsonlRecordLines(content);
+    const warnings = records.flatMap(({ line, warning }) => (warning ? [`${filePath}:${line} ${warning}`] : []));
+    return ok({ rows: this.parse(filePath, records), contentHash: hashJsonlContent(content), warnings });
   }
 
-  private static parse(filePath: string, content: string): Result<JsonObject[], JsonlParseError> {
+  private static parse(filePath: string, records: JsonlRecordLine[]): Result<JsonObject[], JsonlParseError> {
     const rows: JsonObject[] = [];
-    for (const { text, line } of jsonlRecordLines(content)) {
+    for (const { text, line } of records) {
       const fail = (message: string, cause?: unknown) => {
         const parseError = new Error(message, { cause }) as JsonlParseError;
         parseError.name = 'JsonlParseError';

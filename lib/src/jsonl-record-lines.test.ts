@@ -34,8 +34,27 @@ describe('jsonlRecordLines', () => {
     expect(jsonlRecordLines('\u{feff}{"a":1}\n')).toEqual([{ text: '{"a":1}', line: 1 }]);
   });
 
-  it('keeps a second byte order mark in the first line', () => {
-    expect(jsonlRecordLines('\u{feff}\u{feff}{"a":1}\n')).toEqual([{ text: '\u{feff}{"a":1}', line: 1 }]);
+  it('trims ASCII spaces and tabs around a row without a warning', () => {
+    expect(jsonlRecordLines('  \t{"a":1} \t\n')).toEqual([{ text: '{"a":1}', line: 1 }]);
+  });
+
+  it('trims a non-breaking space around a row and warns with its code point', () => {
+    expect(jsonlRecordLines('{"a":1}\n\u00a0{"a":2}\u00a0\n')).toEqual([
+      { text: '{"a":1}', line: 1 },
+      { text: '{"a":2}', line: 2, warning: 'has U+00A0 around its row, which JSON does not allow' },
+    ]);
+  });
+
+  it('trims a second byte order mark and warns with its code point', () => {
+    expect(jsonlRecordLines('\u{feff}\u{feff}{"a":1}\n')).toEqual([
+      { text: '{"a":1}', line: 1, warning: 'has U+FEFF around its row, which JSON does not allow' },
+    ]);
+  });
+
+  it('lists each distinct stray character once, in the order it first appears', () => {
+    expect(jsonlRecordLines('\u2003\u00a0{"a":1}\u00a0\u2003\n')).toEqual([
+      { text: '{"a":1}', line: 1, warning: 'has U+2003, U+00A0 around its row, which JSON does not allow' },
+    ]);
   });
 
   it('returns nothing for an empty file', () => {
