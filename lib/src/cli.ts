@@ -121,11 +121,12 @@ const validateCommand = defineCommand({
         const formatter = new ErrorFormatter({ verbose: args.verbose });
 
         for (const tableResult of result.tableResults) {
-          if (tableResult.valid && tableResult.warnings.length === 0) {
-            console.log(styleText('green', `✓ ${tableResult.tableName} (${tableResult.rowCount} records)`));
-          } else if (tableResult.valid && tableResult.warnings.length > 0) {
-            for (const warning of tableResult.warnings) {
-              console.warn(styleText('yellow', `⚠ ${warning}`));
+          for (const warning of tableResult.warnings) {
+            console.warn(styleText('yellow', `⚠ ${warning}`));
+          }
+          if (tableResult.valid) {
+            if (tableResult.warnings.length === 0) {
+              console.log(styleText('green', `✓ ${tableResult.tableName} (${tableResult.rowCount} records)`));
             }
           } else {
             const fileErrors = tableResult.errors;
