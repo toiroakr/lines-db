@@ -33,12 +33,8 @@ function normalizeDependencies(dependencies, catalogs = {}, includeCatalogSpecif
     const dependency = dependencies[name];
     const specifier = typeof dependency === 'string' ? dependency : dependency.specifier;
     const catalog = specifier?.startsWith('catalog:') ? catalogs[specifier.slice(8) || 'default']?.[name] : undefined;
-    const resolved =
-      typeof dependency === 'string'
-        ? typeof catalog === 'string'
-          ? catalog
-          : (catalog?.version ?? catalog?.specifier)
-        : dependency.version;
+    const catalogVersion = typeof catalog === 'string' ? catalog : (catalog?.version ?? catalog?.specifier);
+    const resolved = typeof dependency === 'string' ? catalogVersion : (dependency.version ?? catalogVersion);
     const version = resolved?.split('(')[0];
     normalized[name] = {
       specifier,
@@ -59,7 +55,7 @@ function parseYamlCatalogs(lines) {
       if (/^catalogs:\s*$/.test(line)) active = true;
       continue;
     }
-    if (!line.trim()) continue;
+    if (!line.trim() || /^\s*#/.test(line)) continue;
     if (/^\S/.test(line)) break;
     const catalogEntry = line.match(/^ {2}(\S.*):\s*$/);
     const dependencyEntry = line.match(/^ {4}(\S.*):\s*$/);
