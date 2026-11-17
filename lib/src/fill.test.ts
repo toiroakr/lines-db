@@ -262,6 +262,19 @@ describe('fillFields', () => {
     expect(lines[2]).toBe('["not an object"]');
   });
 
+  it('fills a row padded with a character JSON does not allow as whitespace, as the reader loads it', async () => {
+    const jsonlPath = join(dataDir, 'Widget.jsonl');
+    await writeFile(join(dataDir, 'Widget.schema.ts'), HOOK_SCHEMA);
+    await writeFile(jsonlPath, '{"id":"kept","name":"first"}\n {"name":"second"}\n {"id":"kept","name":"third"}\n');
+
+    const result = unwrap(await fillFields({ path: dataDir, loadFiller: useHook }));
+
+    expect(result.unreadableLines).toEqual([]);
+    expect(await readFile(jsonlPath, 'utf-8')).toBe(
+      '{"id":"kept","name":"first"}\n{"id":"generated-2","name":"second"}\n {"id":"kept","name":"third"}\n',
+    );
+  });
+
   it('keeps an undeclared key named after an Object member', async () => {
     const jsonlPath = await writeTable('Widget', ['{"name":"first","toString":"kept","__proto__":"kept"}']);
 
