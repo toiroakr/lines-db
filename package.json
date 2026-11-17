@@ -4,7 +4,7 @@
   "private": true,
   "description": "Monorepo for lines-db library and related packages",
   "type": "module",
-  "packageManager": "pnpm@12.21.0",
+  "packageManager": "pnpm@12.21.0+sha512.66fd8278ee28935ce951792d34367ff3af5c432a2756445823029533835b8da529bbe0be5130afd56ed0713fb8789e47bad82d93bd5ae2fe54b15562d6276ef0",
   "scripts": {
     "build": "pnpm --filter lines-db build && pnpm --filter @lines-db/studio build",
     "test": "node --test .github/scripts/lockfile-runtime-diff.test.mjs && pnpm build && pnpm --filter lines-db --filter @lines-db/studio --filter @toiroakr/lines-db-studio-ui test && pnpm --filter @toiroakr/lines-db-tests-unit test",
