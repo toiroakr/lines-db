@@ -7,7 +7,7 @@
   "packageManager": "pnpm@12.21.0",
   "scripts": {
     "build": "pnpm --filter lines-db build && pnpm --filter @lines-db/studio build",
-    "test": "pnpm build && pnpm --filter lines-db --filter @lines-db/studio --filter @toiroakr/lines-db-studio-ui test && pnpm --filter @toiroakr/lines-db-tests-unit test",
+    "test": "node --test .github/scripts/lockfile-runtime-diff.test.mjs && pnpm build && pnpm --filter lines-db --filter @lines-db/studio --filter @toiroakr/lines-db-studio-ui test && pnpm --filter @toiroakr/lines-db-tests-unit test",
     "test:all": "pnpm test",
     "e2e": "pnpm --filter @toiroakr/lines-db-e2e e2e",
     "e2e:deterministic": "pnpm --filter @toiroakr/lines-db-e2e e2e:deterministic",
