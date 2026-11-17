@@ -408,8 +408,8 @@ snapshots:
 					"version": "6.13.1",
 				},
 				"@codemirror/lint": {
-					"specifier": "^6.9.7",
-					"version": "6.9.7",
+					"specifier": "^6.9.8",
+					"version": "6.9.8",
 				},
 				"@codemirror/state": {
 					"specifier": "^6.7.6",
@@ -1017,7 +1017,7 @@ snapshots:
 			"dependencies": {
 				"@codemirror/autocomplete": "6.20.3",
 				"@codemirror/language": "6.13.1",
-				"@codemirror/lint": "6.9.7",
+				"@codemirror/lint": "6.9.8",
 				"@codemirror/state": "6.7.6",
 				"@codemirror/view": "6.43.15",
 				"@lezer/common": "1.5.3",
@@ -1046,8 +1046,8 @@ snapshots:
 			},
 		},
 
-		"@codemirror/lint@6.9.7": {
-			"integrity": "sha512-28/+iWLYxKxsvGYhSYL7zaCZqLz5+FFFDq9tVsvGv9kv8RY4fFAchJ5WX9M3YrrRlTIsECjsXPqeNgnSmNP2dg==",
+		"@codemirror/lint@6.9.8": {
+			"integrity": "sha512-qNvtcE73xUto/D1RvtgSRI4A1Hg8ekxlvtZpjHpdpisLBnhyu82EUEJMEgaxkjuQCA8vqnrylENWKOsEDCOHcw==",
 			"dependencies": {
 				"@codemirror/state": "6.7.6",
 				"@codemirror/view": "6.43.15",
@@ -5060,7 +5060,7 @@ snapshots:
 				"@codemirror/autocomplete": "6.20.3",
 				"@codemirror/commands": "6.11.1",
 				"@codemirror/language": "6.13.1",
-				"@codemirror/lint": "6.9.7",
+				"@codemirror/lint": "6.9.8",
 				"@codemirror/search": "6.7.2",
 				"@codemirror/state": "6.7.6",
 				"@codemirror/view": "6.43.15",
