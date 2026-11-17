@@ -27,6 +27,13 @@ function mainDocumentLines(text) {
   return second === -1 ? lines : lines.slice(second + 1);
 }
 
+function bareVersion(reference) {
+  return reference
+    ?.replace(/^npm:/, '')
+    .split('(')[0]
+    .replace(/^(?:@[^/]+\/)?[^@/]+@(?=\d)/, '');
+}
+
 function normalizeDependencies(
   dependencies,
   catalogs = {},
@@ -42,7 +49,7 @@ function normalizeDependencies(
     const catalogSpecifier = typeof catalog === 'string' ? catalog : catalog?.specifier;
     const catalogVersion = typeof catalog === 'string' ? catalog : (catalog?.version ?? catalog?.specifier);
     const resolved = typeof dependency === 'string' ? catalogVersion : (dependency.version ?? catalogVersion);
-    const version = resolved?.replace(/^npm:/, '').split('(')[0];
+    const version = bareVersion(resolved);
     const reference = (resolved ?? specifier)?.replace(/^npm:/, '').split('(')[0];
     const entry = packages[`${name}@${reference}`] ?? packages[reference];
     const peers = [
@@ -65,7 +72,7 @@ function normalizeDependencies(
       ...(includeCatalogSpecifiers && catalogSpecifier ? { catalogSpecifier } : {}),
       ...(peers.length ? { peers: [...new Set(peers)].sort() } : {}),
       ...(version &&
-      version !== specifier.replace(/^npm:/, '') &&
+      version !== bareVersion(specifier) &&
       !specifier.startsWith('workspace:') &&
       !catalogSpecifier?.startsWith('workspace:')
         ? { version }
@@ -146,7 +153,9 @@ function parseImporters(text, normalize = false) {
           normalize
             ? resolvedDependencies
             : Object.keys(project.dependencies ?? {}).length
-              ? JSON.stringify({ dependencies: project.dependencies, resolvedDependencies })
+              ? JSON.stringify({ dependencies: project.dependencies, resolvedDependencies }, (_key, value) =>
+                  value === 'catalog:default' ? 'catalog:' : value,
+                )
               : undefined,
         ];
       }),
