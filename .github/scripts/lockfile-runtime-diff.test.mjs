@@ -93,6 +93,11 @@ test('detects runtime updates when lockfiles have CRLF line endings', () => {
 
 test('detects resolved catalog updates across lockfile formats', () => {
   const before = `lockfileVersion: '9.0'
+catalogs:
+  default:
+    example:
+      specifier: 1.0.0
+      version: 1.0.0
 importers:
   lib:
     dependencies:
@@ -118,4 +123,137 @@ test('detects resolved catalog updates between v13 lockfiles', () => {
   );
   const before = after.replace('"example": "2.0.0"', '"example": "1.0.0"');
   assert.match(runDiff(before, after), /Runtime dependency changes detected in: example/);
+});
+
+test('detects catalog range updates when the resolved version stays unchanged', () => {
+  const before = v13({ example: 'catalog:' }).replace(
+    '"projects": {',
+    '"settings": { "catalogs": { "default": { "example": { "specifier": "^1.0.0", "version": "1.2.0" } } } }, "projects": {',
+  );
+  const after = before.replace('"specifier": "^1.0.0"', '"specifier": "^1.1.0"');
+  assert.match(runDiff(before, after), /Runtime dependency changes detected in: example/);
+});
+
+test('detects catalog range changes during a v9 to v13 migration', () => {
+  const before = `lockfileVersion: '9.0'
+catalogs:
+  default:
+    example:
+      specifier: ^1.0.0
+      version: 1.2.0
+importers:
+  lib:
+    dependencies:
+      example:
+        specifier: catalog:
+        version: 1.2.0
+`;
+  const same = v13({ example: 'catalog:' }).replace(
+    '"projects": {',
+    '"settings": { "catalogs": { "default": { "example": { "specifier": "^1.0.0", "version": "1.2.0" } } } }, "projects": {',
+  );
+  assert.match(runDiff(before, same), /No runtime dependency changes/);
+  const changed = same.replace('"specifier": "^1.0.0"', '"specifier": "^1.1.0"');
+  assert.match(runDiff(before, changed), /Runtime dependency changes detected in: example/);
+});
+
+test('detects catalog range changes between v9 lockfiles', () => {
+  const before = `lockfileVersion: '9.0'
+catalogs:
+  default:
+    example:
+      specifier: ^1.0.0
+      version: 1.2.0
+importers:
+  lib:
+    dependencies:
+      example:
+        specifier: catalog:
+        version: 1.2.0
+`;
+  const after = before.replace('specifier: ^1.0.0', 'specifier: ^1.1.0');
+  assert.match(runDiff(before, after), /Runtime dependency changes detected in: example/);
+});
+
+test('resolves catalogs for dependency objects without explicit versions', () => {
+  const before = v13({ example: { specifier: 'catalog:', with: { peer: '3.0.0' } } }).replace(
+    '"projects": {',
+    '"settings": { "catalogs": { "default": { "example": { "specifier": "^1.0.0", "version": "1.2.0" } } } }, "projects": {',
+  );
+  const after = before.replace('"version": "1.2.0"', '"version": "1.3.0"');
+  assert.match(runDiff(before, after), /Runtime dependency changes detected in: example/);
+});
+
+test('keeps named catalog metadata after a YAML comment', () => {
+  const before = `lockfileVersion: '9.0'
+catalogs:
+  default:
+    other:
+      specifier: ^1.0.0
+      version: 1.2.0
+# Named catalog
+  named:
+    example:
+      specifier: ^1.0.0
+      version: 1.2.0
+importers:
+  lib:
+    dependencies:
+      example:
+        specifier: catalog:named
+        version: 1.2.0
+`;
+  const after = before.replace(
+    'named:\n    example:\n      specifier: ^1.0.0',
+    'named:\n    example:\n      specifier: ^1.1.0',
+  );
+  assert.match(runDiff(before, after), /Runtime dependency changes detected in: example/);
+});
+
+for (const [specifier, version] of [
+  ['1.2.0', '1.2.0'],
+  ['npm:target@1.2.0', 'target@1.2.0'],
+  ['workspace:*', 'link:../other'],
+]) {
+  test(`preserves unchanged compact catalog entries during migration: ${specifier}`, () => {
+    const before = `lockfileVersion: '9.0'
+catalogs:
+  default:
+    other:
+      specifier: ${specifier}
+      version: ${version}
+importers:
+  lib:
+    dependencies:
+      other:
+        specifier: catalog:
+        version: ${version}
+`;
+    const after = v13({ other: 'catalog:' }).replace(
+      '"projects": {',
+      `"settings": { "catalogs": { "default": { "other": ${JSON.stringify(specifier)} } } }, "projects": {`,
+    );
+    assert.match(runDiff(before, after), /No runtime dependency changes/);
+  });
+}
+
+test('treats default catalog aliases as equivalent during migration', () => {
+  const before = `lockfileVersion: '9.0'
+catalogs:
+  default:
+    other:
+      specifier: 1.2.0
+      version: 1.2.0
+importers:
+  lib:
+    dependencies:
+      other:
+        specifier: catalog:default
+        version: 1.2.0
+`;
+  const after = v13({ other: 'catalog:' }).replace(
+    '"projects": {',
+    '"settings": { "catalogs": { "default": { "other": "1.2.0" } } }, "projects": {',
+  );
+  assert.match(runDiff(before, after), /No runtime dependency changes/);
 });

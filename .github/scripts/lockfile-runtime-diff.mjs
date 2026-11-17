@@ -27,28 +27,59 @@ function mainDocumentLines(text) {
   return second === -1 ? lines : lines.slice(second + 1);
 }
 
-function normalizeDependencies(dependencies, catalogs = {}) {
+function normalizeDependencies(dependencies, catalogs = {}, includeCatalogSpecifiers = false) {
   const normalized = {};
   for (const name of Object.keys(dependencies).sort()) {
     const dependency = dependencies[name];
     const specifier = typeof dependency === 'string' ? dependency : dependency.specifier;
     const catalog = specifier?.startsWith('catalog:') ? catalogs[specifier.slice(8) || 'default']?.[name] : undefined;
-    const resolved =
-      typeof dependency === 'string'
-        ? typeof catalog === 'string'
-          ? catalog
-          : (catalog?.version ?? catalog?.specifier)
-        : dependency.version;
-    const version = resolved?.split('(')[0];
+    const catalogSpecifier = typeof catalog === 'string' ? catalog : catalog?.specifier;
+    const catalogVersion = typeof catalog === 'string' ? catalog : (catalog?.version ?? catalog?.specifier);
+    const resolved = typeof dependency === 'string' ? catalogVersion : (dependency.version ?? catalogVersion);
+    const version = resolved?.replace(/^npm:/, '').split('(')[0];
     normalized[name] = {
-      specifier,
-      ...(version && version !== specifier && !specifier.startsWith('workspace:') ? { version } : {}),
+      specifier: specifier === 'catalog:default' ? 'catalog:' : specifier,
+      ...(includeCatalogSpecifiers && catalogSpecifier ? { catalogSpecifier } : {}),
+      ...(version &&
+      version !== specifier.replace(/^npm:/, '') &&
+      !specifier.startsWith('workspace:') &&
+      !catalogSpecifier?.startsWith('workspace:')
+        ? { version }
+        : {}),
     };
   }
   return Object.keys(normalized).length ? JSON.stringify(normalized) : undefined;
 }
 
-function normalizeYamlDependencies(lines) {
+function parseYamlCatalogs(lines) {
+  const catalogs = {};
+  let active = false;
+  let catalog;
+  let dependency;
+  for (const line of lines) {
+    if (!active) {
+      if (/^catalogs:\s*$/.test(line)) active = true;
+      continue;
+    }
+    if (!line.trim() || /^\s*#/.test(line)) continue;
+    if (/^\S/.test(line)) break;
+    const catalogEntry = line.match(/^ {2}(\S.*):\s*$/);
+    const dependencyEntry = line.match(/^ {4}(\S.*):\s*$/);
+    const field = line.match(/^ {6}(specifier|version):\s*(.+)$/);
+    if (catalogEntry) {
+      catalog = catalogEntry[1].replace(/^["']|["']$/g, '');
+      catalogs[catalog] = {};
+    } else if (dependencyEntry && catalog) {
+      dependency = dependencyEntry[1].replace(/^["']|["']$/g, '');
+      catalogs[catalog][dependency] = {};
+    } else if (field && catalog && dependency) {
+      catalogs[catalog][dependency][field[1]] = field[2].replace(/^["']|["']$/g, '');
+    }
+  }
+  return catalogs;
+}
+
+function normalizeYamlDependencies(lines, catalogs) {
   const dependencies = {};
   let name;
   for (const line of lines) {
@@ -61,7 +92,7 @@ function normalizeYamlDependencies(lines) {
       if (name && field) dependencies[name][field[1]] = field[2].replace(/^["']|["']$/g, '');
     }
   }
-  return normalizeDependencies(dependencies);
+  return normalizeDependencies(dependencies, catalogs, true);
 }
 
 function parseImporters(text, normalize = false) {
@@ -74,17 +105,18 @@ function parseImporters(text, normalize = false) {
       Object.entries(lockfile.projects ?? {}).map(([path, project]) => [
         path,
         normalize
-          ? normalizeDependencies(project.dependencies ?? {}, lockfile.settings?.catalogs)
+          ? normalizeDependencies(project.dependencies ?? {}, lockfile.settings?.catalogs, true)
           : Object.keys(project.dependencies ?? {}).length
             ? JSON.stringify({
                 dependencies: project.dependencies,
-                resolvedDependencies: normalizeDependencies(project.dependencies, lockfile.settings?.catalogs),
+                resolvedDependencies: normalizeDependencies(project.dependencies, lockfile.settings?.catalogs, true),
               })
             : undefined,
       ]),
     );
   }
   const lines = mainDocumentLines(text);
+  const catalogs = parseYamlCatalogs(lines);
   const importersIdx = lines.findIndex((l) => /^importers:\s*$/.test(l));
   if (importersIdx === -1) return {};
 
@@ -95,7 +127,14 @@ function parseImporters(text, normalize = false) {
 
   const flush = () => {
     if (currentImporter && currentSection === 'dependencies') {
-      importers[currentImporter] = normalize ? normalizeYamlDependencies(sectionLines) : sectionLines.join('\n');
+      importers[currentImporter] = normalize
+        ? normalizeYamlDependencies(sectionLines, catalogs)
+        : sectionLines.length
+          ? JSON.stringify({
+              dependencies: sectionLines.join('\n'),
+              resolvedDependencies: normalizeYamlDependencies(sectionLines, catalogs),
+            })
+          : undefined;
     }
     sectionLines = [];
   };
