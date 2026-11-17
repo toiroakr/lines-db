@@ -27,7 +27,7 @@ function mainDocumentLines(text) {
   return second === -1 ? lines : lines.slice(second + 1);
 }
 
-function normalizeDependencies(dependencies, catalogs = {}) {
+function normalizeDependencies(dependencies, catalogs = {}, includeCatalogSpecifiers = false) {
   const normalized = {};
   for (const name of Object.keys(dependencies).sort()) {
     const dependency = dependencies[name];
@@ -42,6 +42,7 @@ function normalizeDependencies(dependencies, catalogs = {}) {
     const version = resolved?.split('(')[0];
     normalized[name] = {
       specifier,
+      ...(includeCatalogSpecifiers && catalog?.specifier ? { catalogSpecifier: catalog.specifier } : {}),
       ...(version && version !== specifier && !specifier.startsWith('workspace:') ? { version } : {}),
     };
   }
@@ -78,7 +79,7 @@ function parseImporters(text, normalize = false) {
           : Object.keys(project.dependencies ?? {}).length
             ? JSON.stringify({
                 dependencies: project.dependencies,
-                resolvedDependencies: normalizeDependencies(project.dependencies, lockfile.settings?.catalogs),
+                resolvedDependencies: normalizeDependencies(project.dependencies, lockfile.settings?.catalogs, true),
               })
             : undefined,
       ]),
