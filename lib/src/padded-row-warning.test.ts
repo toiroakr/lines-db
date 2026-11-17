@@ -40,6 +40,15 @@ describe('a JSONL row with a character around it that JSON does not allow as whi
     expect(result.tableResults.find((table) => table.tableName === 'people')?.warnings).toEqual(result.warnings);
   });
 
+  it('loads a file with so many padded rows that its warnings cannot be spread into one call', async () => {
+    const rows = Array.from({ length: 300_000 }, (_, index) => `\u00a0{"id":"${index}"}`);
+
+    const result = await load(`${rows.join('\n')}\n`);
+
+    expect(result.valid).toBe(true);
+    expect(result.warnings).toHaveLength(300_000);
+  }, 120_000);
+
   it('gives no warning for a file whose rows have none', async () => {
     const result = await load('{"id":"1"}\n  {"id":"2"}\t\n');
 

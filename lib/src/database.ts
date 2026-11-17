@@ -443,7 +443,7 @@ export class LinesDB<Tables extends TableDefs> {
             tableTransform,
           );
           allErrors.push(...errors);
-          allWarnings.push(...warnings);
+          for (const warning of warnings) allWarnings.push(warning);
           allDeferredForeignKeys.push(...deferredForeignKeys);
           for (const [k, v] of tableRowCounts) {
             allRowCounts.set(k, v);
@@ -584,7 +584,7 @@ export class LinesDB<Tables extends TableDefs> {
                 undefined,
               );
               errors.push(...depResult.errors);
-              warnings.push(...depResult.warnings);
+              for (const warning of depResult.warnings) warnings.push(warning);
               deferredForeignKeys.push(...depResult.deferredForeignKeys);
               for (const [k, v] of depResult.rowCounts) {
                 rowCounts.set(k, v);
@@ -698,7 +698,9 @@ export class LinesDB<Tables extends TableDefs> {
       if (!rows.ok) {
         throw rows.error;
       }
-      warnings.push(...readWarnings.map((warning) => `Table '${tableName}': ${warning}`));
+      for (const warning of readWarnings) {
+        warnings.push(`Table '${tableName}': ${warning}`);
+      }
       if (contentHash !== undefined) {
         contentHashes.set(jsonlPath, contentHash);
         this.observedHashes.set(jsonlPath, contentHash);
