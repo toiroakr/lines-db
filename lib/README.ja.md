@@ -555,6 +555,22 @@ await JsonlWriter.write('./data/users.jsonl', filled);
 
 対象外のフィールドは検証しません。その値がスキーマに違反していても、指定したフィールドを更新できます。計算後の行にないフィールドは元の値を残します。計算結果のキー順がスキーマと異なる場合は、`keyOrder`で新しいキーの位置を指定できます。
 
+### 行の読み取り規則
+
+`JsonlReader`と`lines-db validate`は、JSONLファイルを1つの規則で読みます。先頭のBOMを1つと各行末のCRを落とし、trimして空になる行は飛ばし、行番号は物理行番号です（飛ばした行も数えます）。各行の行番号を自分で使いたいとき（エラーを行番号つきで報告する場合など）は、`jsonlRecordLines`でファイルの内容にこの規則を適用できます。
+
+```typescript
+import { jsonlRecordLines } from 'lines-db';
+
+jsonlRecordLines('\n{"a":1}\n {"a":2}\n');
+// [
+//   { text: '{"a":1}', line: 2 },
+//   { text: '{"a":2}', line: 3, warning: 'has U+00A0 around its row, which JSON does not allow' },
+// ]
+```
+
+行の前後にある半角スペースとタブは、JSONが空白として許すので、警告なしでtrimします。NBSP（`U+00A0`）や2つ目のBOMのように、JSONが空白として許さない文字もtrimするので、その行は読み込めます。`JsonlReader.readSnapshot`は、そうした行の`warning`をファイルと行番号つきで`warnings`に返し、`validate`と`initialize`は、`Table 'users': ./data/users.jsonl:3 has U+00A0 around its row, which JSON does not allow`の形で`warnings`に加えます。
+
 ## 設定
 
 ```typescript

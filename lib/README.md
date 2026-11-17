@@ -556,6 +556,22 @@ await JsonlWriter.write('./data/users.jsonl', filled);
 
 Fields outside the selection are not validated. Even if their values would fail the schema, selected fields can still be updated. Fields absent from the computed row keep their original values. If computed key order differs from schema order, use `keyOrder` to set the position of new keys.
 
+### Read the lines that hold rows
+
+`JsonlReader` and `lines-db validate` read a JSONL file with one rule: one leading byte order mark and each line's trailing carriage return are dropped, lines that are blank after trimming are skipped, and a row's line is its physical line, so skipped lines still count. `jsonlRecordLines` applies that rule to a file's content when you need each row's line yourself, such as to report errors by line.
+
+```typescript
+import { jsonlRecordLines } from 'lines-db';
+
+jsonlRecordLines('\n{"a":1}\n {"a":2}\n');
+// [
+//   { text: '{"a":1}', line: 2 },
+//   { text: '{"a":2}', line: 3, warning: 'has U+00A0 around its row, which JSON does not allow' },
+// ]
+```
+
+Spaces and tabs around a row are trimmed without a warning, as JSON allows them. A character JSON does not allow as whitespace, such as a non-breaking space (`U+00A0`) or a second byte order mark, is trimmed too, so the row still loads. `JsonlReader.readSnapshot` returns each such row's `warning` in `warnings` with its file and line, and `validate` and `initialize` add it to their `warnings` as `Table 'users': ./data/users.jsonl:3 has U+00A0 around its row, which JSON does not allow`.
+
 ## Configuration
 
 ```typescript

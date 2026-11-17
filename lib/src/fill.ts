@@ -267,9 +267,10 @@ function splitLines(content: string): Line[] {
     const carriage = raw.endsWith('\r') ? '\r' : '';
     const text = carriage ? raw.slice(0, -1) : raw;
     let row: JsonObject | undefined;
-    if (text.trim() !== '') {
+    const trimmed = text.trim();
+    if (trimmed !== '') {
       try {
-        const parsed: unknown = JSON.parse(text);
+        const parsed: unknown = JSON.parse(trimmed);
         row =
           parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as JsonObject) : undefined;
       } catch {

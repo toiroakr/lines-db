@@ -443,7 +443,7 @@ export class LinesDB<Tables extends TableDefs> {
             tableTransform,
           );
           allErrors.push(...errors);
-          allWarnings.push(...warnings);
+          for (const warning of warnings) allWarnings.push(warning);
           allDeferredForeignKeys.push(...deferredForeignKeys);
           for (const [k, v] of tableRowCounts) {
             allRowCounts.set(k, v);
@@ -584,7 +584,7 @@ export class LinesDB<Tables extends TableDefs> {
                 undefined,
               );
               errors.push(...depResult.errors);
-              warnings.push(...depResult.warnings);
+              for (const warning of depResult.warnings) warnings.push(warning);
               deferredForeignKeys.push(...depResult.deferredForeignKeys);
               for (const [k, v] of depResult.rowCounts) {
                 rowCounts.set(k, v);
@@ -633,7 +633,7 @@ export class LinesDB<Tables extends TableDefs> {
         loaded,
         rowCount,
         errors: loadErrors,
-      } = await this.loadTable(tableName, tableConfig, detailedValidate, transform, allSkippedDependencies);
+      } = await this.loadTable(tableName, tableConfig, detailedValidate, transform, allSkippedDependencies, warnings);
       errors.push(...loadErrors);
       rowCounts.set(tableName, rowCount);
 
@@ -683,6 +683,7 @@ export class LinesDB<Tables extends TableDefs> {
     detailedValidate: boolean,
     transform?: (row: JsonObject) => JsonObject,
     failedDependencies?: Set<string>,
+    warnings: string[] = [],
   ): Promise<{ loaded: boolean; rowCount: number; errors: ValidationErrorDetail[] }> {
     // Read every JSONL file of the table, remembering where each row came from
     let data: JsonObject[] = [];
@@ -693,9 +694,12 @@ export class LinesDB<Tables extends TableDefs> {
       if (!readResult.ok) {
         throw readResult.error;
       }
-      const { rows, contentHash } = readResult.value;
+      const { rows, contentHash, warnings: readWarnings } = readResult.value;
       if (!rows.ok) {
         throw rows.error;
+      }
+      for (const warning of readWarnings) {
+        warnings.push(`Table '${tableName}': ${warning}`);
       }
       if (contentHash !== undefined) {
         contentHashes.set(jsonlPath, contentHash);
