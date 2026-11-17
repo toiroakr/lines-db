@@ -74,7 +74,7 @@ function parseImporters(text, normalize = false) {
       ]),
     );
   }
-  const lines = text.split(/\r?\n/);
+  const lines = mainDocumentLines(text);
   const importersIdx = lines.findIndex((l) => /^importers:\s*$/.test(l));
   if (importersIdx === -1) return {};
 
