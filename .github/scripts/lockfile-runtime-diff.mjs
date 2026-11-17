@@ -20,7 +20,26 @@ function parseArgs(argv) {
   return args;
 }
 
+function mainDocumentLines(text) {
+  const lines = text.split('\n');
+  if (lines[0] !== '---') return lines;
+  const second = lines.indexOf('---', 1);
+  return second === -1 ? lines : lines.slice(second + 1);
+}
+
 function parseImporters(text) {
+  const document = mainDocumentLines(text).join('\n').trimStart();
+  if (document.startsWith('{')) {
+    const lockfile = JSON.parse(
+      document.replace(/("(?:[^"\\]|\\.)*")|,\s*(?=[}\]])/g, (match, string) => string ?? ''),
+    );
+    return Object.fromEntries(
+      Object.entries(lockfile.projects ?? {}).map(([path, project]) => [
+        path,
+        JSON.stringify(project.dependencies ?? {}),
+      ]),
+    );
+  }
   const lines = text.split('\n');
   const importersIdx = lines.findIndex((l) => /^importers:\s*$/.test(l));
   if (importersIdx === -1) return {};

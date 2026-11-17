@@ -28,3 +28,6 @@ enableGlobalVirtualStore: true
 
 overrides:
   serialize-javascript: '>=7.1.4'
+
+lockfile:
+  format: v13
