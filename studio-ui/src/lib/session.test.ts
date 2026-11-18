@@ -71,6 +71,15 @@ describe('the studio token', () => {
       });
     });
 
+    it('does not carry over to the next page that comes without headers', () => {
+      adoptHeaders({ 'x-host-token': 'a' });
+      document.head.innerHTML = '<meta name="studio-token" content="second">';
+
+      adoptToken();
+
+      expect(authorized().headers).toEqual({ Authorization: 'Bearer second' });
+    });
+
     it('never sends the token twice under another spelling of its name', () => {
       adoptHeaders({ authorization: 'Bearer host' });
 

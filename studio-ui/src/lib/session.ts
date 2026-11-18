@@ -30,6 +30,7 @@ export function adoptToken(): void {
 /** The headers a host that frames the studio has the page send, which it checks before passing a request on */
 function adoptRequestHeaders(): void {
   const meta = document.querySelector<HTMLMetaElement>('meta[name="studio-request-headers"]');
+  pageHeaders = {};
   if (!meta) return;
   pageHeaders = JSON.parse(meta.content) as Record<string, string>;
   meta.remove();
