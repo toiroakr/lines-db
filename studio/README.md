@@ -91,4 +91,28 @@ console.log(studio.url);
 await studio.close();
 ```
 
+## Serve from another server
+
+`createStudioHandler` resolves to `{ token, fetch(request), close() }`. Its `fetch` is a Web-standard handler, `(request: Request) => Promise<Response>`, to mount in a server of your own instead of starting one. It checks neither the Host nor which path it is mounted under, so mount it at a path of your choice, strip that path from the URL it receives, and check the Host yourself.
+
+```js
+import { createStudioHandler } from '@lines-db/studio';
+
+const studio = await createStudioHandler({
+  dataDir: './data',
+  frameAncestors: 'self',
+  requestHeaders: { 'x-studio-host': 'embedded' },
+});
+
+// Create the handler once at startup and pass every request to `studio.fetch`.
+// `close()` stops the file watchers and ends the event streams for good, so call it only at shutdown.
+const response = await studio.fetch(request);
+await studio.close();
+```
+
+- The page requests the API with addresses relative to its own, so it works at any path, as long as the page is opened with a trailing slash.
+- `frameAncestors` is `'none'` by default, which keeps every page from framing the studio. `'self'` lets a page of the same origin frame it.
+- `requestHeaders` are sent by the page with every API request except the live-reload stream, for a host that checks them before passing a request on. The stream is requested by an event source, which cannot send headers, so the host has to let `GET /api/events` through without them. The values are written into the page, so they are not secrets from anyone who can load it.
+- A write is rejected when its `Origin` header is present and is not the origin of the request URL. A request without `Origin` passes this check, and a write still needs the token and `application/json`.
+
 TypeScript schema files require a loader such as `amaro/transform`. The lines-db CLI registers it automatically. When starting from code, register a loader before loading the schemas.

@@ -1,2 +1,2 @@
-export { startStudioServer } from './server.js';
-export type { StudioServer, StudioServerOptions } from './server.js';
+export { createStudioHandler, startStudioServer } from './server.js';
+export type { StudioHandler, StudioHandlerOptions, StudioServer, StudioServerOptions } from './server.js';

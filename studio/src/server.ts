@@ -4,6 +4,8 @@ import { readFile, realpath, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, dirname, extname, relative, resolve as resolvePath } from 'node:path';
+import { pipeline, Readable } from 'node:stream';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { fileURLToPath } from 'node:url';
 import { watch, type FSWatcher } from 'zygiella';
 import {
@@ -29,15 +31,30 @@ import { createSchemaImports, hashJsonlContent, replaceFile } from 'lines-db/int
 import { readDeclaredColumns, tableSchemaOf } from './declared-columns.js';
 import { replaceRows } from './file-rows.js';
 
-export interface StudioServerOptions {
+export interface StudioHandlerOptions {
   dataDir: string | string[];
   schemaDir?: string;
   /** Directory holding the built page. Defaults to the one shipped with the package */
   uiDir?: string;
   /** Which values the schema fills in a save writes into the file. Defaults to 'primaryKey' */
   writeFilledValues?: WriteFilledValues;
+  /** Which pages may frame the studio: none, or those of its own origin. Defaults to 'none' */
+  frameAncestors?: 'none' | 'self';
+  /** Headers the page sends with every API request, for a host that checks them before passing the request on */
+  requestHeaders?: Record<string, string>;
+}
+
+export interface StudioServerOptions extends StudioHandlerOptions {
   host?: string;
   port?: number;
+}
+
+export interface StudioHandler {
+  /** The token every API request presents, generated at start-up and handed to the page */
+  token: string;
+  /** Answers a request whose path is relative to the studio's root; checking the Host is left to the caller */
+  fetch(request: Request): Promise<Response>;
+  close(): Promise<void>;
 }
 
 export interface StudioServer {
@@ -68,7 +85,7 @@ interface InvalidTable {
   issues: Map<number, StandardSchemaIssue[]>;
 }
 
-export async function startStudioServer(options: StudioServerOptions): Promise<StudioServer> {
+export async function createStudioHandler(options: StudioHandlerOptions): Promise<StudioHandler> {
   const dataDirs: string[] = [];
   const seen = new Set<string>();
   for (const dir of [options.dataDir].flat()) {
@@ -81,7 +98,6 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   if (dataDirs.length === 0) throw new Error('Studio requires at least one data directory');
   const dataDir = dataDirs[0];
   const schemaDir = options.schemaDir ?? dataDir;
-  const host = options.host ?? '127.0.0.1';
   const uiDir = options.uiDir ?? shippedUiDir();
   const token = randomBytes(24).toString('base64url');
   const writeFilledValues = options.writeFilledValues ?? 'primaryKey';
@@ -169,9 +185,10 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     return byTable.get(name)!;
   };
 
-  const eventClients = new Set<ServerResponse>();
+  const encoder = new TextEncoder();
+  const eventClients = new Set<ReadableStreamDefaultController<Uint8Array>>();
   const notifyChanged = (): void => {
-    for (const client of eventClients) client.write('event: changed\ndata: {}\n\n');
+    for (const client of eventClients) client.enqueue(encoder.encode('event: changed\ndata: {}\n\n'));
   };
 
   const reloadIfChanged = (): Promise<boolean> => serialize(reloadIfChangedUnlocked);
@@ -248,47 +265,69 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   };
   watchDependencies();
 
-  const server = createServer((req, res) => {
-    handle(req, res).catch((error) =>
-      sendJson(res, error instanceof BadRequestError ? 400 : 500, { message: errorMessage(error) }),
-    );
-  });
+  // Set before the first await of close(), so a request forwarded meanwhile cannot register a stream close() has passed
+  let closing = false;
 
-  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const { port } = server.address() as AddressInfo;
-    const allowedHosts = new Set([`${host}:${port}`, `127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
-    if (!allowedHosts.has(req.headers.host ?? '')) {
-      sendJson(res, 403, { message: 'Requests must be addressed to the local studio server' });
-      return;
+  const fetch = async (request: Request): Promise<Response> => {
+    if (closing) return jsonResponse(503, { message: 'The studio is shutting down' });
+    try {
+      return await handle(request);
+    } catch (error) {
+      return jsonResponse(error instanceof BadRequestError ? 400 : 500, { message: errorMessage(error) });
     }
+  };
 
-    const url = new URL(req.url ?? '/', 'http://localhost');
+  async function handle(request: Request): Promise<Response> {
+    const url = new URL(request.url);
 
     // Not behind the token: the page has to load before it holds one. Another site cannot read the page,
     // so the token it carries keeps that site's requests out
-    if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
-      await servePage(res, uiDir, url.pathname, token);
-      return;
+    if (request.method === 'GET' && !url.pathname.startsWith('/api/')) {
+      return servePage(uiDir, url.pathname, {
+        token,
+        frameAncestors: options.frameAncestors ?? 'none',
+        requestHeaders: options.requestHeaders,
+      });
     }
     // Not taken from the query elsewhere: an event source cannot send headers, but a fetch can
-    const presented = bearerToken(req) ?? (url.pathname === '/api/events' ? url.searchParams.get('token') : null) ?? '';
+    const presented =
+      bearerToken(request) ?? (url.pathname === '/api/events' ? url.searchParams.get('token') : null) ?? '';
     if (!sameToken(presented, token)) {
-      sendJson(res, 401, {
+      return jsonResponse(401, {
         message: 'This page holds no token of this run of lines-db studio. Reload it to get one.',
       });
-      return;
     }
     const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
 
-    if (req.method === 'GET' && url.pathname === '/api/events') {
-      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
-      res.write(': connected\n\n');
-      eventClients.add(res);
-      req.on('close', () => eventClients.delete(res));
-      return;
+    if (request.method === 'GET' && url.pathname === '/api/events') {
+      let client!: ReadableStreamDefaultController<Uint8Array>;
+      // One end for an abort, a cancel and a shutdown: whichever comes first closes the stream, the rest find it gone
+      const end = () => {
+        request.signal.removeEventListener('abort', end);
+        if (!eventClients.delete(client)) return;
+        try {
+          client.close();
+        } catch {
+          // Already closed by a cancel, which closes the stream before it calls this
+        }
+      };
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          client = controller;
+          if (request.signal.aborted) {
+            controller.close();
+            return;
+          }
+          eventClients.add(controller);
+          request.signal.addEventListener('abort', end, { once: true });
+          controller.enqueue(encoder.encode(': connected\n\n'));
+        },
+        cancel: end,
+      });
+      return new Response(stream, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } });
     }
 
-    if (req.method === 'GET' && url.pathname === '/api/tables') {
+    if (request.method === 'GET' && url.pathname === '/api/tables') {
       // Not left open to a reload between its awaits: one would close the database the listing reads
       const listing = await serialize(async () => {
         await reloadIfChangedUnlocked();
@@ -340,23 +379,20 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           problems: current.problems,
         };
       });
-      sendJson(res, 200, listing);
-      return;
+      return jsonResponse(200, listing);
     }
 
     const [, , tableName, resource, encodedKey] = segments;
     if (segments[0] === 'api' && segments[1] === 'tables' && resource === 'schema' && segments.length === 4) {
-      if (req.method !== 'GET') {
-        sendJson(res, 405, { message: 'Method not allowed' });
-        return;
+      if (request.method !== 'GET') {
+        return jsonResponse(405, { message: 'Method not allowed' });
       }
       await reloadIfChanged();
       // Not looked up for a name that is not a table: the name would otherwise reach the file system as is
       const known = Boolean(snapshot.db.getSchema(tableName)) || snapshot.invalid.has(tableName);
       const schemaPath = known ? await findSchemaFile(schemaDir, tableName) : undefined;
       if (!schemaPath) {
-        sendJson(res, 404, { message: `Table '${tableName}' has no schema file` });
-        return;
+        return jsonResponse(404, { message: `Table '${tableName}' has no schema file` });
       }
       const loaded = snapshot.invalid.has(tableName) ? undefined : snapshot.db.getSchema(tableName);
       const declared = loaded && (await readDeclaredColumns(schemaPath, schemaDir));
@@ -364,7 +400,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         const column = loaded?.columns.find((candidate) => candidate.name === name);
         return { ...(column?.primaryKey ? { primaryKey: true } : {}), ...(column?.unique ? { unique: true } : {}) };
       };
-      sendJson(res, 200, {
+      return jsonResponse(200, {
         file: basename(schemaPath),
         source: await readFile(schemaPath, 'utf-8'),
         definition: loaded
@@ -385,7 +421,6 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
             }
           : null,
       });
-      return;
     }
     const isRows = segments[0] === 'api' && segments[1] === 'tables' && resource === 'rows' && segments.length <= 5;
     const isChanges =
@@ -394,73 +429,65 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       (resource === 'changes' || resource === 'check') &&
       segments.length === 4;
     if (!isRows && !isChanges) {
-      sendJson(res, 404, { message: 'Not found' });
-      return;
+      return jsonResponse(404, { message: 'Not found' });
     }
 
-    if (isRows && req.method === 'GET' && encodedKey === undefined) {
+    if (isRows && request.method === 'GET' && encodedKey === undefined) {
       await reloadIfChanged();
       const invalid = snapshot.invalid.get(tableName);
       if (invalid) {
         if (invalid.rows) {
-          sendJson(res, 200, {
+          return jsonResponse(200, {
             rows: invalid.rows,
             defaulted: invalid.rows.map(() => []),
             issues: Object.fromEntries(invalid.issues),
             revision: invalid.revision,
           });
-          return;
         }
         const { rows, contentHash } = unwrap(await JsonlReader.readSnapshot(invalid.file));
         const read = unwrap(rows);
-        sendJson(res, 200, {
+        return jsonResponse(200, {
           rows: read,
           defaulted: read.map(() => []),
           issues: Object.fromEntries(invalid.issues),
           revision: contentHash,
         });
-        return;
       }
       if (!snapshot.db.getSchema(tableName)) {
-        sendJson(res, 404, { message: `Table '${tableName}' does not exist` });
-        return;
+        return jsonResponse(404, { message: `Table '${tableName}' does not exist` });
       }
       const rows = unwrap(await snapshot.db.findWithDefaults(tableName));
-      sendJson(res, 200, {
+      return jsonResponse(200, {
         rows: rows.map(({ row }) => row),
         defaulted: rows.map(({ defaulted }) => defaulted),
         inputs: rows.map(({ input }) => input),
       });
-      return;
     }
 
     const write = isChanges
-      ? req.method === 'POST'
+      ? request.method === 'POST'
         ? resource === 'check'
           ? ({ kind: 'check' } as const)
           : ({ kind: 'batch' } as const)
         : undefined
-      : writeOperation(req.method, encodedKey);
+      : writeOperation(request.method, encodedKey);
     if (!write) {
-      sendJson(res, 405, { message: 'Method not allowed' });
-      return;
+      return jsonResponse(405, { message: 'Method not allowed' });
     }
-    const origin = req.headers.origin;
-    if (origin !== undefined && !allowedHosts.has(origin.replace(/^http:\/\//, ''))) {
-      sendJson(res, 403, { message: 'Writes are accepted from the studio page only' });
-      return;
+    const origin = request.headers.get('origin');
+    if (origin !== null && origin !== url.origin) {
+      return jsonResponse(403, { message: 'Writes are accepted from the studio page only' });
     }
-    if (write.kind !== 'delete' && !isJsonMediaType(req.headers['content-type'])) {
-      sendJson(res, 415, { message: 'Writes must be sent as application/json' });
-      return;
+    if (write.kind !== 'delete' && !isJsonMediaType(request.headers.get('content-type') ?? undefined)) {
+      return jsonResponse(415, { message: 'Writes must be sent as application/json' });
     }
     let batch: ChangeBatch;
     if (write.kind === 'batch' || write.kind === 'check') {
-      batch = changeBatch(await readJson(req));
+      batch = changeBatch(await readJson(request));
     } else if (write.kind === 'delete') {
       batch = { inserts: [], updates: [], deletes: [write.key] };
     } else {
-      const body = writeBody(await readJson(req));
+      const body = writeBody(await readJson(request));
       batch =
         write.kind === 'insert'
           ? {
@@ -658,11 +685,47 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       leeway.get(snapshot)?.delete(tableName);
       return { status: write.kind === 'insert' ? 201 : 200, body: { ok: true }, changed: true };
     });
-    sendJson(res, outcome.status, outcome.body);
     // Not before the response: the page that saved would still be in its editor when the event arrives
     // Not only when the outcome says so: the watcher finds nothing left to reload once this did
-    if (outcome.changed || reloaded) notifyChanged();
+    if (outcome.changed || reloaded) setImmediate(notifyChanged);
+    return jsonResponse(outcome.status, outcome.body);
   }
+
+  return {
+    token,
+    fetch,
+    close: async () => {
+      closing = true;
+      await Promise.all([...watchers, dependencyWatcher].map((watcher) => watcher?.close()));
+      clearTimeout(watchTimer);
+      for (const client of eventClients) client.close();
+      eventClients.clear();
+      await serialize(() => snapshot.db.close());
+    },
+  };
+}
+
+export async function startStudioServer(options: StudioServerOptions): Promise<StudioServer> {
+  const host = options.host ?? '127.0.0.1';
+  const studio = await createStudioHandler(options);
+  const server = createServer((req, res) => {
+    const { port } = server.address() as AddressInfo;
+    const allowedHosts = new Set([`${host}:${port}`, `127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
+    let respond: Promise<Response>;
+    if (!allowedHosts.has(req.headers.host ?? '')) {
+      respond = Promise.resolve(
+        jsonResponse(403, { message: 'Requests must be addressed to the local studio server' }),
+      );
+    } else {
+      try {
+        respond = studio.fetch(toRequest(req, res));
+      } catch {
+        // A method node accepts and the fetch standard forbids, such as TRACE, makes the conversion throw
+        respond = Promise.resolve(jsonResponse(400, { message: 'The request cannot be served' }));
+      }
+    }
+    respond.then((response) => sendResponse(res, response)).catch(() => res.destroy());
+  });
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -673,8 +736,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       });
     });
   } catch (error) {
-    await Promise.all([...watchers, dependencyWatcher].map((watcher) => watcher?.close()));
-    await snapshot.db.close();
+    await studio.close();
     throw error;
   }
   const { port } = server.address() as AddressInfo;
@@ -682,15 +744,40 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const url = `http://${host.includes(':') ? `[${host}]` : host}:${port}`;
   return {
     url,
-    token,
+    token: studio.token,
     close: async () => {
-      await Promise.all([...watchers, dependencyWatcher].map((watcher) => watcher?.close()));
-      clearTimeout(watchTimer);
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      await serialize(() => snapshot.db.close());
+      await studio.close();
     },
   };
+}
+
+function toRequest(req: IncomingMessage, res: ServerResponse): Request {
+  const aborted = new AbortController();
+  res.on('close', () => aborted.abort());
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(req.headers)) {
+    for (const each of [value ?? []].flat()) headers.append(name, each);
+  }
+  const method = req.method ?? 'GET';
+  const hasBody = method !== 'GET' && method !== 'HEAD';
+  return new Request(new URL(req.url ?? '/', `http://${req.headers.host}`), {
+    method,
+    headers,
+    signal: aborted.signal,
+    ...(hasBody ? { body: Readable.toWeb(req) as ReadableStream, duplex: 'half' } : {}),
+  } as RequestInit);
+}
+
+function sendResponse(res: ServerResponse, response: Response): void {
+  res.writeHead(response.status, Object.fromEntries(response.headers));
+  if (!response.body) {
+    res.end();
+    return;
+  }
+  res.flushHeaders();
+  pipeline(Readable.fromWeb(response.body as NodeReadableStream), res, () => {});
 }
 
 async function replaceUnchangedFile(file: string, next: string, expected: string): Promise<void> {
@@ -1078,13 +1165,22 @@ function shippedUiDir(): string {
 }
 
 /** Serve a file of the built page, the page itself carrying the token */
-async function servePage(res: ServerResponse, uiDir: string, pathname: string, token: string): Promise<void> {
+interface PageOptions {
+  token: string;
+  frameAncestors: 'none' | 'self';
+  requestHeaders?: Record<string, string>;
+}
+
+function escapeAttribute(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+async function servePage(uiDir: string, pathname: string, page: PageOptions): Promise<Response> {
   // Not only `/`: the same page is reachable as /index.html, and must carry the token and stay uncached there too
   const isPage = pathname === '/' || pathname === '/index.html';
   const file = resolvePath(uiDir, `.${isPage ? '/index.html' : pathname}`);
   if (relative(uiDir, file).startsWith('..')) {
-    sendJson(res, 404, { message: 'Not found' });
-    return;
+    return jsonResponse(404, { message: 'Not found' });
   }
   const content = await readFile(file).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT' || error.code === 'EISDIR') return undefined;
@@ -1092,36 +1188,40 @@ async function servePage(res: ServerResponse, uiDir: string, pathname: string, t
   });
   if (!content) {
     if (isPage) {
-      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('The studio page has not been built. Run `pnpm build` in the lines-db repository.');
-      return;
+      return new Response('The studio page has not been built. Run `pnpm build` in the lines-db repository.', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
     }
-    sendJson(res, 404, { message: 'Not found' });
-    return;
+    return jsonResponse(404, { message: 'Not found' });
   }
   // Not 'unsafe-inline' for styles: the editor injects its styles, and a nonce allows only those
   const nonce = randomBytes(18).toString('base64');
+  const requestHeaders = page.requestHeaders
+    ? `<meta name="studio-request-headers" content="${escapeAttribute(JSON.stringify(page.requestHeaders))}">`
+    : '';
   const body = isPage
     ? Buffer.from(
-        content
-          .toString('utf8')
-          .replace(
-            '</head>',
-            `<meta name="csp-nonce" content="${nonce}"><meta name="studio-token" content="${token}"></head>`,
-          ),
+        content.toString('utf8').replace(
+          '</head>',
+          // A function, as a replacement string would expand a `$` of a header value
+          () =>
+            `<meta name="csp-nonce" content="${nonce}"><meta name="studio-token" content="${page.token}">${requestHeaders}</head>`,
+        ),
       )
     : content;
-  res.writeHead(200, {
-    'Content-Type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream',
-    'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
-    'Cache-Control': isPage ? 'no-store' : 'public, max-age=31536000, immutable',
-    'X-Content-Type-Options': 'nosniff',
+  return new Response(body, {
+    headers: {
+      'Content-Type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream',
+      'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors '${page.frameAncestors}'`,
+      'Cache-Control': isPage ? 'no-store' : 'public, max-age=31536000, immutable',
+      'X-Content-Type-Options': 'nosniff',
+    },
   });
-  res.end(body);
 }
 
-function bearerToken(req: IncomingMessage): string | undefined {
-  return /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
+function bearerToken(request: Request): string | undefined {
+  return /^Bearer (.+)$/.exec(request.headers.get('authorization') ?? '')?.[1];
 }
 
 function sameToken(presented: string, token: string): boolean {
@@ -1158,15 +1258,15 @@ function writeOperation(method: string | undefined, encodedKey: string | undefin
   return undefined;
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
-  res.end(JSON.stringify(body));
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+  });
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  return parseJson(Buffer.concat(chunks).toString('utf8'), 'The request body is not JSON');
+async function readJson(request: Request): Promise<unknown> {
+  return parseJson(await request.text(), 'The request body is not JSON');
 }
 
 /** The rows a save inserts, the changes it makes by primary key, and the keys it deletes */

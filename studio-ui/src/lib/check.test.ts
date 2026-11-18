@@ -44,6 +44,14 @@ describe('checkChanges', () => {
     });
   });
 
+  it('asks at an address relative to the page, so the studio can be served below a path', async () => {
+    const fetching = answer(200, { ok: true });
+
+    await checkChanges('user data', batch, new AbortController().signal);
+
+    expect(fetching.mock.calls[0][0]).toBe('./api/tables/user%20data/check');
+  });
+
   it('reads an error response as a check that could not run, not as a refused change', async () => {
     answer(401, { message: 'Open the URL the server printed' });
 
