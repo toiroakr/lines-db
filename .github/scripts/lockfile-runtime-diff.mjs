@@ -27,7 +27,27 @@ function mainDocumentLines(text) {
   return second === -1 ? lines : lines.slice(second + 1);
 }
 
-function normalizeDependencies(dependencies, catalogs = {}, includeCatalogSpecifiers = false) {
+function bareVersion(reference) {
+  return reference
+    ?.replace(/^npm:/, '')
+    .split('(')[0]
+    .replace(/^(?:@[^/]+\/)?[^@/]+@(?=\d)/, '');
+}
+
+function peerReferences(bindings) {
+  return Object.entries(bindings).flatMap(([name, binding]) => {
+    const version = typeof binding === 'string' ? binding : binding?.version;
+    return [...(version ? [`${name}@${version}`] : []), ...peerReferences(binding?.with ?? {})];
+  });
+}
+
+function normalizeDependencies(
+  dependencies,
+  catalogs = {},
+  includeCatalogSpecifiers = false,
+  packages = {},
+  providers = {},
+) {
   const normalized = {};
   for (const name of Object.keys(dependencies).sort()) {
     const dependency = dependencies[name];
@@ -36,12 +56,48 @@ function normalizeDependencies(dependencies, catalogs = {}, includeCatalogSpecif
     const catalogSpecifier = typeof catalog === 'string' ? catalog : catalog?.specifier;
     const catalogVersion = typeof catalog === 'string' ? catalog : (catalog?.version ?? catalog?.specifier);
     const resolved = typeof dependency === 'string' ? catalogVersion : (dependency.version ?? catalogVersion);
-    const version = resolved?.replace(/^npm:/, '').split('(')[0];
+    const version = bareVersion(resolved);
+    const reference = (resolved ?? specifier)?.replace(/^npm:/, '').split('(')[0];
+    const aliasSpecifier = catalogSpecifier ?? specifier;
+    const alias = aliasSpecifier?.startsWith('npm:') ? aliasSpecifier.slice(4) : undefined;
+    const separator = alias?.lastIndexOf('@') ?? -1;
+    const packageName = alias ? (separator > 0 ? alias.slice(0, separator) : alias) : name;
+    const entry = packages[`${packageName}@${reference}`] ?? packages[reference];
+    const explicitPeers = typeof dependency === 'string' ? {} : (dependency.with ?? {});
+    const peers = [
+      ...Array.from((resolved ?? '').matchAll(/\(([^()]+)/g), (match) => match[1]),
+      ...Object.entries({ ...entry?.peerDependencies, ...explicitPeers }).flatMap(([peerName, peer]) => {
+        const provider = providers[peerName];
+        let providerVersion = typeof provider === 'string' ? provider : provider?.version;
+        if (!providerVersion && provider?.specifier?.startsWith('catalog:')) {
+          providerVersion = provider.specifier;
+        }
+        if (providerVersion?.startsWith('catalog:')) {
+          const binding = catalogs[providerVersion.slice(8) || 'default']?.[peerName];
+          providerVersion = typeof binding === 'string' ? binding : binding?.version;
+        }
+        const explicit = explicitPeers[peerName];
+        const explicitVersion = typeof explicit === 'string' ? explicit : explicit?.version;
+        const peerVersion =
+          explicitVersion ??
+          (typeof peer === 'string' ? (/^\d/.test(peer) && !entry.snapshots ? peer : undefined) : peer?.version) ??
+          providerVersion;
+        return peerVersion
+          ? peerReferences({
+              [peerName]: {
+                version: peerVersion,
+                with: explicit?.with ?? peer?.with ?? provider?.with,
+              },
+            })
+          : [];
+      }),
+    ];
     normalized[name] = {
       specifier: specifier === 'catalog:default' ? 'catalog:' : specifier,
       ...(includeCatalogSpecifiers && catalogSpecifier ? { catalogSpecifier } : {}),
+      ...(peers.length ? { peers: [...new Set(peers)].sort() } : {}),
       ...(version &&
-      version !== specifier.replace(/^npm:/, '') &&
+      version !== bareVersion(specifier) &&
       !specifier.startsWith('workspace:') &&
       !catalogSpecifier?.startsWith('workspace:')
         ? { version }
@@ -102,17 +158,34 @@ function parseImporters(text, normalize = false) {
       document.replace(/("(?:[^"\\]|\\.)*")|,\s*(?=[}\]])/g, (match, string) => string ?? ''),
     );
     return Object.fromEntries(
-      Object.entries(lockfile.projects ?? {}).map(([path, project]) => [
-        path,
-        normalize
-          ? normalizeDependencies(project.dependencies ?? {}, lockfile.settings?.catalogs, true)
-          : Object.keys(project.dependencies ?? {}).length
-            ? JSON.stringify({
-                dependencies: project.dependencies,
-                resolvedDependencies: normalizeDependencies(project.dependencies, lockfile.settings?.catalogs, true),
-              })
-            : undefined,
-      ]),
+      Object.entries(lockfile.projects ?? {}).map(([path, project]) => {
+        const root = lockfile.projects['.'] ?? {};
+        const providers = {
+          ...root.optionalDependencies,
+          ...root.devDependencies,
+          ...root.dependencies,
+          ...project.optionalDependencies,
+          ...project.devDependencies,
+          ...project.dependencies,
+        };
+        const resolvedDependencies = normalizeDependencies(
+          project.dependencies ?? {},
+          lockfile.settings?.catalogs,
+          true,
+          lockfile.packages,
+          providers,
+        );
+        return [
+          path,
+          normalize
+            ? resolvedDependencies
+            : Object.keys(project.dependencies ?? {}).length
+              ? JSON.stringify({ dependencies: project.dependencies, resolvedDependencies }, (_key, value) =>
+                  value === 'catalog:default' ? 'catalog:' : value,
+                )
+              : undefined,
+        ];
+      }),
     );
   }
   const lines = mainDocumentLines(text);
