@@ -37,11 +37,22 @@ function adoptRequestHeaders(): void {
 
 const token = () => stored() || fallback;
 
+/** Merges header sets in order, a later one replacing an earlier header of the same name whatever its case */
+function mergeHeaders(...sets: Record<string, string>[]): Record<string, string> {
+  const merged = new Map<string, [string, string]>();
+  for (const set of sets) {
+    for (const [name, value] of Object.entries(set)) merged.set(name.toLowerCase(), [name, value]);
+  }
+  return Object.fromEntries(merged.values());
+}
+
 /** A request's options with the token in its headers */
 export function authorized(init: RequestInit = {}): RequestInit {
   return {
     ...init,
-    headers: { ...(init.headers as Record<string, string>), ...pageHeaders, Authorization: `Bearer ${token()}` },
+    headers: mergeHeaders(pageHeaders, (init.headers ?? {}) as Record<string, string>, {
+      Authorization: `Bearer ${token()}`,
+    }),
   };
 }
 

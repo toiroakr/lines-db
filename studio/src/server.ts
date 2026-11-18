@@ -265,7 +265,11 @@ export async function createStudioHandler(options: StudioHandlerOptions): Promis
   };
   watchDependencies();
 
+  // Set before the first await of close(), so a request forwarded meanwhile cannot register a stream close() has passed
+  let closing = false;
+
   const fetch = async (request: Request): Promise<Response> => {
+    if (closing) return jsonResponse(503, { message: 'The studio is shutting down' });
     try {
       return await handle(request);
     } catch (error) {
@@ -297,17 +301,29 @@ export async function createStudioHandler(options: StudioHandlerOptions): Promis
 
     if (request.method === 'GET' && url.pathname === '/api/events') {
       let client!: ReadableStreamDefaultController<Uint8Array>;
+      // One end for an abort, a cancel and a shutdown: whichever comes first closes the stream, the rest find it gone
+      const end = () => {
+        request.signal.removeEventListener('abort', end);
+        if (!eventClients.delete(client)) return;
+        try {
+          client.close();
+        } catch {
+          // Already closed by a cancel, which closes the stream before it calls this
+        }
+      };
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
           client = controller;
+          if (request.signal.aborted) {
+            controller.close();
+            return;
+          }
           eventClients.add(controller);
+          request.signal.addEventListener('abort', end, { once: true });
           controller.enqueue(encoder.encode(': connected\n\n'));
         },
-        cancel() {
-          eventClients.delete(client);
-        },
+        cancel: end,
       });
-      request.signal.addEventListener('abort', () => eventClients.delete(client), { once: true });
       return new Response(stream, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } });
     }
 
@@ -679,6 +695,7 @@ export async function createStudioHandler(options: StudioHandlerOptions): Promis
     token,
     fetch,
     close: async () => {
+      closing = true;
       await Promise.all([...watchers, dependencyWatcher].map((watcher) => watcher?.close()));
       clearTimeout(watchTimer);
       for (const client of eventClients) client.close();
@@ -694,9 +711,19 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const server = createServer((req, res) => {
     const { port } = server.address() as AddressInfo;
     const allowedHosts = new Set([`${host}:${port}`, `127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
-    const respond = allowedHosts.has(req.headers.host ?? '')
-      ? studio.fetch(toRequest(req, res))
-      : Promise.resolve(jsonResponse(403, { message: 'Requests must be addressed to the local studio server' }));
+    let respond: Promise<Response>;
+    if (!allowedHosts.has(req.headers.host ?? '')) {
+      respond = Promise.resolve(
+        jsonResponse(403, { message: 'Requests must be addressed to the local studio server' }),
+      );
+    } else {
+      try {
+        respond = studio.fetch(toRequest(req, res));
+      } catch {
+        // A method node accepts and the fetch standard forbids, such as TRACE, makes the conversion throw
+        respond = Promise.resolve(jsonResponse(400, { message: 'The request cannot be served' }));
+      }
+    }
     respond.then((response) => sendResponse(res, response)).catch(() => res.destroy());
   });
 
@@ -1175,12 +1202,12 @@ async function servePage(uiDir: string, pathname: string, page: PageOptions): Pr
     : '';
   const body = isPage
     ? Buffer.from(
-        content
-          .toString('utf8')
-          .replace(
-            '</head>',
+        content.toString('utf8').replace(
+          '</head>',
+          // A function, as a replacement string would expand a `$` of a header value
+          () =>
             `<meta name="csp-nonce" content="${nonce}"><meta name="studio-token" content="${page.token}">${requestHeaders}</head>`,
-          ),
+        ),
       )
     : content;
   return new Response(body, {

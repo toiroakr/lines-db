@@ -55,6 +55,29 @@ describe('the studio token', () => {
     expect(document.querySelector('meta[name="studio-request-headers"]')).toBeNull();
   });
 
+  describe('a header the page was served with that a request also sets', () => {
+    const adoptHeaders = (headers: Record<string, string>) => {
+      const content = JSON.stringify(headers).replaceAll('&', '&amp;').replaceAll('"', '&quot;');
+      document.head.innerHTML = `<meta name="studio-token" content="first"><meta name="studio-request-headers" content="${content}">`;
+      adoptToken();
+    };
+
+    it('leaves the content type the request set in place', () => {
+      adoptHeaders({ 'Content-Type': 'text/plain' });
+
+      expect(authorized({ headers: { 'Content-Type': 'application/json' } }).headers).toEqual({
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer first',
+      });
+    });
+
+    it('never sends the token twice under another spelling of its name', () => {
+      adoptHeaders({ authorization: 'Bearer host' });
+
+      expect(authorized().headers).toEqual({ Authorization: 'Bearer first' });
+    });
+  });
+
   it('gives the event stream the token in its query, as an event source cannot send headers', () => {
     servePageWith('a/b+c');
     adoptToken();

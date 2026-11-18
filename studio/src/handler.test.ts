@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createStudioHandler, type StudioHandler } from './server.js';
+import { request as httpRequest } from 'node:http';
+import { once } from 'node:events';
+import { createStudioHandler, startStudioServer, type StudioHandler } from './server.js';
 
 describe('studio handler', () => {
   let root: string;
@@ -35,7 +37,11 @@ describe('studio handler', () => {
   });
 
   it('answers a request for any host, leaving the check of the Host to whoever listens', async () => {
-    const response = await call('/api/tables');
+    const response = await studio.fetch(
+      new Request('http://elsewhere.example:9999/api/tables', {
+        headers: { Authorization: `Bearer ${studio.token}` },
+      }),
+    );
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ tables: [expect.objectContaining({ name: 'users' })] });
@@ -109,6 +115,14 @@ describe('studio handler', () => {
       expect(JSON.parse(decoded)).toEqual({ 'x-token': 'a"b<c>&d' });
     });
 
+    it('hands over a value that has a replacement pattern of a string replace in it as it is', async () => {
+      const content = await metaOf({ 'x-token': 'a$$b$&c$`d' });
+
+      expect(JSON.parse(content!.replaceAll('&quot;', '"').replaceAll('&amp;', '&'))).toEqual({
+        'x-token': 'a$$b$&c$`d',
+      });
+    });
+
     it('leaves the page without the entry when there are none', async () => {
       expect(await metaOf()).toBeUndefined();
     });
@@ -130,6 +144,42 @@ describe('studio handler', () => {
     expect(await read()).toBe('event: changed\ndata: {}\n\n');
   });
 
+  it('ends the event stream of a request that is aborted after it connected', async () => {
+    const aborted = new AbortController();
+    const events = await studio.fetch(
+      new Request(`${origin}/api/events`, {
+        headers: { Authorization: `Bearer ${studio.token}` },
+        signal: aborted.signal,
+      }),
+    );
+    const reader = events.body!.getReader();
+    await reader.read();
+
+    aborted.abort();
+
+    expect((await reader.read()).done).toBe(true);
+  });
+
+  it('ends the event stream of a request that was aborted before it arrived', async () => {
+    const events = await studio.fetch(
+      new Request(`${origin}/api/events`, {
+        headers: { Authorization: `Bearer ${studio.token}` },
+        signal: AbortSignal.abort(),
+      }),
+    );
+
+    expect((await events.body!.getReader().read()).done).toBe(true);
+  });
+
+  it('turns away a request that arrives while it is closing, so no event stream outlives it', async () => {
+    const closing = studio.close();
+
+    const late = await call('/api/events');
+    await closing;
+
+    expect(late.status).toBe(503);
+  });
+
   it('ends the event streams when it is closed', async () => {
     const events = await call(`/api/events`);
     const reader = events.body!.getReader();
@@ -138,5 +188,25 @@ describe('studio handler', () => {
     await studio.close();
 
     expect((await reader.read()).done).toBe(true);
+  });
+
+  describe('behind a node server', () => {
+    it('answers a method the fetch standard forbids with a client error and keeps serving', async () => {
+      const server = await startStudioServer({ dataDir, uiDir, port: 0 });
+      try {
+        const { port } = new URL(server.url);
+        const send = async (method: string) => {
+          const request = httpRequest({ host: '127.0.0.1', port, method, path: '/' });
+          request.end();
+          const [response] = (await once(request, 'response')) as [{ statusCode: number; resume(): void }];
+          response.resume();
+          return response.statusCode;
+        };
+
+        expect([await send('TRACE'), await send('GET')]).toEqual([400, 200]);
+      } finally {
+        await server.close();
+      }
+    });
   });
 });
