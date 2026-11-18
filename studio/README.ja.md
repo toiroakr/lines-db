@@ -91,4 +91,25 @@ console.log(studio.url);
 await studio.close();
 ```
 
+## 別のサーバーから配信する
+
+`createStudioHandler`は、Web標準のハンドラー`(request: Request) => Promise<Response>`を返します。サーバーを起動する代わりに、自前のサーバーへ組み込めます。ハンドラーはHostも、組み込むパスも検査しません。好きなパスに組み込み、受け取るURLからそのパスを取り除き、Hostは呼び出し側で検査してください。
+
+```js
+import { createStudioHandler } from '@lines-db/studio';
+
+const studio = await createStudioHandler({
+  dataDir: './data',
+  frameAncestors: 'self',
+  requestHeaders: { 'x-host-token': hostToken },
+});
+const response = await studio.fetch(request);
+await studio.close();
+```
+
+- ページはAPIを自身からの相対アドレスで呼ぶため、末尾のスラッシュ付きで開けばどのパスでも動きます。
+- `frameAncestors`の既定は`'none'`で、どのページもStudioをフレームに入れられません。`'self'`にすると同じオリジンのページがフレームに入れられます。
+- `requestHeaders`は、ページがすべてのAPIリクエストに付けて送ります。リクエストを転送する前にヘッダーを検査する組み込み先のためのものです。リアルタイム更新のストリームはEventSourceが要求するためヘッダーを付けられず、組み込み先は`GET /api/events`を通す必要があります。
+- 書き込みは、`Origin`がリクエストURLのオリジンと一致するときに受け付けます。
+
 TypeScriptのスキーマファイルには`amaro/transform`などのローダーが必要です。CLIは自動で登録します。コードから起動する場合は、スキーマを読み込む前にローダーを登録してください。
