@@ -91,4 +91,25 @@ console.log(studio.url);
 await studio.close();
 ```
 
+## Serve from another server
+
+`createStudioHandler` returns a Web-standard handler, `(request: Request) => Promise<Response>`, to mount in a server of your own instead of starting one. It checks neither the Host nor which path it is mounted under, so mount it at a path of your choice, strip that path from the URL it receives, and check the Host yourself.
+
+```js
+import { createStudioHandler } from '@lines-db/studio';
+
+const studio = await createStudioHandler({
+  dataDir: './data',
+  frameAncestors: 'self',
+  requestHeaders: { 'x-host-token': hostToken },
+});
+const response = await studio.fetch(request);
+await studio.close();
+```
+
+- The page requests the API with addresses relative to its own, so it works at any path, as long as the page is opened with a trailing slash.
+- `frameAncestors` is `'none'` by default, which keeps every page from framing the studio. `'self'` lets a page of the same origin frame it.
+- `requestHeaders` are sent by the page with every API request, for a host that checks them before passing a request on. The live-reload stream is requested by an event source, which cannot send headers, so the host has to let `GET /api/events` through.
+- A write is accepted when its `Origin` is the origin of the request URL.
+
 TypeScript schema files require a loader such as `amaro/transform`. The lines-db CLI registers it automatically. When starting from code, register a loader before loading the schemas.

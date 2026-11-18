@@ -38,7 +38,7 @@ export function issuesFor(field: string, result: CheckResult | undefined): Issue
 
 export async function checkChanges(table: string, batch: Batch, signal: AbortSignal): Promise<CheckResult> {
   const response = await fetch(
-    `/api/tables/${encodeURIComponent(table)}/check`,
+    `./api/tables/${encodeURIComponent(table)}/check`,
     authorized({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

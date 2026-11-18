@@ -55,7 +55,7 @@ describe('App', () => {
     );
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
-      if (url === '/api/tables') return json({ dataDir: '/data', tables: [users, orders], problems: [] });
+      if (url === './api/tables') return json({ dataDir: '/data', tables: [users, orders], problems: [] });
       const rowsOf = /\/api\/tables\/(\w+)\/rows/.exec(url);
       if (rowsOf) return json(rows[rowsOf[1]]);
       return json({ ok: true });
@@ -73,7 +73,7 @@ describe('App', () => {
 
   it('keeps failing rows read-only when several data directories are composed', async () => {
     vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
-      if (String(input) === '/api/tables')
+      if (String(input) === './api/tables')
         return json({
           dataDir: '/base, /local',
           tables: [
@@ -172,7 +172,7 @@ describe('App', () => {
 
     it('edits as text a boolean column whose lines hold strings, so a value the schema takes can be typed', async () => {
       vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
-        if (String(input) === '/api/tables')
+        if (String(input) === './api/tables')
           return json({
             dataDir: '/data',
             tables: [
@@ -199,7 +199,7 @@ describe('App', () => {
 
     it('fills a new row by the input types even while the view is Output', async () => {
       vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
-        if (String(input) === '/api/tables')
+        if (String(input) === './api/tables')
           return json({
             dataDir: '/data',
             tables: [

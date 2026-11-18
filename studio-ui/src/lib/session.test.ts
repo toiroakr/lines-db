@@ -40,10 +40,25 @@ describe('the studio token', () => {
     });
   });
 
+  it('sends the headers the page was served with along with the token, and takes them out of the page', () => {
+    document.head.innerHTML =
+      '<meta name="studio-token" content="first">' +
+      '<meta name="studio-request-headers" content="{&quot;x-host-token&quot;:&quot;a&amp;b&quot;}">';
+
+    adoptToken();
+
+    expect(authorized({ headers: { 'Content-Type': 'application/json' } }).headers).toEqual({
+      'Content-Type': 'application/json',
+      'x-host-token': 'a&b',
+      Authorization: 'Bearer first',
+    });
+    expect(document.querySelector('meta[name="studio-request-headers"]')).toBeNull();
+  });
+
   it('gives the event stream the token in its query, as an event source cannot send headers', () => {
     servePageWith('a/b+c');
     adoptToken();
 
-    expect(eventsUrl()).toBe('/api/events?token=a%2Fb%2Bc');
+    expect(eventsUrl()).toBe('./api/events?token=a%2Fb%2Bc');
   });
 });

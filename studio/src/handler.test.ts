@@ -66,6 +66,54 @@ describe('studio handler', () => {
     expect((await write(origin)).status).toBe(200);
   });
 
+  describe('framing', () => {
+    const framingOf = async (options: Partial<Parameters<typeof createStudioHandler>[0]> = {}) => {
+      const framed = await createStudioHandler({ dataDir, uiDir, ...options });
+      try {
+        const response = await framed.fetch(new Request(`${origin}/`));
+        return response.headers.get('Content-Security-Policy') ?? '';
+      } finally {
+        await framed.close();
+      }
+    };
+
+    it('keeps the page out of every frame unless told otherwise', async () => {
+      expect(await framingOf()).toContain("frame-ancestors 'none'");
+    });
+
+    it('lets a page of the same origin frame it when asked to', async () => {
+      expect(await framingOf({ frameAncestors: 'self' })).toContain("frame-ancestors 'self'");
+    });
+  });
+
+  describe('request headers', () => {
+    const metaOf = async (requestHeaders?: Record<string, string>) => {
+      const hosted = await createStudioHandler({ dataDir, uiDir, requestHeaders });
+      try {
+        const html = await (await hosted.fetch(new Request(`${origin}/`))).text();
+        return /<meta name="studio-request-headers" content="([^"]*)">/.exec(html)?.[1];
+      } finally {
+        await hosted.close();
+      }
+    };
+
+    it('hands the page the headers to send with every API request, escaped for the attribute', async () => {
+      const content = await metaOf({ 'x-token': 'a"b<c>&d' });
+
+      expect(content).not.toMatch(/["<>]/);
+      const decoded = content!
+        .replaceAll('&quot;', '"')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&amp;', '&');
+      expect(JSON.parse(decoded)).toEqual({ 'x-token': 'a"b<c>&d' });
+    });
+
+    it('leaves the page without the entry when there are none', async () => {
+      expect(await metaOf()).toBeUndefined();
+    });
+  });
+
   it('streams an event to a connected page when a write changes the data', async () => {
     const events = await call(`/api/events`);
     const reader = events.body!.getReader();

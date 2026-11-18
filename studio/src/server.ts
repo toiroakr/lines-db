@@ -38,6 +38,10 @@ export interface StudioHandlerOptions {
   uiDir?: string;
   /** Which values the schema fills in a save writes into the file. Defaults to 'primaryKey' */
   writeFilledValues?: WriteFilledValues;
+  /** Which pages may frame the studio: none, or those of its own origin. Defaults to 'none' */
+  frameAncestors?: 'none' | 'self';
+  /** Headers the page sends with every API request, for a host that checks them before passing the request on */
+  requestHeaders?: Record<string, string>;
 }
 
 export interface StudioServerOptions extends StudioHandlerOptions {
@@ -275,7 +279,11 @@ export async function createStudioHandler(options: StudioHandlerOptions): Promis
     // Not behind the token: the page has to load before it holds one. Another site cannot read the page,
     // so the token it carries keeps that site's requests out
     if (request.method === 'GET' && !url.pathname.startsWith('/api/')) {
-      return servePage(uiDir, url.pathname, token);
+      return servePage(uiDir, url.pathname, {
+        token,
+        frameAncestors: options.frameAncestors ?? 'none',
+        requestHeaders: options.requestHeaders,
+      });
     }
     // Not taken from the query elsewhere: an event source cannot send headers, but a fetch can
     const presented =
@@ -1130,7 +1138,17 @@ function shippedUiDir(): string {
 }
 
 /** Serve a file of the built page, the page itself carrying the token */
-async function servePage(uiDir: string, pathname: string, token: string): Promise<Response> {
+interface PageOptions {
+  token: string;
+  frameAncestors: 'none' | 'self';
+  requestHeaders?: Record<string, string>;
+}
+
+function escapeAttribute(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+async function servePage(uiDir: string, pathname: string, page: PageOptions): Promise<Response> {
   // Not only `/`: the same page is reachable as /index.html, and must carry the token and stay uncached there too
   const isPage = pathname === '/' || pathname === '/index.html';
   const file = resolvePath(uiDir, `.${isPage ? '/index.html' : pathname}`);
@@ -1152,20 +1170,23 @@ async function servePage(uiDir: string, pathname: string, token: string): Promis
   }
   // Not 'unsafe-inline' for styles: the editor injects its styles, and a nonce allows only those
   const nonce = randomBytes(18).toString('base64');
+  const requestHeaders = page.requestHeaders
+    ? `<meta name="studio-request-headers" content="${escapeAttribute(JSON.stringify(page.requestHeaders))}">`
+    : '';
   const body = isPage
     ? Buffer.from(
         content
           .toString('utf8')
           .replace(
             '</head>',
-            `<meta name="csp-nonce" content="${nonce}"><meta name="studio-token" content="${token}"></head>`,
+            `<meta name="csp-nonce" content="${nonce}"><meta name="studio-token" content="${page.token}">${requestHeaders}</head>`,
           ),
       )
     : content;
   return new Response(body, {
     headers: {
       'Content-Type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream',
-      'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors '${page.frameAncestors}'`,
       'Cache-Control': isPage ? 'no-store' : 'public, max-age=31536000, immutable',
       'X-Content-Type-Options': 'nosniff',
     },
