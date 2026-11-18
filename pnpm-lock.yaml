@@ -207,8 +207,8 @@ snapshots:
 					"version": "4.0.118",
 				},
 				"@e2e-dev/web": {
-					"specifier": "^0.15.5",
-					"version": "0.15.5",
+					"specifier": "^0.16.0",
+					"version": "0.16.0",
 				},
 				"@types/node": {
 					"specifier": "^26.6.6",
@@ -1086,18 +1086,18 @@ snapshots:
 			},
 		},
 
-		"@e2e-dev/web@0.15.5": {
-			"integrity": "sha512-fUXrSgfii6w/q7OyX9/kEIDLpIMHpEkTH81hrR8WLnqk8li3bRyXJQBGWqtq9NoWpS2UANnhMI45n6Fv1ErCnw==",
+		"@e2e-dev/web@0.16.0": {
+			"integrity": "sha512-qA6Ixdh4oJq3Ccdc1W6OKT5dlwmALuScr6EV6Mic4UUcgQK+B1ReG1rOsw/VqTjqClRN4maWWUYU+OUcKzJwQQ==",
 			"engines": {"node": "^22.22.3 || >=24.8.0"},
 			"hasBin": true,
 			"peerDependencies": {
 				"e2e": {
-					"specifier": ">=0.22.1 <1",
+					"specifier": ">=0.23.1 <1",
 					"version": "0.23.1",
 				},
 			},
 			"dependencies": {
-				"playwright-core": "1.64.1",
+				"playwright-core": "1.65.0",
 			},
 		},
 
@@ -6330,8 +6330,8 @@ snapshots:
 			},
 		},
 
-		"playwright-core@1.64.1": {
-			"integrity": "sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==",
+		"playwright-core@1.65.0": {
+			"integrity": "sha512-vNSKgH6YqtN7cdT/L334zo0a+YwkrpicyrHJlWWPIm/Q+Nn2SWInil01oT0mbu96U4GgoRtCYQD9CzJQgju+lA==",
 			"engines": {"node": ">=20"},
 			"hasBin": true,
 		},
