@@ -28,7 +28,7 @@
     "clsx": "^2.1.1",
     "codemirror": "^6.0.2",
     "get-nonce": "1.0.1",
-    "jsdom": "^31.0.0",
+    "jsdom": "^31.0.1",
     "jsonc-parser": "^3.3.1",
     "lucide-react": "^1.72.0",
     "radix-ui": "^1.8.1",
