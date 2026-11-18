@@ -299,8 +299,8 @@ snapshots:
 			"name": "lines-db",
 			"dependencies": {
 				"@politty/loculus": {
-					"specifier": "^0.4.2",
-					"version": "0.4.2",
+					"specifier": "^0.4.3",
+					"version": "0.4.6",
 				},
 				"@standard-schema/spec": {
 					"specifier": "^1.1.0",
@@ -2433,14 +2433,14 @@ snapshots:
 			"engines": {"node": ">=22.13"},
 		},
 
-		"@politty/loculus@0.4.2": {
-			"integrity": "sha512-AfCm62DJOsz5vg38jb0mpwprSBs0sICAqeT/1UjN60ncf0ZohPcCLiJklmmdEemkvSMLkKq76ajzceESySrIWg==",
+		"@politty/loculus@0.4.6": {
+			"integrity": "sha512-vLt5SVFOKCYxS8uDu6IKdg7lPTBTH7fKaHygLDta7gGsG4xSq+SefqKW3K9a8KmAh3cyWqxSpFzEmKBhk88Vsg==",
 			"engines": {"node": ">=22.18.0"},
 			"hasBin": true,
 			"peerDependencies": {
 				"@clack/prompts": {
 					"specifier": "^0.10.0 || ^0.11.0 || ^1.0.0",
-					"version": "1.7.0",
+					"version": "1.9.0",
 					"optional": true,
 				},
 				"@inquirer/prompts": {
