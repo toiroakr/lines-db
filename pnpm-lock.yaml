@@ -299,7 +299,7 @@ snapshots:
 			"name": "lines-db",
 			"dependencies": {
 				"@politty/loculus": {
-					"specifier": "^0.4.3",
+					"specifier": "^0.4.5",
 					"version": "0.4.6",
 				},
 				"@standard-schema/spec": {
