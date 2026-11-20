@@ -337,8 +337,8 @@ snapshots:
 					"version": "0.23.7",
 				},
 				"type-fest": {
-					"specifier": "^5.10.0",
-					"version": "5.10.0",
+					"specifier": "^6.0.1",
+					"version": "6.0.1",
 				},
 				"typescript": {
 					"specifier": "^6.0.3",
@@ -7025,9 +7025,9 @@ snapshots:
 			"integrity": "sha512-7bziOlRqH0hJx80h/3mbicLW7o8qLsH5+RaLR2t+OHM3D0JlWGODQKQ4cxbK7WlvmUxpcj6Kgu6EKqjrGFe3QQ==",
 		},
 
-		"type-fest@5.10.0": {
-			"integrity": "sha512-NoSdpq/WEiAg5sjmBkmV/hfxv6HJH4NqPNrqjtSO5CwRmpsDfaf4begxW34KdJykH/l1yHtwBWQkCRdoXO8mPA==",
-			"engines": {"node": ">=20"},
+		"type-fest@6.0.1": {
+			"integrity": "sha512-nnRRKEpyNxX4XkeR6dpMy27ZNT5/nE3D73fs5FcKW/+OtqwSmdshWUw5azvpsMzjst5rAUe61ZxilQ70YFS9yA==",
+			"engines": {"node": ">=22"},
 			"dependencies": {
 				"tagged-tag": "1.0.0",
 			},
