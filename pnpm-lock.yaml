@@ -215,8 +215,8 @@ snapshots:
 					"version": "26.6.6",
 				},
 				"ai": {
-					"specifier": "^7.0.176",
-					"version": "7.0.176",
+					"specifier": "^7.0.177",
+					"version": "7.0.177",
 				},
 				"e2e": {
 					"specifier": "^0.23.1",
@@ -590,8 +590,8 @@ snapshots:
 	},
 
 	"packages": {
-		"@ai-sdk/gateway@4.0.149": {
-			"integrity": "sha512-xUDEBEU/3I4+8vAKomK3qCIIYHlWv0YF23EWxO+Th6lVAGWYNcdVn5uj5cV5Zp6W1PGdBVT+MQqO9sNoY3fY/g==",
+		"@ai-sdk/gateway@4.0.150": {
+			"integrity": "sha512-39jDj4UIN2M5kI/wW0IVMsD1PpjmZHSMFUU/yZSQerE4mg0Oo9AKPOSwn6Vu0MJ31aK+Mi9rUiUgl88Q2lkorg==",
 			"engines": {"node": ">=22"},
 			"peerDependencies": {
 				"zod": {
@@ -5138,8 +5138,8 @@ snapshots:
 			"engines": {"node": ">= 14"},
 		},
 
-		"ai@7.0.176": {
-			"integrity": "sha512-zIbiX58LQx3NB3+e0vYFcn4fipIqkVG9FHtWj7HVBCjh5f7GfWz5WVDeKmQ+M89RHAw9MU9pzfkFIAYEBeQi0g==",
+		"ai@7.0.177": {
+			"integrity": "sha512-DQNKH2lL4h+5Rxe34AxTdxXtNu3EnsDHpxIE6p4ETsi+r7sM187nP6JKrbASoSNEbR355H3FCGlSP7mj+m6Pzw==",
 			"engines": {"node": ">=22"},
 			"peerDependencies": {
 				"zod": {
@@ -5148,7 +5148,7 @@ snapshots:
 				},
 			},
 			"dependencies": {
-				"@ai-sdk/gateway": "4.0.149",
+				"@ai-sdk/gateway": "4.0.150",
 				"@ai-sdk/provider": "4.0.39",
 				"@ai-sdk/provider-utils": "5.0.82",
 			},
@@ -5454,7 +5454,7 @@ snapshots:
 				},
 				"ai": {
 					"specifier": "^7.0.0",
-					"version": "7.0.176",
+					"version": "7.0.177",
 					"optional": true,
 				},
 			},
