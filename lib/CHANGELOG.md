@@ -1,5 +1,12 @@
 # @toiroakr/lines-db
 
+## 0.19.4
+
+### Patch Changes
+
+- feb9ed0: fix(deps): update dependency @politty/loculus to ^0.4.3
+- d69d352: fix(deps): update dependency @politty/loculus to ^0.4.4
+
 ## 0.19.3
 
 ### Patch Changes
