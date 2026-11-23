@@ -207,8 +207,8 @@ snapshots:
 					"version": "4.0.121",
 				},
 				"@e2e-dev/web": {
-					"specifier": "^0.16.0",
-					"version": "0.16.0",
+					"specifier": "^0.16.1",
+					"version": "0.16.1",
 				},
 				"@types/node": {
 					"specifier": "^26.6.6",
@@ -1140,18 +1140,23 @@ snapshots:
 			},
 		},
 
-		"@e2e-dev/web@0.16.0": {
-			"integrity": "sha512-qA6Ixdh4oJq3Ccdc1W6OKT5dlwmALuScr6EV6Mic4UUcgQK+B1ReG1rOsw/VqTjqClRN4maWWUYU+OUcKzJwQQ==",
+		"@e2e-dev/web@0.16.1": {
+			"integrity": "sha512-mWSzyWSNcoqOiy6BEaXOTe8rufCz6T+NyYkJej5JOz6yy3vcnG13wEwHgl7Kdw5rv8yUbSLqbuDBRVBBtkvqIA==",
 			"engines": {"node": "^22.22.3 || >=24.8.0"},
 			"hasBin": true,
 			"peerDependencies": {
-				"e2e": {
-					"specifier": ">=0.23.1 <1",
+				"@e2e-dev/core": {
+					"specifier": ">=0.23.2 <1",
 					"version": "0.24.0",
+				},
+				"e2e": {
+					"specifier": ">=0.23.2 <1",
+					"version": "0.24.0",
+					"optional": true,
 				},
 			},
 			"dependencies": {
-				"playwright-core": "1.65.0",
+				"playwright-core": "1.65.1",
 			},
 		},
 
@@ -6452,12 +6457,6 @@ snapshots:
 			"dependencies": {
 				"pngjs": "7.0.0",
 			},
-		},
-
-		"playwright-core@1.65.0": {
-			"integrity": "sha512-vNSKgH6YqtN7cdT/L334zo0a+YwkrpicyrHJlWWPIm/Q+Nn2SWInil01oT0mbu96U4GgoRtCYQD9CzJQgju+lA==",
-			"engines": {"node": ">=20"},
-			"hasBin": true,
 		},
 
 		"playwright-core@1.65.1": {
