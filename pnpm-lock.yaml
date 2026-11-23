@@ -203,8 +203,8 @@ snapshots:
 		"e2e": {
 			"devDependencies": {
 				"@ai-sdk/openai": {
-					"specifier": "^4.0.121",
-					"version": "4.0.121",
+					"specifier": "^4.0.122",
+					"version": "4.0.122",
 				},
 				"@e2e-dev/web": {
 					"specifier": "^0.16.1",
@@ -215,8 +215,8 @@ snapshots:
 					"version": "26.6.6",
 				},
 				"ai": {
-					"specifier": "^7.0.177",
-					"version": "7.0.177",
+					"specifier": "^7.0.178",
+					"version": "7.0.178",
 				},
 				"e2e": {
 					"specifier": "^0.24.0",
@@ -590,8 +590,8 @@ snapshots:
 	},
 
 	"packages": {
-		"@ai-sdk/gateway@4.0.150": {
-			"integrity": "sha512-39jDj4UIN2M5kI/wW0IVMsD1PpjmZHSMFUU/yZSQerE4mg0Oo9AKPOSwn6Vu0MJ31aK+Mi9rUiUgl88Q2lkorg==",
+		"@ai-sdk/gateway@4.0.151": {
+			"integrity": "sha512-ZI3oX80/eWr09ZX3UtfWhNR5JgaDkMjbO3okus7hUXNtKezNwwgxqYSFLm/f7eWbUQrflg0HquyVDEcAyTzfUA==",
 			"engines": {"node": ">=22"},
 			"peerDependencies": {
 				"zod": {
@@ -601,13 +601,13 @@ snapshots:
 			},
 			"dependencies": {
 				"@ai-sdk/provider": "4.0.39",
-				"@ai-sdk/provider-utils": "5.0.82",
+				"@ai-sdk/provider-utils": "5.0.83",
 				"@vercel/oidc": "3.2.0",
 			},
 		},
 
-		"@ai-sdk/openai@4.0.121": {
-			"integrity": "sha512-7rDVkDk/nTHlryx/gOglSDL0Zh1Hq7rMtEcVgRCDsKKf/F/CcIJ3RnCmudYeyeLyuDE5fEcZQAdaNWYgOuwvSQ==",
+		"@ai-sdk/openai@4.0.122": {
+			"integrity": "sha512-8Q2DX7Fte5Sgt5jl/3B9vJFWO3LQQjgr/ErfDpdNdR5e20UC6RCHLXJ/MRhjLV2mMZkKBahV8DoYxBXgMCKGPA==",
 			"engines": {"node": ">=22"},
 			"peerDependencies": {
 				"zod": {
@@ -617,12 +617,12 @@ snapshots:
 			},
 			"dependencies": {
 				"@ai-sdk/provider": "4.0.39",
-				"@ai-sdk/provider-utils": "5.0.82",
+				"@ai-sdk/provider-utils": "5.0.83",
 			},
 		},
 
-		"@ai-sdk/provider-utils@5.0.82": {
-			"integrity": "sha512-9s3Le9LsTR0exy14H8SERw4uMgFhiP0yJVoLefzfQCnnptj71noYh1AoVEsjfJjmMH1y16+1OqBVTDpTpU6M3Q==",
+		"@ai-sdk/provider-utils@5.0.83": {
+			"integrity": "sha512-5lInsmNnh64eKi2L3fQjPy5VnV2y69lwyGnZ3vfz82Tlkgy8pWsvYueUrSJGxi8gXOM67jB9tN7LtDjjEFsNLQ==",
 			"engines": {"node": ">=22"},
 			"peerDependencies": {
 				"zod": {
@@ -1129,7 +1129,7 @@ snapshots:
 			"peerDependencies": {
 				"ai": {
 					"specifier": "^7.0.0",
-					"version": "7.0.177",
+					"version": "7.0.178",
 					"optional": true,
 				},
 			},
@@ -5132,8 +5132,8 @@ snapshots:
 			"engines": {"node": ">= 14"},
 		},
 
-		"ai@7.0.177": {
-			"integrity": "sha512-DQNKH2lL4h+5Rxe34AxTdxXtNu3EnsDHpxIE6p4ETsi+r7sM187nP6JKrbASoSNEbR355H3FCGlSP7mj+m6Pzw==",
+		"ai@7.0.178": {
+			"integrity": "sha512-Sfp6z041qKYKj0Fq+aXd4i7zmL4zLAbzzjU7t3QZ1lBFlZE1vaPApJWxuXsUPhbLQjSRYSUYTyE5CuUjJySSYA==",
 			"engines": {"node": ">=22"},
 			"peerDependencies": {
 				"zod": {
@@ -5142,9 +5142,9 @@ snapshots:
 				},
 			},
 			"dependencies": {
-				"@ai-sdk/gateway": "4.0.150",
+				"@ai-sdk/gateway": "4.0.151",
 				"@ai-sdk/provider": "4.0.39",
-				"@ai-sdk/provider-utils": "5.0.82",
+				"@ai-sdk/provider-utils": "5.0.83",
 			},
 		},
 
@@ -5435,7 +5435,7 @@ snapshots:
 				},
 				"@ai-sdk/openai": {
 					"specifier": "^4.0.0",
-					"version": "4.0.121",
+					"version": "4.0.122",
 					"optional": true,
 				},
 				"@ai-sdk/openai-compatible": {
@@ -5448,7 +5448,7 @@ snapshots:
 				},
 				"ai": {
 					"specifier": "^7.0.0",
-					"version": "7.0.177",
+					"version": "7.0.178",
 					"optional": true,
 				},
 			},
