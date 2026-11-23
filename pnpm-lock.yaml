@@ -500,8 +500,8 @@ snapshots:
 					"version": "3.3.1",
 				},
 				"lucide-react": {
-					"specifier": "^1.76.0",
-					"version": "1.76.0",
+					"specifier": "^1.77.0",
+					"version": "1.77.0",
 				},
 				"radix-ui": {
 					"specifier": "^1.8.1",
@@ -6176,8 +6176,8 @@ snapshots:
 			},
 		},
 
-		"lucide-react@1.76.0": {
-			"integrity": "sha512-wRVHt2Xf64GXndB4rQOY9+3Wy9oJ59HDMYv6vwhT0hpSwUxQhG/RM9YijnOmvmIQ+VI/n+1V/FKd6gP4XL2aBQ==",
+		"lucide-react@1.77.0": {
+			"integrity": "sha512-VS6sOi8ZUH1qm6swBL/tpI4xAhB6pFTdHvw3pfCJD+DaTJwpyynVzfOS6mdyMZ+OCdY/GMSQbqinOMOPbNSrQA==",
 			"peerDependencies": {
 				"@types/react": {
 					"specifier": "*",
