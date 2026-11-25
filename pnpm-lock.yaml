@@ -330,8 +330,8 @@ snapshots:
 			},
 			"devDependencies": {
 				"@loculus/rolldown": {
-					"specifier": "^0.3.1",
-					"version": "0.3.1",
+					"specifier": "^0.3.2",
+					"version": "0.3.2",
 				},
 				"@types/node": {
 					"specifier": "^26.6.6",
@@ -1509,12 +1509,12 @@ snapshots:
 			},
 		},
 
-		"@loculus/rolldown@0.3.1": {
-			"integrity": "sha512-vMX2Q2IjTTOspFBuJi7IZFASymTOiP531NH0LoWnqnUtNdMm6TuFumzgizCfKViKrLWOpUnQ9I8ENeQRFn6o4Q==",
+		"@loculus/rolldown@0.3.2": {
+			"integrity": "sha512-Tz7Bc/HlvjvUHgI9iqE8q85hIThW0dhZPxoF7+sjceMwo0iL2Xp9AqylUA6tb23nTTykIldg/v/KLf4enOAwOw==",
 			"engines": {"node": ">=22.18.0"},
 			"peerDependencies": {
 				"loculus": {
-					"specifier": "^0.4.0",
+					"specifier": "^0.4.2",
 					"version": "0.4.2",
 				},
 				"rolldown": {
