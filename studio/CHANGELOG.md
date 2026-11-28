@@ -1,5 +1,16 @@
 # @lines-db/studio
 
+## 0.16.9
+
+### Patch Changes
+
+- c9f3c43: fix(studio): update Zygiella to v0.1.5 to preserve Node.js 22.18.0 support
+- Updated dependencies [feb9ed0]
+- Updated dependencies [d69d352]
+- Updated dependencies [7c9767d]
+- Updated dependencies [1e6bca5]
+  - lines-db@0.19.4
+
 ## 0.16.8
 
 ### Patch Changes
