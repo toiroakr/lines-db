@@ -390,7 +390,7 @@ snapshots:
 		"studio": {
 			"name": "@lines-db/studio",
 			"dependencies": {
-				"zygiella": "0.1.4",
+				"zygiella": "0.1.5",
 			},
 			"devDependencies": {
 				"@types/node": {
@@ -7601,9 +7601,9 @@ snapshots:
 			"integrity": "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==",
 		},
 
-		"zygiella@0.1.4": {
-			"integrity": "sha512-s4wk7FAvzII6p3TFsnTuJkTyulY828TV6kheML0zye700KM7n3s9EG6odZC/K7LWNIGfF9wdAhu+xsKRy/51Kw==",
-			"engines": {"node": ">=22.23.4"},
+		"zygiella@0.1.5": {
+			"integrity": "sha512-O6k23VskjZDK4G+Om0eeiSZgCnGxYP4WlW+PxuxPITLs6RVz6qm4zBTUIS9nFgaRr/zQGqjnPpjwNYcnu8tEgA==",
+			"engines": {"node": ">=22.18.0"},
 		},
 	},
 }
