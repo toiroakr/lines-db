@@ -106,7 +106,7 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@types/node": "^26.6.7",
+    "@types/node": "^26.6.10",
     "@types/vscode": "1.118.0",
     "@vscode/vsce": "^4.1.1",
     "esbuild": "^0.28.2",

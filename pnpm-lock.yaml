@@ -225,8 +225,8 @@ snapshots:
 					"version": "0.16.1",
 				},
 				"@types/node": {
-					"specifier": "^26.6.7",
-					"version": "26.6.7",
+					"specifier": "^26.6.10",
+					"version": "26.6.10",
 				},
 				"ai": {
 					"specifier": "^7.0.181",
@@ -257,8 +257,8 @@ snapshots:
 			},
 			"devDependencies": {
 				"@types/node": {
-					"specifier": "^26.6.7",
-					"version": "26.6.7",
+					"specifier": "^26.6.10",
+					"version": "26.6.10",
 				},
 				"amaro": {
 					"specifier": "^1.3.0",
@@ -282,8 +282,8 @@ snapshots:
 		"extension": {
 			"devDependencies": {
 				"@types/node": {
-					"specifier": "^26.6.7",
-					"version": "26.6.7",
+					"specifier": "^26.6.10",
+					"version": "26.6.10",
 				},
 				"@types/vscode": "1.118.0",
 				"@vscode/vsce": {
@@ -348,8 +348,8 @@ snapshots:
 					"version": "0.3.2",
 				},
 				"@types/node": {
-					"specifier": "^26.6.7",
-					"version": "26.6.7",
+					"specifier": "^26.6.10",
+					"version": "26.6.10",
 				},
 				"publint": {
 					"specifier": "^0.3.25",
@@ -394,8 +394,8 @@ snapshots:
 			},
 			"devDependencies": {
 				"@types/node": {
-					"specifier": "^26.6.7",
-					"version": "26.6.7",
+					"specifier": "^26.6.10",
+					"version": "26.6.10",
 				},
 				"lines-db": "workspace:*",
 				"publint": {
@@ -477,8 +477,8 @@ snapshots:
 					"version": "14.6.13",
 				},
 				"@types/node": {
-					"specifier": "^26.6.7",
-					"version": "26.6.7",
+					"specifier": "^26.6.10",
+					"version": "26.6.10",
 				},
 				"@types/react": {
 					"specifier": "^19.3.1",
@@ -562,8 +562,8 @@ snapshots:
 			},
 			"devDependencies": {
 				"@types/node": {
-					"specifier": "^26.6.7",
-					"version": "26.6.7",
+					"specifier": "^26.6.10",
+					"version": "26.6.10",
 				},
 				"@vitest/ui": {
 					"specifier": "^5.1.1",
@@ -4773,8 +4773,8 @@ snapshots:
 			"integrity": "sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==",
 		},
 
-		"@types/node@26.6.7": {
-			"integrity": "sha512-tovuRfrUILu6v46bMG+BgXxMvsqPBx2WO2as8Rpln+JTff1dbexMtAM4KFTejmL0axsnSWViCW7MecUQpLuBRA==",
+		"@types/node@26.6.10": {
+			"integrity": "sha512-WJuPHoGB8WNQuTksNF7SOQpnH02PXeDYz4iueWbBT6/hTWnShY5F3T/hoJA3fY9+uYReDZ7pyTKKx83jQa7aGg==",
 			"dependencies": {
 				"undici-types": "8.9.0",
 			},
@@ -7277,7 +7277,7 @@ snapshots:
 			"peerDependencies": {
 				"@types/node": {
 					"specifier": "^20.19.0 || >=22.12.0",
-					"version": "26.6.7",
+					"version": "26.6.10",
 					"optional": true,
 				},
 				"@vitejs/devtools": {
@@ -7371,7 +7371,7 @@ snapshots:
 				},
 				"@types/node": {
 					"specifier": "^22.0.0 || >=24.0.0",
-					"version": "26.6.7",
+					"version": "26.6.10",
 					"optional": true,
 				},
 				"@vitest/browser-playwright": {
